@@ -154,22 +154,25 @@ class ContextMenuManager(QObject):
                 old_clipboard = ""
             
             # Méthode 1: Utiliser pyautogui pour copier le texte sélectionné
+            old_pause = pyautogui.PAUSE
             try:
                 # Désactiver la pause pour éviter les erreurs de _handlePause
                 pyautogui.PAUSE = 0
                 # Utiliser directement les fonctions de touche au lieu de hotkey
-                pyautogui.keyDown('ctrl')
-                pyautogui.press('c')
+                pyautogui.keyDown("ctrl")
+                pyautogui.press("c")
+                time.sleep(0.1)  # Réduire le délai pour améliorer la réactivité
+            except Exception as e:
+                log(f"Erreur pyautogui: {e}", logging.DEBUG)
+            finally:
                 try:
-                    pyautogui.keyUp('ctrl')
+                    pyautogui.keyUp("ctrl")
                 except Exception as e_keyup:
                     log(
                         f"Erreur spécifique lors de pyautogui.keyUp('ctrl'): {e_keyup}",
                         logging.ERROR,
                     )
-                time.sleep(0.1)  # Réduire le délai pour améliorer la réactivité
-            except Exception as e:
-                log(f"Erreur pyautogui: {e}", logging.DEBUG)
+                pyautogui.PAUSE = old_pause
             
             # Méthode 2: Récupérer le texte avec win32clipboard
             try:
