@@ -113,7 +113,9 @@ class HotkeyManager(QObject):
         self.key_listener_hook = None  # Initialiser la variable pour stocker le hook
 
         # Timer pour nettoyer les touches coincées
-        self.cleanup_timer = QTimer()
+        # Utiliser `self` comme parent pour s'assurer que le timer est
+        # automatiquement détruit avec le gestionnaire.
+        self.cleanup_timer = QTimer(self)
         self.cleanup_timer.setInterval(5000)  # 5 secondes d'inactivité
         self.cleanup_timer.timeout.connect(self._reset_stuck_keys)
         self.cleanup_timer.start()
@@ -145,12 +147,17 @@ class HotkeyManager(QObject):
             # Hook pour capturer toutes les touches
             self.key_listener_hook = keyboard.hook(self._on_any_key)  # Stocker la référence du hook
             self.registered = True
+            # S'assurer que le timer est actif après (ré)enregistrement
+            self.cleanup_timer.start()
 
         except Exception as e:
             log(f"Error registering hotkey: {e}", logging.ERROR)
     
     def unregister_hotkey(self):
         """Unregister the global hotkey"""
+        # Arrêter le timer de nettoyage lorsqu'on se désinscrit
+        if self.cleanup_timer.isActive():
+            self.cleanup_timer.stop()
         if self.registered and self.key_listener_hook:
             try:
                 # Unhook the keyboard listener
@@ -169,6 +176,10 @@ class HotkeyManager(QObject):
                 log("Fallback: All hotkeys unregistered due to missing specific hook reference", logging.WARNING)
             except Exception as e:
                 log(f"Error during fallback unregister_hotkey: {e}", logging.ERROR)
+
+    def close(self):
+        """Stopper le timer et nettoyer les raccourcis."""
+        self.unregister_hotkey()
 
     
     def _on_any_key(self, event):
@@ -283,4 +294,4 @@ class HotkeyManager(QObject):
     
     def __del__(self):
         """Clean up when the object is deleted"""
-        self.unregister_hotkey()
+        self.close()
