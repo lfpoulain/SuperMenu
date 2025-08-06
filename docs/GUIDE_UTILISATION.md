@@ -55,14 +55,15 @@ Lors du premier lancement de SuperMenu, ou en accédant aux paramètres via l'ic
     *   Peut être laissée vide si vous utilisez un serveur compatible ne nécessitant pas de clé.
     *   Entrez votre clé dans le champ dédié. Elle sera stockée de manière sécurisée dans le trousseau de votre système.
 
-2.  **Modèle OpenAI** :
-    *   Choisissez le modèle OpenAI que vous souhaitez utiliser pour les requêtes textuelles et l'analyse d'images.
-    *   La liste inclut des modèles comme `gpt-4o-mini`, `gpt-4o`, `gpt-4.1`, etc.
+2.  **Modèle compatible OpenAI** :
+    *   Choisissez ou saisissez le nom du modèle que vous souhaitez utiliser pour les requêtes textuelles et l'analyse d'images.
+    *   Des modèles OpenAI courants (`gpt-4o-mini`, `gpt-4o`, `gpt-4.1`, etc.) sont proposés, mais vous pouvez entrer n'importe quel modèle compatible (ex. un modèle local via Ollama).
     *   Cette sélection sera utilisée dynamiquement par l'application.
 
 3.  **URL de l'API** :
-    *   Permet d'utiliser une API compatible OpenAI (ex. Ollama en local).
-    *   Par défaut : `https://api.openai.com/v1`.
+    *   Permet d'utiliser une API compatible OpenAI pour les requêtes texte et image (ex. Ollama en local).
+    *   Par défaut : `https://api.openai.com/v1` (le suffixe `/v1` est ajouté automatiquement si absent).
+    *   La reconnaissance vocale ignore ce paramètre et utilise l'API OpenAI standard.
 
 3.  **Raccourcis Clavier** :
     *   **Raccourci Principal** : Pour afficher le menu contextuel après avoir sélectionné du texte (par défaut : `Ctrl+²`).
@@ -72,8 +73,8 @@ Lors du premier lancement de SuperMenu, ou en accédant aux paramètres via l'ic
 
 1. Ouvrez les paramètres de SuperMenu (icône dans la barre des tâches)
 2. Dans l'onglet "Général", entrez votre clé API OpenAI (ou laissez vide pour un serveur local)
-3. Saisissez l'URL de base de l'API si vous utilisez un service compatible
-4. Sélectionnez le modèle à utiliser (gpt-4o-mini recommandé pour un bon équilibre performance/coût)
+3. Saisissez l'URL de base de l'API si vous utilisez un service compatible pour les requêtes texte et image
+4. Sélectionnez ou saisissez le modèle à utiliser pour les requêtes texte et image (par exemple `gpt-4o-mini` ou un modèle local)
 5. Cliquez sur "Enregistrer la clé API"
 
 ### Vérification des raccourcis clavier
