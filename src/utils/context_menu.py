@@ -134,15 +134,22 @@ class ContextMenuManager(QObject):
             # Sauvegarder le contenu actuel du presse-papiers
             try:
                 win32clipboard.OpenClipboard()
-                old_clipboard = (
-                    win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
-                    if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT)
-                    else ""
-                )
-                win32clipboard.CloseClipboard()
+                try:
+                    old_clipboard = (
+                        win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
+                        if win32clipboard.IsClipboardFormatAvailable(
+                            win32clipboard.CF_UNICODETEXT
+                        )
+                        else ""
+                    )
+                finally:
+                    win32clipboard.CloseClipboard()
             except Exception as e:
                 # Utiliser log pour les erreurs non bloquantes
-                log(f"Erreur lors de la sauvegarde du presse-papiers: {e}", logging.DEBUG)
+                log(
+                    f"Erreur lors de la sauvegarde du presse-papiers: {e}",
+                    logging.DEBUG,
+                )
                 old_clipboard = ""
             
             # Méthode 1: Utiliser pyautogui pour copier le texte sélectionné
@@ -166,9 +173,15 @@ class ContextMenuManager(QObject):
             # Méthode 2: Récupérer le texte avec win32clipboard
             try:
                 win32clipboard.OpenClipboard()
-                if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT):
-                    selected_text = win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
-                win32clipboard.CloseClipboard()
+                try:
+                    if win32clipboard.IsClipboardFormatAvailable(
+                        win32clipboard.CF_UNICODETEXT
+                    ):
+                        selected_text = win32clipboard.GetClipboardData(
+                            win32clipboard.CF_UNICODETEXT
+                        )
+                finally:
+                    win32clipboard.CloseClipboard()
             except Exception as e:
                 log(f"Erreur win32clipboard: {e}", logging.DEBUG)
                 # Si la méthode 2 échoue, essayer une autre approche
@@ -186,11 +199,18 @@ class ContextMenuManager(QObject):
             try:
                 if old_clipboard:
                     win32clipboard.OpenClipboard()
-                    win32clipboard.EmptyClipboard()
-                    win32clipboard.SetClipboardText(old_clipboard, win32clipboard.CF_UNICODETEXT)
-                    win32clipboard.CloseClipboard()
+                    try:
+                        win32clipboard.EmptyClipboard()
+                        win32clipboard.SetClipboardText(
+                            old_clipboard, win32clipboard.CF_UNICODETEXT
+                        )
+                    finally:
+                        win32clipboard.CloseClipboard()
             except Exception as e:
-                log(f"Erreur lors de la restauration du presse-papiers: {e}", logging.DEBUG)
+                log(
+                    f"Erreur lors de la restauration du presse-papiers: {e}",
+                    logging.DEBUG,
+                )
         
         except Exception as e:
             log(
