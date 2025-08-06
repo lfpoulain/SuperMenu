@@ -3,39 +3,48 @@
 
 """
 Module de journalisation pour SuperMenu.
+
+Ce module configure un logger principal qui enregistre les messages
+dans la console **et** dans un fichier de log en rotation situé dans
+`logs/supermenu.log`. Le fichier est automatiquement créé si
+nécessaire et les logs sont conservés sur plusieurs fichiers afin de
+faciliter le débogage des problèmes rencontrés par les utilisateurs.
 """
+
 import logging
 import os
-import sys
-from datetime import datetime
+from logging.handlers import RotatingFileHandler
 
-# Configuration du logger
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+
+# Déterminer le répertoire de logs (../logs par rapport à ce fichier)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOG_DIR = os.path.join(BASE_DIR, "..", "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "supermenu.log")
+
+
+# Créer et configurer le logger principal
+logger = logging.getLogger("SuperMenu")
+logger.setLevel(logging.INFO)
+
+formatter = logging.Formatter(
+    "%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-# Créer un logger
-logger = logging.getLogger('SuperMenu')
+# Sortie console
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
 
-def log(message, level=logging.INFO):
-    """
-    Journalise un message avec le niveau spécifié.
-    
-    Args:
-        message (str): Le message à journaliser
-        level: Le niveau de journalisation (par défaut: INFO)
-    """
-    if level == logging.DEBUG:
-        logger.debug(message)
-    elif level == logging.INFO:
-        logger.info(message)
-    elif level == logging.WARNING:
-        logger.warning(message)
-    elif level == logging.ERROR:
-        logger.error(message)
-    elif level == logging.CRITICAL:
-        logger.critical(message)
-    else:
-        logger.info(message)
+# Sortie fichier avec rotation (1 Mo par fichier, 3 sauvegardes)
+file_handler = RotatingFileHandler(
+    LOG_FILE, maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+)
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+
+def log(message: str, level: int = logging.INFO) -> None:
+    """Journalise un message avec le niveau spécifié."""
+    logger.log(level, message)
