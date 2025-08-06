@@ -12,19 +12,17 @@ from utils.logger import log
 from audio.audio_config import TRANSCRIPTION_MODEL
 
 class Transcriber:
-    """Classe pour gérer la transcription audio via OpenAI ou toute API compatible."""
+    """Classe pour gérer la transcription audio via l'API OpenAI."""
 
-    def __init__(self, api_key=None, api_base=None):
+    def __init__(self, api_key=None):
         """
         Initialise le transcripteur.
 
         Args:
             api_key (str, optional): Clé API OpenAI à utiliser.
-            api_base (str, optional): URL de base de l'API compatible OpenAI.
         """
         # Utiliser la clé fournie ou celle de l'environnement
         self.api_key = api_key
-        self.api_base = api_base
 
         if self.api_key:
             # Afficher les premiers et derniers caractères de la clé API pour le débogage
@@ -34,7 +32,7 @@ class Transcriber:
         else:
             log("Aucune clé API fournie, utilisation de la clé d'environnement ou clé factice")
 
-        self.client = OpenAI(api_key=self.api_key or "not-needed", base_url=self.api_base)
+        self.client = OpenAI(api_key=self.api_key or "not-needed")
     
     def transcribe(self, audio_file_path):
         """

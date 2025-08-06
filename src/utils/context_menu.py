@@ -359,7 +359,6 @@ class ContextMenuManager(QObject):
             # Créer une instance de VoiceRecognition avec la clé API OpenAI et l'index du microphone
             self.voice_recognition = VoiceRecognition(
                 api_key=self.settings.get_api_key(),
-                api_base=self.settings.get_api_base_url(),
                 microphone_index=microphone_index
             )
 
@@ -426,7 +425,6 @@ class ContextMenuManager(QObject):
             # Créer une instance de VoiceRecognition avec la clé API OpenAI, l'index du microphone et la fonction de rappel
             self.voice_recognition = VoiceRecognition(
                 api_key=self.settings.get_api_key(),
-                api_base=self.settings.get_api_base_url(),
                 microphone_index=microphone_index,
                 callback=process_transcription
             )
@@ -541,7 +539,6 @@ class ContextMenuManager(QObject):
             # Créer une instance de VoiceRecognition avec la clé API OpenAI, l'index du microphone et la fonction de rappel
             self.voice_recognition = VoiceRecognition(
                 api_key=self.settings.get_api_key(),
-                api_base=self.settings.get_api_base_url(),
                 microphone_index=microphone_index,
                 callback=process_transcription
             )
@@ -598,7 +595,6 @@ class ContextMenuManager(QObject):
             # Créer une instance de VoiceRecognition avec la clé API OpenAI, l'index du microphone et la fonction de rappel
             self.voice_recognition = VoiceRecognition(
                 api_key=self.settings.get_api_key(),
-                api_base=self.settings.get_api_base_url(),
                 microphone_index=microphone_index,
                 callback=process_transcription
             )
