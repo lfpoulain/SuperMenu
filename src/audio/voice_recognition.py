@@ -24,7 +24,7 @@ from audio.audio_config import (
 class VoiceRecognition:
     """Classe principale pour la reconnaissance vocale."""
     
-    def __init__(self, api_key=None, microphone_index=None, callback=None):
+    def __init__(self, api_key=None, api_base=None, microphone_index=None, callback=None):
         """
         Initialise le module de reconnaissance vocale.
         
@@ -34,10 +34,11 @@ class VoiceRecognition:
             callback (function, optional): Fonction de rappel à appeler avec le texte transcrit
         """
         self.api_key = api_key
+        self.api_base = api_base
         self.microphone_index = microphone_index
         self.callback = callback
         self.recorder = AudioRecorder(input_device_index=microphone_index)
-        self.transcriber = Transcriber(api_key=api_key)
+        self.transcriber = Transcriber(api_key=api_key, api_base=api_base)
         self.text_inserter = TextInserter()
         self.is_recording = False
         self.recording_file = None

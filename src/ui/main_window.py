@@ -79,6 +79,11 @@ class MainWindow(QMainWindow):
         self.model_combo = QComboBox()
         self.model_combo.addItems(["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"])
         self.model_combo.setCurrentText(self.settings.get_model())
+
+        # API base URL input
+        api_base_label = QLabel("URL de l'API:")
+        self.api_base_input = QLineEdit()
+        self.api_base_input.setText(self.settings.get_api_base_url())
         
         # Save API key button
         save_api_key_button = QPushButton("Enregistrer la clé API")
@@ -89,6 +94,8 @@ class MainWindow(QMainWindow):
         api_key_layout.addWidget(self.api_key_input)
         api_key_layout.addWidget(model_label)
         api_key_layout.addWidget(self.model_combo)
+        api_key_layout.addWidget(api_base_label)
+        api_key_layout.addWidget(self.api_base_input)
         api_key_layout.addWidget(save_api_key_button)
         
         # Hotkey section
@@ -475,11 +482,15 @@ class MainWindow(QMainWindow):
         """Save the API key to settings"""
         api_key = self.api_key_input.text().strip()
         model = self.model_combo.currentText()
-        
-        if api_key:
+        api_base = self.api_base_input.text().strip() or self.settings.default_api_base_url
+
+        # Enregistrer l'URL de base de l'API quelle que soit la clé
+        self.settings.set_api_base_url(api_base)
+
+        if api_key or "api.openai.com" not in api_base:
             self.settings.set_api_key(api_key)
             self.settings.set_model(model)
-            QMessageBox.information(self, "Succès", "Clé API et modèle enregistrés avec succès!")
+            QMessageBox.information(self, "Succès", "Configuration API enregistrée avec succès!")
             # Mettre à jour la configuration du client API dans ContextMenuManager
             if self.context_menu_manager:
                 self.context_menu_manager.update_client_config()

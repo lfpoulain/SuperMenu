@@ -128,6 +128,7 @@ class Settings:
         self.default_screenshot_hotkey = "Ctrl+Shift+²"
         self.default_voice_hotkey = "Ctrl+Alt+²"
         self.default_model = "gpt-4o-mini"
+        self.default_api_base_url = "https://api.openai.com/v1"
         self.default_microphone_index = -1
         self.default_describe_response_prompt = "Analyse et décris en détail ce qui suit, en fournissant un contexte pertinent et des explications claires :"
         self.default_theme = "dark"
@@ -155,6 +156,9 @@ class Settings:
         
         if not self.settings.contains("model"):
             self.settings.setValue("model", self.default_model)  # Default model
+
+        if not self.settings.contains("api_base_url"):
+            self.settings.setValue("api_base_url", self.default_api_base_url)  # Default API base URL
             
         if not self.settings.contains("microphone_index"):
             self.settings.setValue("microphone_index", self.default_microphone_index)  # -1 = utiliser le microphone par défaut
@@ -183,10 +187,18 @@ class Settings:
             model = self.default_model
             self.set_model(model)
         return model
-    
+
     def set_model(self, model):
         """Set the OpenAI model"""
         self.settings.setValue("model", model)
+
+    def get_api_base_url(self):
+        """Get the OpenAI-compatible API base URL"""
+        return self.settings.value("api_base_url", self.default_api_base_url)
+
+    def set_api_base_url(self, url):
+        """Set the OpenAI-compatible API base URL"""
+        self.settings.setValue("api_base_url", url)
         
     def get_microphone_index(self):
         """Get the selected microphone index"""
