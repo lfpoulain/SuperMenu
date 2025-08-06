@@ -30,6 +30,7 @@ class ContextMenuManager(QObject):
         self.api_client = OpenAIClient(settings.get_api_key())
         self.api_client.set_model(self.settings.get_model()) # Définir le modèle actuel
         self.response_window = ResponseWindow()
+        self.voice_recognition = None
         
         # Connect signals
         self.api_client.request_started.connect(self.on_request_started)
@@ -349,23 +350,26 @@ class ContextMenuManager(QObject):
         try:
             # Récupérer l'index du microphone depuis les paramètres
             microphone_index = self.settings.get_microphone_index()
-            
+
+            # Arrêter toute reconnaissance vocale en cours
+            self.stop_voice_recognition()
+
             # Créer une instance de VoiceRecognition avec la clé API OpenAI et l'index du microphone
-            voice_recognition = VoiceRecognition(
+            self.voice_recognition = VoiceRecognition(
                 api_key=self.settings.get_api_key(),
                 microphone_index=microphone_index
             )
-            
+
             # Afficher un message de débogage sur le microphone utilisé
             if microphone_index is not None:
                 log(f"Utilisation du microphone avec l'index: {microphone_index}", logging.DEBUG)
             else:
                 log("Utilisation du microphone par défaut du système", logging.DEBUG)
-            
+
             # Démarrer la reconnaissance vocale
-            voice_recognition.start_voice_recognition()
+            self.voice_recognition.start_voice_recognition()
         except Exception as e:
-            QMessageBox.critical(None, "Erreur de reconnaissance vocale", 
+            QMessageBox.critical(None, "Erreur de reconnaissance vocale",
                                 f"Une erreur s'est produite lors de la reconnaissance vocale : {str(e)}")
 
     
@@ -413,21 +417,24 @@ class ContextMenuManager(QObject):
                         # Restaurer le curseur
                         QApplication.restoreOverrideCursor()
             
+            # Arrêter toute reconnaissance vocale en cours
+            self.stop_voice_recognition()
+
             # Créer une instance de VoiceRecognition avec la clé API OpenAI, l'index du microphone et la fonction de rappel
-            voice_recognition = VoiceRecognition(
+            self.voice_recognition = VoiceRecognition(
                 api_key=self.settings.get_api_key(),
                 microphone_index=microphone_index,
                 callback=process_transcription
             )
-            
+
             # Afficher un message de débogage sur le microphone utilisé
             if microphone_index is not None:
                 log(f"Utilisation du microphone avec l'index: {microphone_index}", logging.DEBUG)
             else:
                 log("Utilisation du microphone par défaut du système", logging.DEBUG)
-            
+
             # Démarrer la reconnaissance vocale sans insérer le texte (car nous allons le traiter avec la fonction de rappel)
-            voice_recognition.start_voice_recognition(insert_text=False)
+            self.voice_recognition.start_voice_recognition(insert_text=False)
             
         except Exception as e:
             QMessageBox.critical(None, "Erreur de description de réponse", 
@@ -524,21 +531,24 @@ class ContextMenuManager(QObject):
                         # Lancer la requête API en arrière-plan
                         self.api_client.send_request(full_prompt, "")
             
+            # Arrêter toute reconnaissance vocale en cours
+            self.stop_voice_recognition()
+
             # Créer une instance de VoiceRecognition avec la clé API OpenAI, l'index du microphone et la fonction de rappel
-            voice_recognition = VoiceRecognition(
+            self.voice_recognition = VoiceRecognition(
                 api_key=self.settings.get_api_key(),
                 microphone_index=microphone_index,
                 callback=process_transcription
             )
-            
+
             # Afficher un message de débogage sur le microphone utilisé
             if microphone_index is not None:
                 log(f"Utilisation du microphone avec l'index: {microphone_index}", logging.DEBUG)
             else:
                 log("Utilisation du microphone par défaut du système", logging.DEBUG)
-            
+
             # Démarrer la reconnaissance vocale sans insérer le texte (car nous allons le traiter avec la fonction de rappel)
-            voice_recognition.start_voice_recognition(insert_text=False)
+            self.voice_recognition.start_voice_recognition(insert_text=False)
             
         except Exception as e:
             QMessageBox.critical(None, "Erreur de prompt vocal", 
@@ -577,25 +587,38 @@ class ContextMenuManager(QObject):
                     # Lancer la requête API en arrière-plan
                     self.api_client.send_request(full_prompt, "")
             
+            # Arrêter toute reconnaissance vocale en cours
+            self.stop_voice_recognition()
+
             # Créer une instance de VoiceRecognition avec la clé API OpenAI, l'index du microphone et la fonction de rappel
-            voice_recognition = VoiceRecognition(
+            self.voice_recognition = VoiceRecognition(
                 api_key=self.settings.get_api_key(),
                 microphone_index=microphone_index,
                 callback=process_transcription
             )
-            
+
             # Afficher un message de débogage sur le microphone utilisé
             if microphone_index is not None:
                 log(f"Utilisation du microphone avec l'index: {microphone_index}", logging.DEBUG)
             else:
                 log("Utilisation du microphone par défaut du système", logging.DEBUG)
-            
+
             # Démarrer la reconnaissance vocale sans insérer le texte (car nous allons le traiter avec la fonction de rappel)
-            voice_recognition.start_voice_recognition(insert_text=False)
-            
+            self.voice_recognition.start_voice_recognition(insert_text=False)
+
         except Exception as e:
-            QMessageBox.critical(None, "Erreur de prompt personnalisé", 
+            QMessageBox.critical(None, "Erreur de prompt personnalisé",
                                 f"Une erreur s'est produite lors du traitement du prompt personnalisé : {str(e)}")
+
+    def stop_voice_recognition(self):
+        """Arrête proprement la reconnaissance vocale en cours"""
+        if self.voice_recognition:
+            try:
+                self.voice_recognition.cleanup()
+            except Exception as e:
+                log(f"Erreur lors de l'arrêt de la reconnaissance vocale: {e}", logging.ERROR)
+            finally:
+                self.voice_recognition = None
 
     def _cleanup_screenshot(self, screenshot_path):
         """Nettoyer l'image temporaire"""
