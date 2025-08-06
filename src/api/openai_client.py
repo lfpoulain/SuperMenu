@@ -112,8 +112,14 @@ class OpenAIClient(QObject):
             if response.status_code == 200:
                 # Analyser la réponse
                 response_data = response.json()
-                content = response_data["choices"][0]["message"]["content"]
-                
+
+                try:
+                    content = response_data["choices"][0]["message"]["content"]
+                except (KeyError, IndexError, TypeError):
+                    error_detail = response_data.get("error") or response.text
+                    self.request_error.emit(f"Réponse API invalide: {error_detail}")
+                    return
+
                 if insert_directly:
                     # Insérer directement le résultat
                     from audio.text_inserter import TextInserter
@@ -207,7 +213,13 @@ class OpenAIClient(QObject):
             if response.status_code == 200:
                 # Analyser la réponse
                 response_data = response.json()
-                content = response_data["choices"][0]["message"]["content"]
+
+                try:
+                    content = response_data["choices"][0]["message"]["content"]
+                except (KeyError, IndexError, TypeError):
+                    error_detail = response_data.get("error") or response.text
+                    raise Exception(f"Réponse API invalide: {error_detail}")
+
                 return content
             else:
                 # Gérer l'erreur
