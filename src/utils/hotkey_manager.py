@@ -4,8 +4,10 @@
 import sys
 import keyboard
 import time
+import logging
 from PySide6.QtCore import QObject, Signal, QTimer, Qt
 from PySide6.QtWidgets import QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QApplication
+from utils.logger import log
 
 class HotkeyRecorderDialog(QDialog):
     """Dialogue pour enregistrer un nouveau raccourci clavier"""
@@ -109,6 +111,12 @@ class HotkeyManager(QObject):
         self.current_keys = set()
         self.last_hotkey_time = 0
         self.key_listener_hook = None  # Initialiser la variable pour stocker le hook
+
+        # Timer pour nettoyer les touches coincées
+        self.cleanup_timer = QTimer()
+        self.cleanup_timer.setInterval(5000)  # 5 secondes d'inactivité
+        self.cleanup_timer.timeout.connect(self._reset_stuck_keys)
+        self.cleanup_timer.start()
         
         # Register the hotkey
         self.register_hotkey()
@@ -127,19 +135,19 @@ class HotkeyManager(QObject):
             self.hotkey = self.settings.get_hotkey()
         
         if not self.hotkey:
-            print("No hotkey configured")
+            log("No hotkey configured")
             return
-        
+
         try:
             # Register the hotkey
-            print(f"Registering hotkey: {self.hotkey}")
-            
+            log(f"Registering hotkey: {self.hotkey}", logging.INFO)
+
             # Hook pour capturer toutes les touches
             self.key_listener_hook = keyboard.hook(self._on_any_key)  # Stocker la référence du hook
             self.registered = True
-            
+
         except Exception as e:
-            print(f"Error registering hotkey: {e}")
+            log(f"Error registering hotkey: {e}", logging.ERROR)
     
     def unregister_hotkey(self):
         """Unregister the global hotkey"""
@@ -149,22 +157,25 @@ class HotkeyManager(QObject):
                 keyboard.unhook(self.key_listener_hook)  # Utiliser la référence spécifique du hook
                 self.key_listener_hook = None
                 self.registered = False
-                print("Hotkey unregistered")
+                log("Hotkey unregistered")
             except Exception as e:
-                print(f"Error unregistering hotkey: {e}")
+                log(f"Error unregistering hotkey: {e}", logging.ERROR)
         elif self.registered:
             # Fallback ou cas où key_listener_hook n'est pas défini mais registered est True
             # Cela ne devrait pas arriver avec la logique actuelle, mais c'est une sécurité
             try:
                 keyboard.unhook_all() # Tentative de nettoyage général si le hook spécifique n'est pas connu
                 self.registered = False
-                print("Fallback: All hotkeys unregistered due to missing specific hook reference")
+                log("Fallback: All hotkeys unregistered due to missing specific hook reference", logging.WARNING)
             except Exception as e:
-                print(f"Error during fallback unregister_hotkey: {e}")
+                log(f"Error during fallback unregister_hotkey: {e}", logging.ERROR)
 
     
     def _on_any_key(self, event):
         """Handle key events to detect hotkey combinations"""
+        # Redémarrer le timer de nettoyage à chaque événement
+        self.cleanup_timer.start()
+
         # Obtenir le nom de la touche
         key_name = event.name.lower()
         
@@ -186,6 +197,12 @@ class HotkeyManager(QObject):
             # Retirer la touche de l'ensemble des touches enfoncées
             if key_name in self.current_keys:
                 self.current_keys.remove(key_name)
+
+    def _reset_stuck_keys(self):
+        """Réinitialise les touches si aucune activité n'est détectée."""
+        if self.current_keys:
+            log("Resetting stuck keys", logging.DEBUG)
+            self.current_keys.clear()
                 
     def _check_hotkey(self):
         """Check if the current keys match the hotkey"""
@@ -225,13 +242,13 @@ class HotkeyManager(QObject):
         """Handle hotkey trigger"""
         # Émettre le signal approprié en fonction du type de raccourci
         if self.voice_hotkey:
-            print("Voice hotkey triggered")
+            log("Voice hotkey triggered", logging.DEBUG)
             self.voice_hotkey_triggered.emit()
         elif self.screenshot_hotkey:
-            print("Screenshot hotkey triggered")
+            log("Screenshot hotkey triggered", logging.DEBUG)
             self.screenshot_hotkey_triggered.emit()
         else:
-            print("Hotkey triggered")
+            log("Hotkey triggered", logging.DEBUG)
             self.hotkey_triggered.emit()
     
     def show_hotkey_recorder(self):

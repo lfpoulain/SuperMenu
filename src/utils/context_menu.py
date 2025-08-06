@@ -11,6 +11,7 @@ import time
 import tkinter as tk
 import pyautogui
 import win32clipboard
+import logging
 
 from src.api.openai_client import OpenAIClient
 from src.ui.response_window import ResponseWindow
@@ -18,6 +19,7 @@ from src.ui.prompt_dialog import PromptDialog
 from src.ui.screen_capture import capture_screen
 from src.audio.voice_recognition import VoiceRecognition
 from audio.text_inserter import TextInserter
+from utils.logger import log
 
 class ContextMenuManager(QObject):
     """Manage the context menu for text operations"""
@@ -132,12 +134,15 @@ class ContextMenuManager(QObject):
             # Sauvegarder le contenu actuel du presse-papiers
             try:
                 win32clipboard.OpenClipboard()
-                old_clipboard = win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT) if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT) else ""
+                old_clipboard = (
+                    win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
+                    if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT)
+                    else ""
+                )
                 win32clipboard.CloseClipboard()
             except Exception as e:
-                # Utiliser logging au lieu de print pour les erreurs non bloquantes
-                import logging
-                logging.debug(f"Erreur lors de la sauvegarde du presse-papiers: {e}")
+                # Utiliser log pour les erreurs non bloquantes
+                log(f"Erreur lors de la sauvegarde du presse-papiers: {e}", logging.DEBUG)
                 old_clipboard = ""
             
             # Méthode 1: Utiliser pyautogui pour copier le texte sélectionné
@@ -150,12 +155,13 @@ class ContextMenuManager(QObject):
                 try:
                     pyautogui.keyUp('ctrl')
                 except Exception as e_keyup:
-                    import logging
-                    logging.error(f"Erreur spécifique lors de pyautogui.keyUp('ctrl'): {e_keyup}")
+                    log(
+                        f"Erreur spécifique lors de pyautogui.keyUp('ctrl'): {e_keyup}",
+                        logging.ERROR,
+                    )
                 time.sleep(0.1)  # Réduire le délai pour améliorer la réactivité
             except Exception as e:
-                import logging
-                logging.debug(f"Erreur pyautogui: {e}")
+                log(f"Erreur pyautogui: {e}", logging.DEBUG)
             
             # Méthode 2: Récupérer le texte avec win32clipboard
             try:
@@ -164,8 +170,7 @@ class ContextMenuManager(QObject):
                     selected_text = win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
                 win32clipboard.CloseClipboard()
             except Exception as e:
-                import logging
-                logging.debug(f"Erreur win32clipboard: {e}")
+                log(f"Erreur win32clipboard: {e}", logging.DEBUG)
                 # Si la méthode 2 échoue, essayer une autre approche
                 try:
                     # Méthode alternative avec tkinter
@@ -174,7 +179,7 @@ class ContextMenuManager(QObject):
                     selected_text = root.clipboard_get()
                     root.destroy()
                 except Exception as e:
-                    logging.debug(f"Erreur tkinter: {e}")
+                    log(f"Erreur tkinter: {e}", logging.DEBUG)
                     selected_text = ""
             
             # Restaurer l'ancien contenu du presse-papiers
@@ -185,11 +190,13 @@ class ContextMenuManager(QObject):
                     win32clipboard.SetClipboardText(old_clipboard, win32clipboard.CF_UNICODETEXT)
                     win32clipboard.CloseClipboard()
             except Exception as e:
-                logging.debug(f"Erreur lors de la restauration du presse-papiers: {e}")
+                log(f"Erreur lors de la restauration du presse-papiers: {e}", logging.DEBUG)
         
         except Exception as e:
-            import logging
-            logging.debug(f"Erreur générale lors de la récupération du texte sélectionné: {e}")
+            log(
+                f"Erreur générale lors de la récupération du texte sélectionné: {e}",
+                logging.DEBUG,
+            )
             selected_text = ""
         
         # Si aucun texte n'est récupéré, retourner une chaîne non vide pour activer le menu quand même
@@ -203,9 +210,13 @@ class ContextMenuManager(QObject):
         selected_text = self._try_get_selected_text()
         
         if not selected_text:
-            print("Aucun texte sélectionné")
+            log("Aucun texte sélectionné", logging.DEBUG)
             from PySide6.QtWidgets import QMessageBox
-            QMessageBox.information(None, "Information", "Aucun texte sélectionné. Veuillez sélectionner du texte avant d'utiliser le raccourci.")
+            QMessageBox.information(
+                None,
+                "Information",
+                "Aucun texte sélectionné. Veuillez sélectionner du texte avant d'utiliser le raccourci.",
+            )
             return ""
             
         # Ne pas afficher le texte sélectionné dans les logs pour éviter la duplication
@@ -225,7 +236,7 @@ class ContextMenuManager(QObject):
             return
         
         # Afficher un log avec le texte sélectionné (une seule fois)
-        print(f"Texte sélectionné: {selected_text[:30]}...")
+        log(f"Texte sélectionné: {selected_text[:30]}...", logging.DEBUG)
         
         # Vérifier si le résultat doit être inséré directement
         insert_directly = prompt_data.get("insert_directly", False)
@@ -272,7 +283,7 @@ class ContextMenuManager(QObject):
     
     def _handle_screenshot_action(self):
         """Gérer l'action de capture d'écran"""
-        print("Démarrage de la capture d'écran...")
+        log("Démarrage de la capture d'écran...", logging.DEBUG)
         
         # Cacher temporairement le menu contextuel
         QApplication.processEvents()
@@ -280,7 +291,7 @@ class ContextMenuManager(QObject):
         # Capturer l'écran
         screenshot_path = capture_screen()
         
-        print(f"Résultat de la capture: {screenshot_path}")
+        log(f"Résultat de la capture: {screenshot_path}", logging.DEBUG)
         
         # Si nous avons un chemin d'image valide
         if screenshot_path:
@@ -296,7 +307,7 @@ class ContextMenuManager(QObject):
                 if prompt_dialog.exec():
                     # Utiliser la méthode d'instance get_prompt() sans argument
                     prompt = prompt_dialog.get_prompt()
-                    print(f"Prompt saisi: {prompt}")
+                    log(f"Prompt saisi: {prompt}", logging.DEBUG)
                     
                     # Préparer la fenêtre de réponse
                     self.response_window.set_status("Traitement de la capture d'écran...")
@@ -310,7 +321,7 @@ class ContextMenuManager(QObject):
                     # Si l'utilisateur annule, supprimer l'image
                     self._cleanup_screenshot(screenshot_path)
             except Exception as e:
-                print(f"Erreur lors du traitement de la capture: {e}")
+                log(f"Erreur lors du traitement de la capture: {e}", logging.ERROR)
                 self._cleanup_screenshot(screenshot_path)
     
     def _handle_voice_action(self):
@@ -327,9 +338,9 @@ class ContextMenuManager(QObject):
             
             # Afficher un message de débogage sur le microphone utilisé
             if microphone_index is not None:
-                print(f"Utilisation du microphone avec l'index: {microphone_index}")
+                log(f"Utilisation du microphone avec l'index: {microphone_index}", logging.DEBUG)
             else:
-                print("Utilisation du microphone par défaut du système")
+                log("Utilisation du microphone par défaut du système", logging.DEBUG)
             
             # Démarrer la reconnaissance vocale
             voice_recognition.start_voice_recognition()
@@ -350,7 +361,7 @@ class ContextMenuManager(QObject):
             # Fonction de rappel pour traiter le texte transcrit
             def process_transcription(text):
                 if text:
-                    print("Traitement de la transcription vocale...")
+                    log("Traitement de la transcription vocale...", logging.DEBUG)
                     
                     # Construire le prompt complet avec le texte transcrit
                     full_prompt = f"{describe_prompt}\n\n{text}"
@@ -370,11 +381,14 @@ class ContextMenuManager(QObject):
                         text_inserter = TextInserter()
                         text_inserter.insert_text(response)
                         
-                        print("Réponse insérée avec succès")
+                        log("Réponse insérée avec succès", logging.INFO)
                     except Exception as e:
-                        print(f"Erreur lors de la requête API: {e}")
-                        QMessageBox.critical(None, "Erreur de traitement", 
-                                           f"Une erreur s'est produite lors du traitement de la réponse : {str(e)}")
+                        log(f"Erreur lors de la requête API: {e}", logging.ERROR)
+                        QMessageBox.critical(
+                            None,
+                            "Erreur de traitement",
+                            f"Une erreur s'est produite lors du traitement de la réponse : {str(e)}",
+                        )
                     finally:
                         # Restaurer le curseur
                         QApplication.restoreOverrideCursor()
@@ -388,9 +402,9 @@ class ContextMenuManager(QObject):
             
             # Afficher un message de débogage sur le microphone utilisé
             if microphone_index is not None:
-                print(f"Utilisation du microphone avec l'index: {microphone_index}")
+                log(f"Utilisation du microphone avec l'index: {microphone_index}", logging.DEBUG)
             else:
-                print("Utilisation du microphone par défaut du système")
+                log("Utilisation du microphone par défaut du système", logging.DEBUG)
             
             # Démarrer la reconnaissance vocale sans insérer le texte (car nous allons le traiter avec la fonction de rappel)
             voice_recognition.start_voice_recognition(insert_text=False)
@@ -408,7 +422,7 @@ class ContextMenuManager(QObject):
             # Récupérer les données du prompt vocal
             prompt_data = self.settings.get_voice_prompt(prompt_id)
             if not prompt_data:
-                print(f"Prompt vocal non trouvé: {prompt_id}")
+                log(f"Prompt vocal non trouvé: {prompt_id}", logging.WARNING)
                 return
                 
             prompt_text = prompt_data["prompt"]
@@ -417,19 +431,19 @@ class ContextMenuManager(QObject):
             include_selected_text = prompt_data.get("include_selected_text", False)
             prompt_order = prompt_data.get("prompt_order", "prompt_transcription_selected")
             
-            print(f"Exécution du prompt vocal: {prompt_data['name']}")
+            log(f"Exécution du prompt vocal: {prompt_data['name']}", logging.DEBUG)
             
             # Si l'option d'inclusion du texte sélectionné est activée, récupérer le texte
             selected_text = ""
             if include_selected_text:
                 selected_text = self._try_get_selected_text()
                 if selected_text:
-                    print(f"Texte sélectionné inclus: {selected_text[:50]}...")
+                    log(f"Texte sélectionné inclus: {selected_text[:50]}...", logging.DEBUG)
             
             # Fonction de rappel pour traiter le texte transcrit
             def process_transcription(text):
                 if text:
-                    print(f"Transcription vocale reçue: {text[:50]}...")
+                    log(f"Transcription vocale reçue: {text[:50]}...", logging.DEBUG)
                     
                     # Construire le prompt complet selon l'ordre spécifié
                     if include_selected_text and selected_text:
@@ -468,12 +482,15 @@ class ContextMenuManager(QObject):
                             # Coller directement la réponse
                             text_inserter = TextInserter()
                             text_inserter.insert_text(response)
-                            
-                            print("Réponse insérée avec succès")
+
+                            log("Réponse insérée avec succès", logging.INFO)
                         except Exception as e:
-                            print(f"Erreur lors de la requête API: {e}")
-                            QMessageBox.critical(None, "Erreur de traitement", 
-                                               f"Une erreur s'est produite lors du traitement de la réponse : {str(e)}")
+                            log(f"Erreur lors de la requête API: {e}", logging.ERROR)
+                            QMessageBox.critical(
+                                None,
+                                "Erreur de traitement",
+                                f"Une erreur s'est produite lors du traitement de la réponse : {str(e)}",
+                            )
                         finally:
                             # Restaurer le curseur
                             QApplication.restoreOverrideCursor()
@@ -496,9 +513,9 @@ class ContextMenuManager(QObject):
             
             # Afficher un message de débogage sur le microphone utilisé
             if microphone_index is not None:
-                print(f"Utilisation du microphone avec l'index: {microphone_index}")
+                log(f"Utilisation du microphone avec l'index: {microphone_index}", logging.DEBUG)
             else:
-                print("Utilisation du microphone par défaut du système")
+                log("Utilisation du microphone par défaut du système", logging.DEBUG)
             
             # Démarrer la reconnaissance vocale sans insérer le texte (car nous allons le traiter avec la fonction de rappel)
             voice_recognition.start_voice_recognition(insert_text=False)
@@ -523,7 +540,10 @@ class ContextMenuManager(QObject):
             # Fonction de rappel pour traiter le texte transcrit
             def process_transcription(text):
                 if text:
-                    print(f"Transcription vocale reçue pour prompt personnalisé: {text[:50]}...")
+                    log(
+                        f"Transcription vocale reçue pour prompt personnalisé: {text[:50]}...",
+                        logging.DEBUG,
+                    )
                     
                     # Construire le prompt complet avec le texte transcrit
                     full_prompt = f"{custom_prompt}\n\n{text}"
@@ -546,9 +566,9 @@ class ContextMenuManager(QObject):
             
             # Afficher un message de débogage sur le microphone utilisé
             if microphone_index is not None:
-                print(f"Utilisation du microphone avec l'index: {microphone_index}")
+                log(f"Utilisation du microphone avec l'index: {microphone_index}", logging.DEBUG)
             else:
-                print("Utilisation du microphone par défaut du système")
+                log("Utilisation du microphone par défaut du système", logging.DEBUG)
             
             # Démarrer la reconnaissance vocale sans insérer le texte (car nous allons le traiter avec la fonction de rappel)
             voice_recognition.start_voice_recognition(insert_text=False)
@@ -562,9 +582,9 @@ class ContextMenuManager(QObject):
         try:
             if screenshot_path and os.path.exists(screenshot_path):
                 os.remove(screenshot_path)
-                print(f"Image temporaire supprimée: {screenshot_path}")
+                log(f"Image temporaire supprimée: {screenshot_path}", logging.DEBUG)
         except Exception as e:
-            print(f"Erreur lors de la suppression de l'image: {e}")
+            log(f"Erreur lors de la suppression de l'image: {e}", logging.ERROR)
     
     def on_request_started(self):
         """Handle request started signal"""
@@ -592,4 +612,7 @@ class ContextMenuManager(QObject):
         if self.api_client:
             self.api_client.set_api_key(self.settings.get_api_key())
             self.api_client.set_model(self.settings.get_model())
-            print(f"ContextMenuManager: Configuration du client API mise à jour. Modèle: {self.settings.get_model()}")
+            log(
+                f"ContextMenuManager: Configuration du client API mise à jour. Modèle: {self.settings.get_model()}",
+                logging.INFO,
+            )
