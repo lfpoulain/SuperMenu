@@ -5,7 +5,6 @@
 Module pour insérer du texte à la position du curseur dans SuperMenu.
 """
 import time
-import win32api
 import win32con
 import win32clipboard
 from pynput.keyboard import Controller, Key

@@ -10,7 +10,6 @@ import tempfile
 import time
 import tkinter as tk
 import pyautogui
-import win32clipboard
 import logging
 
 from src.api.openai_client import OpenAIClient
@@ -223,10 +222,10 @@ class ContextMenuManager(QObject):
             )
             selected_text = ""
         
-        # Si aucun texte n'est récupéré, retourner une chaîne non vide pour activer le menu quand même
+        # Retourner le texte récupéré ou une chaîne vide si rien n'est sélectionné
         if not selected_text:
-            return " "  # Retourner un espace pour activer le menu même sans sélection
-            
+            return ""
+
         return selected_text
     
     def _get_selected_text(self):

@@ -109,7 +109,7 @@ class VoiceRecognition:
             stop_button.clicked.connect(dialog.accept)
             
             # Afficher la boîte de dialogue de manière modale
-            result = dialog.exec()
+            dialog.exec()
             
             # Arrêter l'enregistrement
             audio_file = self.recorder.stop_recording()
