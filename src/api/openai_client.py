@@ -8,21 +8,28 @@ import os
 import base64
 from PySide6.QtCore import QObject, Signal
 
+
 class OpenAIClient(QObject):
     """Client for OpenAI API interactions"""
-    
+
     # Signals
     request_started = Signal()
     request_finished = Signal(str)
     request_error = Signal(str)
-    
+
     def __init__(self, api_key=None, api_base=None):
         super().__init__()
         self.api_key = api_key
         self.api_base = api_base or "https://api.openai.com/v1"
-        self.api_url = f"{self.api_base.rstrip('/')}/chat/completions"
+        self.api_url = self._build_api_url()
         self.model = "gpt-4o-mini"  # Default model
-    
+
+    def _build_api_url(self):
+        base = (self.api_base or "").rstrip("/")
+        if not base.endswith("/v1"):
+            base += "/v1"
+        return f"{base}/chat/completions"
+
     def set_api_key(self, api_key):
         """Set the API key"""
         self.api_key = api_key
@@ -34,7 +41,7 @@ class OpenAIClient(QObject):
     def set_api_base(self, api_base):
         """Set the API base URL"""
         self.api_base = api_base
-        self.api_url = f"{self.api_base.rstrip('/')}/chat/completions"
+        self.api_url = self._build_api_url()
     
     def send_request(self, prompt, content, insert_directly=False):
         """Envoie une requête à l'API OpenAI en arrière-plan"""
@@ -112,8 +119,14 @@ class OpenAIClient(QObject):
             if response.status_code == 200:
                 # Analyser la réponse
                 response_data = response.json()
-                content = response_data["choices"][0]["message"]["content"]
-                
+
+                try:
+                    content = response_data["choices"][0]["message"]["content"]
+                except (KeyError, IndexError, TypeError):
+                    error_detail = response_data.get("error") or response.text
+                    self.request_error.emit(f"Réponse API invalide: {error_detail}")
+                    return
+
                 if insert_directly:
                     # Insérer directement le résultat
                     from audio.text_inserter import TextInserter
@@ -207,7 +220,13 @@ class OpenAIClient(QObject):
             if response.status_code == 200:
                 # Analyser la réponse
                 response_data = response.json()
-                content = response_data["choices"][0]["message"]["content"]
+
+                try:
+                    content = response_data["choices"][0]["message"]["content"]
+                except (KeyError, IndexError, TypeError):
+                    error_detail = response_data.get("error") or response.text
+                    raise Exception(f"Réponse API invalide: {error_detail}")
+
                 return content
             else:
                 # Gérer l'erreur

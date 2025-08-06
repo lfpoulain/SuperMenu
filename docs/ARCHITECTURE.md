@@ -146,7 +146,7 @@ Ce document est destiné aux développeurs souhaitant comprendre l'architecture 
 
 ### Utilisation dynamique des modèles OpenAI
 
-- `OpenAIClient` (`src/api/openai_client.py`) : Gère toutes les communications avec l'API OpenAI. Il est responsable de la construction des requêtes, de l'envoi, et du traitement initial des réponses. Il est maintenant configuré dynamiquement avec le modèle et l'URL de base sélectionnés par l'utilisateur.
+- `OpenAIClient` (`src/api/openai_client.py`) : Gère toutes les communications avec l'API OpenAI pour les requêtes texte et image. Il est responsable de la construction des requêtes, de l'envoi, et du traitement initial des réponses. Il est maintenant configuré dynamiquement avec le modèle et l'URL de base sélectionnés par l'utilisateur. La transcription audio utilise séparément l'API OpenAI standard.
 - `Settings` (`src/config/settings.py`) : Charge et sauvegarde les configurations de l'utilisateur, y compris la clé API, l'URL de base de l'API, le modèle OpenAI sélectionné, les prompts, les raccourcis et le thème.
 - `ContextMenuManager` (`src/utils/context_menu.py`) : Orchestre l'affichage du menu contextuel, la récupération du texte sélectionné, l'appel à `OpenAIClient` et l'affichage de la `ResponseWindow`. Il initialise et met à jour la configuration de `OpenAIClient` (clé API, modèle et URL) en fonction des `Settings`.
 
@@ -166,7 +166,7 @@ Ce document est destiné aux développeurs souhaitant comprendre l'architecture 
 ### Flux de données (Exemple : Changement de Modèle OpenAI)
 
 1.  L'utilisateur ouvre la fenêtre `MainWindow` et va dans l'onglet "Général".
-2.  L'utilisateur sélectionne un nouveau modèle dans la liste déroulante et clique sur "Enregistrer la clé et le modèle".
+2.  L'utilisateur sélectionne ou saisit un nouveau modèle compatible dans la liste déroulante puis clique sur "Enregistrer la clé et le modèle".
 3.  `MainWindow` appelle `settings.set_model()` pour sauvegarder le nouveau modèle.
 4.  `MainWindow` appelle `context_menu_manager.update_client_config()`.
 5.  `ContextMenuManager` appelle `api_client.set_model()` et `api_client.set_api_key()` pour mettre à jour l'instance `OpenAIClient` avec les nouvelles valeurs des `Settings`.

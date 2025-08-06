@@ -13,8 +13,8 @@ SuperMenu est une application Windows qui offre un menu contextuel intelligent a
 *   **Menu Contextuel Intelligent** : Sélectionnez du texte dans n'importe quelle application, utilisez un raccourci clavier et choisissez une action IA à effectuer (résumer, traduire, expliquer, etc.).
 *   **Interaction Vocale** : Dictez vos prompts et recevez des réponses de l'IA, ou faites transcrire votre parole en texte.
 *   **Analyse d'Image** : Capturez une partie de votre écran et demandez à l'IA de l'analyser ou de répondre à des questions à son sujet.
-*   **Sélection Dynamique du Modèle OpenAI** : Choisissez parmi les derniers modèles OpenAI (comme GPT-4o, GPT-4o-mini, etc.) pour vos requêtes textuelles et d'analyse d'image, directement depuis les paramètres de l'application.
-*   **Compatibilité avec les API de type OpenAI** : Définissez votre propre URL d'API pour utiliser des modèles compatibles (ex. serveur Ollama local).
+*   **Sélection ou saisie du Modèle compatible OpenAI** : Choisissez parmi les derniers modèles OpenAI (comme GPT-4o, GPT-4o-mini, etc.) ou saisissez le nom de n'importe quel modèle compatible pour vos requêtes textuelles et d'analyse d'image, directement depuis les paramètres de l'application.
+*   **Compatibilité avec les API de type OpenAI** : Définissez votre propre URL d'API pour les requêtes texte et image (ex. serveur Ollama local). Le suffixe `/v1` est ajouté automatiquement s'il manque. La transcription vocale utilise toujours l'API OpenAI standard.
 *   **Gestion des Prompts** : Créez, modifiez, supprimez et organisez vos propres prompts textuels et vocaux. Exportez et importez vos configurations de prompts au format JSON.
 *   **Personnalisation des Raccourcis** : Configurez vos propres raccourcis clavier pour accéder rapidement au menu contextuel, à la capture d'écran et à l'interaction vocale.
 *   **Thèmes** : Personnalisez l'apparence de l'application avec des thèmes (par exemple, Clair, Sombre, Abeille).
@@ -67,9 +67,11 @@ SuperMenu est une application Windows qui offre un menu contextuel intelligent a
 
 Lors du premier lancement, vous devrez configurer :
 
-1. **Clé API OpenAI** : Entrez votre clé API dans l'onglet "Général" des paramètres
-2. **Raccourcis clavier** : Personnalisez les raccourcis selon vos préférences
-3. **Prompts** : Modifiez les prompts prédéfinis ou ajoutez-en de nouveaux
+1. **Clé API OpenAI** : Entrez votre clé API dans l'onglet "Général" des paramètres (ou laissez vide pour un serveur compatible ne nécessitant pas de clé)
+2. **Modèle compatible OpenAI** : Sélectionnez ou saisissez le modèle à utiliser pour les requêtes textuelles et l'analyse d'images
+3. **URL de l'API** : Indiquez l'URL d'un service compatible OpenAI pour les requêtes texte et image si nécessaire (par exemple un serveur Ollama local). Le suffixe `/v1` sera ajouté automatiquement s'il n'est pas présent. La reconnaissance vocale ignore ce paramètre et utilise l'API OpenAI standard.
+4. **Raccourcis clavier** : Personnalisez les raccourcis selon vos préférences
+5. **Prompts** : Modifiez les prompts prédéfinis ou ajoutez-en de nouveaux
 
 ## Utilisation
 
