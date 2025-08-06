@@ -26,7 +26,7 @@ class ContextMenuManager(QObject):
     def __init__(self, settings):
         super().__init__()
         self.settings = settings
-        self.api_client = OpenAIClient(settings.get_api_key())
+        self.api_client = OpenAIClient(settings.get_api_key(), settings.get_api_base_url())
         self.api_client.set_model(self.settings.get_model()) # Définir le modèle actuel
         self.response_window = ResponseWindow()
         self.voice_recognition = None
@@ -359,6 +359,7 @@ class ContextMenuManager(QObject):
             # Créer une instance de VoiceRecognition avec la clé API OpenAI et l'index du microphone
             self.voice_recognition = VoiceRecognition(
                 api_key=self.settings.get_api_key(),
+                api_base=self.settings.get_api_base_url(),
                 microphone_index=microphone_index
             )
 
@@ -393,7 +394,7 @@ class ContextMenuManager(QObject):
                     full_prompt = f"{describe_prompt}\n\n{text}"
                     
                     # Créer un client OpenAI temporaire pour cette requête spécifique
-                    temp_client = OpenAIClient(self.settings.get_api_key())
+                    temp_client = OpenAIClient(self.settings.get_api_key(), self.settings.get_api_base_url())
                     temp_client.set_model(self.settings.get_model()) # Définir le modèle actuel
                     
                     # Afficher un message d'attente
@@ -425,6 +426,7 @@ class ContextMenuManager(QObject):
             # Créer une instance de VoiceRecognition avec la clé API OpenAI, l'index du microphone et la fonction de rappel
             self.voice_recognition = VoiceRecognition(
                 api_key=self.settings.get_api_key(),
+                api_base=self.settings.get_api_base_url(),
                 microphone_index=microphone_index,
                 callback=process_transcription
             )
@@ -497,7 +499,7 @@ class ContextMenuManager(QObject):
                         full_prompt = f"{prompt_text}\n\n{text}"
                     
                     # Créer un client OpenAI temporaire pour cette requête spécifique
-                    temp_client = OpenAIClient(self.settings.get_api_key())
+                    temp_client = OpenAIClient(self.settings.get_api_key(), self.settings.get_api_base_url())
                     temp_client.set_model(self.settings.get_model()) # Définir le modèle actuel
                     
                     if insert_directly:
@@ -539,6 +541,7 @@ class ContextMenuManager(QObject):
             # Créer une instance de VoiceRecognition avec la clé API OpenAI, l'index du microphone et la fonction de rappel
             self.voice_recognition = VoiceRecognition(
                 api_key=self.settings.get_api_key(),
+                api_base=self.settings.get_api_base_url(),
                 microphone_index=microphone_index,
                 callback=process_transcription
             )
@@ -595,6 +598,7 @@ class ContextMenuManager(QObject):
             # Créer une instance de VoiceRecognition avec la clé API OpenAI, l'index du microphone et la fonction de rappel
             self.voice_recognition = VoiceRecognition(
                 api_key=self.settings.get_api_key(),
+                api_base=self.settings.get_api_base_url(),
                 microphone_index=microphone_index,
                 callback=process_transcription
             )
@@ -657,6 +661,7 @@ class ContextMenuManager(QObject):
         if self.api_client:
             self.api_client.set_api_key(self.settings.get_api_key())
             self.api_client.set_model(self.settings.get_model())
+            self.api_client.set_api_base(self.settings.get_api_base_url())
             log(
                 f"ContextMenuManager: Configuration du client API mise à jour. Modèle: {self.settings.get_model()}",
                 logging.INFO,

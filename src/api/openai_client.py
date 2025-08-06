@@ -16,10 +16,11 @@ class OpenAIClient(QObject):
     request_finished = Signal(str)
     request_error = Signal(str)
     
-    def __init__(self, api_key=None):
+    def __init__(self, api_key=None, api_base=None):
         super().__init__()
         self.api_key = api_key
-        self.api_url = "https://api.openai.com/v1/chat/completions"
+        self.api_base = api_base or "https://api.openai.com/v1"
+        self.api_url = f"{self.api_base.rstrip('/')}/chat/completions"
         self.model = "gpt-4o-mini"  # Default model
     
     def set_api_key(self, api_key):
@@ -29,13 +30,18 @@ class OpenAIClient(QObject):
     def set_model(self, model):
         """Set the model to use"""
         self.model = model
+
+    def set_api_base(self, api_base):
+        """Set the API base URL"""
+        self.api_base = api_base
+        self.api_url = f"{self.api_base.rstrip('/')}/chat/completions"
     
     def send_request(self, prompt, content, insert_directly=False):
         """Envoie une requête à l'API OpenAI en arrière-plan"""
-        if not self.api_key:
+        if not self.api_key and "api.openai.com" in self.api_base:
             self.request_error.emit("Clé API non configurée. Veuillez configurer votre clé API dans les paramètres.")
             return
-        
+
         # Émettre le signal que la requête a commencé
         self.request_started.emit()
         
@@ -51,9 +57,11 @@ class OpenAIClient(QObject):
         try:
             # Préparer les en-têtes et les données de la requête
             headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}"
+                "Content-Type": "application/json"
             }
+
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
             
             # Vérifier si le contenu est un chemin de fichier image
             if isinstance(content, str) and os.path.isfile(content) and content.lower().endswith(('.png', '.jpg', '.jpeg')):
@@ -138,15 +146,17 @@ class OpenAIClient(QObject):
 
     def send_request_sync(self, prompt, content):
         """Envoie une requête à l'API OpenAI de manière synchrone et renvoie la réponse"""
-        if not self.api_key:
+        if not self.api_key and "api.openai.com" in self.api_base:
             raise Exception("Clé API non configurée. Veuillez configurer votre clé API dans les paramètres.")
-        
+
         try:
             # Préparer les en-têtes et les données de la requête
             headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}"
+                "Content-Type": "application/json"
             }
+
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
             
             # Vérifier si le contenu est un chemin de fichier image
             if isinstance(content, str) and os.path.isfile(content) and content.lower().endswith(('.png', '.jpg', '.jpeg')):
