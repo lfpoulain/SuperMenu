@@ -1,0 +1,23 @@
+# Dépendances principales
+PySide6>=6.5.0
+requests>=2.28.2
+keyring>=23.13.1
+pywin32>=306  # Inclut win32clipboard
+python-dotenv>=1.0.0
+Pillow>=9.5.0
+pyaudio>=0.2.13
+pynput>=1.7.6
+openai>=1.3.0
+ffmpeg-python>=0.2.0
+keyboard>=0.13.5
+pyautogui>=0.9.54
+
+# Dépendances optionnelles
+numpy>=1.24.0
+pyperclip>=1.8.2
+# Note: tkinter est une bibliothèque standard de Python et ne nécessite pas d'installation via pip
+
+# Dépendances de développement
+pytest>=7.3.1
+black>=23.3.0
+flake8>=6.0.0
