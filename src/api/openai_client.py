@@ -16,11 +16,23 @@ class OpenAIClient(QObject):
     request_finished = Signal(str)
     request_error = Signal(str)
     
-    def __init__(self, api_key=None):
+    def __init__(self, api_key=None, custom_endpoint=None, custom_model=None, use_custom_endpoint=False):
         super().__init__()
         self.api_key = api_key
-        self.api_url = "https://api.openai.com/v1/chat/completions"
-        self.model = "gpt-4o-mini"  # Default model
+        self.use_custom_endpoint = use_custom_endpoint
+        
+        if use_custom_endpoint and custom_endpoint:
+            # Utiliser l'endpoint personnalisé (ex: Ollama)
+            self.api_url = custom_endpoint
+            if not self.api_url.endswith('/chat/completions'):
+                if not self.api_url.endswith('/'):
+                    self.api_url += '/'
+                self.api_url += 'v1/chat/completions'
+            self.model = custom_model if custom_model else "llama2"  # Modèle par défaut pour Ollama
+        else:
+            # Utiliser OpenAI par défaut
+            self.api_url = "https://api.openai.com/v1/chat/completions"
+            self.model = "gpt-4o-mini"  # Default model
     
     def set_api_key(self, api_key):
         """Set the API key"""
@@ -32,7 +44,8 @@ class OpenAIClient(QObject):
     
     def send_request(self, prompt, content, insert_directly=False):
         """Envoie une requête à l'API OpenAI en arrière-plan"""
-        if not self.api_key:
+        # Vérifier si une clé API est requise
+        if not self.use_custom_endpoint and not self.api_key:
             self.request_error.emit("Clé API non configurée. Veuillez configurer votre clé API dans les paramètres.")
             return
         
@@ -51,9 +64,12 @@ class OpenAIClient(QObject):
         try:
             # Préparer les en-têtes et les données de la requête
             headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}"
+                "Content-Type": "application/json"
             }
+            
+            # Ajouter l'authentification seulement si on utilise OpenAI ou si une clé API est fournie
+            if not self.use_custom_endpoint or (self.use_custom_endpoint and self.api_key):
+                headers["Authorization"] = f"Bearer {self.api_key}"
             
             # Vérifier si le contenu est un chemin de fichier image
             if isinstance(content, str) and os.path.isfile(content) and content.lower().endswith(('.png', '.jpg', '.jpeg')):
@@ -138,15 +154,19 @@ class OpenAIClient(QObject):
 
     def send_request_sync(self, prompt, content):
         """Envoie une requête à l'API OpenAI de manière synchrone et renvoie la réponse"""
-        if not self.api_key:
+        # Vérifier si une clé API est requise
+        if not self.use_custom_endpoint and not self.api_key:
             raise Exception("Clé API non configurée. Veuillez configurer votre clé API dans les paramètres.")
         
         try:
             # Préparer les en-têtes et les données de la requête
             headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}"
+                "Content-Type": "application/json"
             }
+            
+            # Ajouter l'authentification seulement si on utilise OpenAI ou si une clé API est fournie
+            if not self.use_custom_endpoint or (self.use_custom_endpoint and self.api_key):
+                headers["Authorization"] = f"Bearer {self.api_key}"
             
             # Vérifier si le contenu est un chemin de fichier image
             if isinstance(content, str) and os.path.isfile(content) and content.lower().endswith(('.png', '.jpg', '.jpeg')):

@@ -26,8 +26,17 @@ class ContextMenuManager(QObject):
     def __init__(self, settings):
         super().__init__()
         self.settings = settings
-        self.api_client = OpenAIClient(settings.get_api_key())
-        self.api_client.set_model(self.settings.get_model()) # Définir le modèle actuel
+        # Initialiser le client API avec les paramètres personnalisés
+        self.api_client = OpenAIClient(
+            api_key=settings.get_api_key(),
+            custom_endpoint=settings.get_custom_endpoint(),
+            custom_model=settings.get_custom_model(),
+            use_custom_endpoint=settings.get_use_custom_endpoint()
+        )
+        
+        # Définir le modèle actuel (seulement si on n'utilise pas d'endpoint personnalisé)
+        if not settings.get_use_custom_endpoint():
+            self.api_client.set_model(self.settings.get_model())
         self.response_window = ResponseWindow()
         self.voice_recognition = None
         
@@ -393,8 +402,16 @@ class ContextMenuManager(QObject):
                     full_prompt = f"{describe_prompt}\n\n{text}"
                     
                     # Créer un client OpenAI temporaire pour cette requête spécifique
-                    temp_client = OpenAIClient(self.settings.get_api_key())
-                    temp_client.set_model(self.settings.get_model()) # Définir le modèle actuel
+                    temp_client = OpenAIClient(
+                        api_key=self.settings.get_api_key(),
+                        custom_endpoint=self.settings.get_custom_endpoint(),
+                        custom_model=self.settings.get_custom_model(),
+                        use_custom_endpoint=self.settings.get_use_custom_endpoint()
+                    )
+                    
+                    # Définir le modèle actuel (seulement si on n'utilise pas d'endpoint personnalisé)
+                    if not self.settings.get_use_custom_endpoint():
+                        temp_client.set_model(self.settings.get_model())
                     
                     # Afficher un message d'attente
                     QApplication.setOverrideCursor(Qt.WaitCursor)
@@ -497,8 +514,16 @@ class ContextMenuManager(QObject):
                         full_prompt = f"{prompt_text}\n\n{text}"
                     
                     # Créer un client OpenAI temporaire pour cette requête spécifique
-                    temp_client = OpenAIClient(self.settings.get_api_key())
-                    temp_client.set_model(self.settings.get_model()) # Définir le modèle actuel
+                    temp_client = OpenAIClient(
+                        api_key=self.settings.get_api_key(),
+                        custom_endpoint=self.settings.get_custom_endpoint(),
+                        custom_model=self.settings.get_custom_model(),
+                        use_custom_endpoint=self.settings.get_use_custom_endpoint()
+                    )
+                    
+                    # Définir le modèle actuel (seulement si on n'utilise pas d'endpoint personnalisé)
+                    if not self.settings.get_use_custom_endpoint():
+                        temp_client.set_model(self.settings.get_model())
                     
                     if insert_directly:
                         # Afficher un message d'attente
@@ -653,11 +678,29 @@ class ContextMenuManager(QObject):
         settings_window.show()
 
     def update_client_config(self):
-        """Met à jour la configuration du client API (clé API et modèle) avec les paramètres actuels."""
+        """Met à jour la configuration du client API avec les paramètres actuels."""
         if self.api_client:
-            self.api_client.set_api_key(self.settings.get_api_key())
-            self.api_client.set_model(self.settings.get_model())
+            # Recréer le client avec les nouveaux paramètres
+            self.api_client = OpenAIClient(
+                api_key=self.settings.get_api_key(),
+                custom_endpoint=self.settings.get_custom_endpoint(),
+                custom_model=self.settings.get_custom_model(),
+                use_custom_endpoint=self.settings.get_use_custom_endpoint()
+            )
+            
+            # Reconnecter les signaux
+            self.api_client.request_started.connect(self.on_request_started)
+            self.api_client.request_finished.connect(self.on_request_finished)
+            self.api_client.request_error.connect(self.on_request_error)
+            
+            # Définir le modèle actuel (seulement si on n'utilise pas d'endpoint personnalisé)
+            if not self.settings.get_use_custom_endpoint():
+                self.api_client.set_model(self.settings.get_model())
+                
+            endpoint_info = self.settings.get_custom_endpoint() if self.settings.get_use_custom_endpoint() else "OpenAI"
+            model_info = self.settings.get_custom_model() if self.settings.get_use_custom_endpoint() else self.settings.get_model()
+            
             log(
-                f"ContextMenuManager: Configuration du client API mise à jour. Modèle: {self.settings.get_model()}",
+                f"ContextMenuManager: Configuration du client API mise à jour. Endpoint: {endpoint_info}, Modèle: {model_info}",
                 logging.INFO,
             )

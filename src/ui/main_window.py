@@ -65,8 +65,18 @@ class MainWindow(QMainWindow):
         general_layout = QVBoxLayout(general_tab)
         
         # API key section
-        api_key_group = QGroupBox("Clé API OpenAI")
+        api_key_group = QGroupBox("Configuration API")
         api_key_layout = QVBoxLayout(api_key_group)
+        
+        # Checkbox pour utiliser un endpoint personnalisé
+        self.use_custom_endpoint_checkbox = QCheckBox("Utiliser un endpoint personnalisé (ex: Ollama)")
+        self.use_custom_endpoint_checkbox.setChecked(self.settings.get_use_custom_endpoint())
+        self.use_custom_endpoint_checkbox.toggled.connect(self.toggle_custom_endpoint)
+        api_key_layout.addWidget(self.use_custom_endpoint_checkbox)
+        
+        # Section OpenAI (par défaut)
+        self.openai_group = QGroupBox("OpenAI")
+        openai_layout = QVBoxLayout(self.openai_group)
         
         # API key input
         api_key_label = QLabel("Clé API:")
@@ -80,16 +90,48 @@ class MainWindow(QMainWindow):
         self.model_combo.addItems(["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"])
         self.model_combo.setCurrentText(self.settings.get_model())
         
+        openai_layout.addWidget(api_key_label)
+        openai_layout.addWidget(self.api_key_input)
+        openai_layout.addWidget(model_label)
+        openai_layout.addWidget(self.model_combo)
+        
+        # Section Endpoint personnalisé
+        self.custom_group = QGroupBox("Endpoint personnalisé (Ollama, etc.)")
+        custom_layout = QVBoxLayout(self.custom_group)
+        
+        # Custom endpoint input
+        custom_endpoint_label = QLabel("URL de l'endpoint (ex: http://localhost:11434):")
+        self.custom_endpoint_input = QLineEdit()
+        self.custom_endpoint_input.setText(self.settings.get_custom_endpoint())
+        self.custom_endpoint_input.setPlaceholderText("http://localhost:11434")
+        
+        # Custom model input
+        custom_model_label = QLabel("Nom du modèle (ex: llama2, mistral):")
+        self.custom_model_input = QLineEdit()
+        self.custom_model_input.setText(self.settings.get_custom_model())
+        self.custom_model_input.setPlaceholderText("llama2")
+        
+        custom_layout.addWidget(custom_endpoint_label)
+        custom_layout.addWidget(self.custom_endpoint_input)
+        custom_layout.addWidget(custom_model_label)
+        custom_layout.addWidget(self.custom_model_input)
+        
+        # Note explicative
+        note_label = QLabel("Note: La transcription audio restera sur OpenAI (4o-transcribe)")
+        note_label.setStyleSheet("color: #666; font-style: italic;")
+        custom_layout.addWidget(note_label)
+        
         # Save API key button
-        save_api_key_button = QPushButton("Enregistrer la clé API")
+        save_api_key_button = QPushButton("Enregistrer la configuration")
         save_api_key_button.clicked.connect(self.save_api_key)
         
         # Add widgets to layout
-        api_key_layout.addWidget(api_key_label)
-        api_key_layout.addWidget(self.api_key_input)
-        api_key_layout.addWidget(model_label)
-        api_key_layout.addWidget(self.model_combo)
+        api_key_layout.addWidget(self.openai_group)
+        api_key_layout.addWidget(self.custom_group)
         api_key_layout.addWidget(save_api_key_button)
+        
+        # Initialiser l'affichage selon l'état actuel
+        self.toggle_custom_endpoint()
         
         # Hotkey section
         hotkey_group = QGroupBox("Raccourcis clavier")
@@ -471,20 +513,7 @@ class MainWindow(QMainWindow):
             self.prompt_insert_directly.setChecked(prompt_data.get("insert_directly", False))
             self.prompt_position_input.setValue(prompt_data.get("position", 999))
     
-    def save_api_key(self):
-        """Save the API key to settings"""
-        api_key = self.api_key_input.text().strip()
-        model = self.model_combo.currentText()
-        
-        if api_key:
-            self.settings.set_api_key(api_key)
-            self.settings.set_model(model)
-            QMessageBox.information(self, "Succès", "Clé API et modèle enregistrés avec succès!")
-            # Mettre à jour la configuration du client API dans ContextMenuManager
-            if self.context_menu_manager:
-                self.context_menu_manager.update_client_config()
-        else:
-            QMessageBox.warning(self, "Erreur", "Veuillez entrer une clé API valide.")
+
 
     def populate_microphone_combo(self):
         """Populate the microphone combo box with available microphones"""
@@ -746,11 +775,17 @@ class MainWindow(QMainWindow):
             self.populate_prompt_combo()
             self.populate_voice_prompt_combo()
             
-            # Reload the API key
+            # Reload the API configuration
             self.api_key_input.setText(self.settings.get_api_key())
-            
-            # Reload the model
             self.model_combo.setCurrentText(self.settings.get_model())
+            
+            # Reload custom endpoint configuration
+            self.use_custom_endpoint_checkbox.setChecked(self.settings.get_use_custom_endpoint())
+            self.custom_endpoint_input.setText(self.settings.get_custom_endpoint())
+            self.custom_model_input.setText(self.settings.get_custom_model())
+            
+            # Update the display based on endpoint type
+            self.toggle_custom_endpoint()
             
             # Reload the hotkeys
             self.hotkey_label.setText(f"Raccourci principal : {self.settings.get_hotkey()}")
@@ -1183,3 +1218,59 @@ class MainWindow(QMainWindow):
                         self.clear_voice_prompt_details()
                 else:
                     QMessageBox.warning(self, "Erreur d'Importation", message)
+    
+    def toggle_custom_endpoint(self):
+        """Basculer l'affichage entre OpenAI et endpoint personnalisé"""
+        use_custom = self.use_custom_endpoint_checkbox.isChecked()
+        
+        # Afficher/masquer les sections appropriées
+        self.openai_group.setVisible(not use_custom)
+        self.custom_group.setVisible(use_custom)
+    
+    def save_api_key(self):
+        """Save the API configuration to settings"""
+        use_custom = self.use_custom_endpoint_checkbox.isChecked()
+        
+        if use_custom:
+            # Configuration endpoint personnalisé
+            custom_endpoint = self.custom_endpoint_input.text().strip()
+            custom_model = self.custom_model_input.text().strip()
+            
+            if not custom_endpoint:
+                QMessageBox.warning(self, "Erreur", "Veuillez entrer une URL d'endpoint valide.")
+                return
+            
+            if not custom_model:
+                QMessageBox.warning(self, "Erreur", "Veuillez entrer un nom de modèle valide.")
+                return
+            
+            # Sauvegarder la configuration personnalisée
+            self.settings.set_use_custom_endpoint(True)
+            self.settings.set_custom_endpoint(custom_endpoint)
+            self.settings.set_custom_model(custom_model)
+            
+            # Optionnellement sauvegarder la clé API si fournie
+            api_key = self.api_key_input.text().strip()
+            if api_key:
+                self.settings.set_api_key(api_key)
+            
+            QMessageBox.information(self, "Succès", f"Configuration personnalisée enregistrée!\nEndpoint: {custom_endpoint}\nModèle: {custom_model}")
+        else:
+            # Configuration OpenAI
+            api_key = self.api_key_input.text().strip()
+            model = self.model_combo.currentText()
+            
+            if not api_key:
+                QMessageBox.warning(self, "Erreur", "Veuillez entrer une clé API valide.")
+                return
+            
+            # Sauvegarder la configuration OpenAI
+            self.settings.set_use_custom_endpoint(False)
+            self.settings.set_api_key(api_key)
+            self.settings.set_model(model)
+            
+            QMessageBox.information(self, "Succès", f"Configuration OpenAI enregistrée!\nModèle: {model}")
+        
+        # Mettre à jour la configuration du client API dans ContextMenuManager
+        if self.context_menu_manager:
+            self.context_menu_manager.update_client_config()

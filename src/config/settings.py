@@ -128,6 +128,9 @@ class Settings:
         self.default_screenshot_hotkey = "Ctrl+Shift+²"
         self.default_voice_hotkey = "Ctrl+Alt+²"
         self.default_model = "gpt-4o-mini"
+        self.default_custom_endpoint = ""
+        self.default_custom_model = ""
+        self.default_use_custom_endpoint = False
         self.default_microphone_index = -1
         self.default_describe_response_prompt = "Analyse et décris en détail ce qui suit, en fournissant un contexte pertinent et des explications claires :"
         self.default_theme = "dark"
@@ -155,6 +158,15 @@ class Settings:
         
         if not self.settings.contains("model"):
             self.settings.setValue("model", self.default_model)  # Default model
+            
+        if not self.settings.contains("custom_endpoint"):
+            self.settings.setValue("custom_endpoint", self.default_custom_endpoint)
+            
+        if not self.settings.contains("custom_model"):
+            self.settings.setValue("custom_model", self.default_custom_model)
+            
+        if not self.settings.contains("use_custom_endpoint"):
+            self.settings.setValue("use_custom_endpoint", self.default_use_custom_endpoint)
             
         if not self.settings.contains("microphone_index"):
             self.settings.setValue("microphone_index", self.default_microphone_index)  # -1 = utiliser le microphone par défaut
@@ -187,6 +199,34 @@ class Settings:
     def set_model(self, model):
         """Set the OpenAI model"""
         self.settings.setValue("model", model)
+    
+    def get_custom_endpoint(self):
+        """Get the custom endpoint URL"""
+        return self.settings.value("custom_endpoint", self.default_custom_endpoint)
+    
+    def set_custom_endpoint(self, endpoint):
+        """Set the custom endpoint URL"""
+        self.settings.setValue("custom_endpoint", endpoint)
+    
+    def get_custom_model(self):
+        """Get the custom model name"""
+        return self.settings.value("custom_model", self.default_custom_model)
+    
+    def set_custom_model(self, model):
+        """Set the custom model name"""
+        self.settings.setValue("custom_model", model)
+    
+    def get_use_custom_endpoint(self):
+        """Get whether to use custom endpoint"""
+        use_custom = self.settings.value("use_custom_endpoint", self.default_use_custom_endpoint)
+        # Convertir en booléen si c'est une chaîne
+        if isinstance(use_custom, str):
+            return use_custom.lower() == 'true'
+        return bool(use_custom)
+    
+    def set_use_custom_endpoint(self, use_custom):
+        """Set whether to use custom endpoint"""
+        self.settings.setValue("use_custom_endpoint", bool(use_custom))
         
     def get_microphone_index(self):
         """Get the selected microphone index"""
@@ -496,5 +536,8 @@ class Settings:
         self.set_prompts(self.default_prompts)
         self.set_voice_prompts(self.default_voice_prompts)
         self.set_model(self.default_model)
+        self.set_custom_endpoint(self.default_custom_endpoint)
+        self.set_custom_model(self.default_custom_model)
+        self.set_use_custom_endpoint(self.default_use_custom_endpoint)
         self.set_microphone_index(self.default_microphone_index)
         self.set_describe_response_prompt(self.default_describe_response_prompt)
