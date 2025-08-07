@@ -51,18 +51,13 @@ Lors du premier lancement, vous devrez configurer quelques éléments essentiels
 Lors du premier lancement de SuperMenu, ou en accédant aux paramètres via l'icône de la barre d'état système, une fenêtre de configuration s'ouvrira. Voici les principaux éléments à configurer :
 
 1.  **Clé API OpenAI** :
-    *   Nécessaire pour les services OpenAI.
-    *   Peut être laissée vide si vous utilisez un serveur compatible ne nécessitant pas de clé.
-    *   Entrez votre clé dans le champ dédié. Elle sera stockée de manière sécurisée dans le trousseau de votre système.
+    *   Indispensable pour que SuperMenu puisse communiquer avec les services OpenAI.
+    *   Entrez votre clé API dans le champ dédié. Elle sera stockée de manière sécurisée dans le trousseau de votre système.
 
 2.  **Modèle OpenAI** :
     *   Choisissez le modèle OpenAI que vous souhaitez utiliser pour les requêtes textuelles et l'analyse d'images.
     *   La liste inclut des modèles comme `gpt-4o-mini`, `gpt-4o`, `gpt-4.1`, etc.
     *   Cette sélection sera utilisée dynamiquement par l'application.
-
-3.  **URL de l'API** :
-    *   Permet d'utiliser une API compatible OpenAI (ex. Ollama en local).
-    *   Par défaut : `https://api.openai.com/v1`.
 
 3.  **Raccourcis Clavier** :
     *   **Raccourci Principal** : Pour afficher le menu contextuel après avoir sélectionné du texte (par défaut : `Ctrl+²`).
@@ -71,10 +66,9 @@ Lors du premier lancement de SuperMenu, ou en accédant aux paramètres via l'ic
 ### Configuration de l'API OpenAI
 
 1. Ouvrez les paramètres de SuperMenu (icône dans la barre des tâches)
-2. Dans l'onglet "Général", entrez votre clé API OpenAI (ou laissez vide pour un serveur local)
-3. Saisissez l'URL de base de l'API si vous utilisez un service compatible
-4. Sélectionnez le modèle à utiliser (gpt-4o-mini recommandé pour un bon équilibre performance/coût)
-5. Cliquez sur "Enregistrer la clé API"
+2. Dans l'onglet "Général", entrez votre clé API OpenAI
+3. Sélectionnez le modèle à utiliser (gpt-4o-mini recommandé pour un bon équilibre performance/coût)
+4. Cliquez sur "Enregistrer la clé API"
 
 ### Vérification des raccourcis clavier
 

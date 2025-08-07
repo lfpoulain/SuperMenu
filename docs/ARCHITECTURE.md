@@ -146,9 +146,9 @@ Ce document est destiné aux développeurs souhaitant comprendre l'architecture 
 
 ### Utilisation dynamique des modèles OpenAI
 
-- `OpenAIClient` (`src/api/openai_client.py`) : Gère toutes les communications avec l'API OpenAI. Il est responsable de la construction des requêtes, de l'envoi, et du traitement initial des réponses. Il est maintenant configuré dynamiquement avec le modèle et l'URL de base sélectionnés par l'utilisateur.
-- `Settings` (`src/config/settings.py`) : Charge et sauvegarde les configurations de l'utilisateur, y compris la clé API, l'URL de base de l'API, le modèle OpenAI sélectionné, les prompts, les raccourcis et le thème.
-- `ContextMenuManager` (`src/utils/context_menu.py`) : Orchestre l'affichage du menu contextuel, la récupération du texte sélectionné, l'appel à `OpenAIClient` et l'affichage de la `ResponseWindow`. Il initialise et met à jour la configuration de `OpenAIClient` (clé API, modèle et URL) en fonction des `Settings`.
+- `OpenAIClient` (`src/api/openai_client.py`) : Gère toutes les communications avec l'API OpenAI. Il est responsable de la construction des requêtes, de l'envoi, et du traitement initial des réponses. Il est maintenant configuré dynamiquement avec le modèle sélectionné par l'utilisateur via `set_model()`.
+- `Settings` (`src/config/settings.py`) : Charge et sauvegarde les configurations de l'utilisateur, y compris la clé API, le modèle OpenAI sélectionné, les prompts, les raccourcis, et le thème.
+- `ContextMenuManager` (`src/utils/context_menu.py`) : Orchestre l'affichage du menu contextuel, la récupération du texte sélectionné, l'appel à `OpenAIClient` et l'affichage de la `ResponseWindow`. Il initialise et met à jour la configuration de `OpenAIClient` (clé API et modèle) en fonction des `Settings`.
 
 ### Flux de données (Exemple : Action sur Texte Sélectionné)
 
