@@ -14,7 +14,6 @@ SuperMenu est une application Windows qui offre un menu contextuel intelligent a
 *   **Interaction Vocale** : Dictez vos prompts et recevez des réponses de l'IA, ou faites transcrire votre parole en texte.
 *   **Analyse d'Image** : Capturez une partie de votre écran et demandez à l'IA de l'analyser ou de répondre à des questions à son sujet.
 *   **Sélection Dynamique du Modèle OpenAI** : Choisissez parmi les derniers modèles OpenAI (comme GPT-4o, GPT-4o-mini, etc.) pour vos requêtes textuelles et d'analyse d'image, directement depuis les paramètres de l'application.
-*   **Compatibilité avec les API de type OpenAI** : Définissez votre propre URL d'API pour utiliser des modèles compatibles (ex. serveur Ollama local).
 *   **Gestion des Prompts** : Créez, modifiez, supprimez et organisez vos propres prompts textuels et vocaux. Exportez et importez vos configurations de prompts au format JSON.
 *   **Personnalisation des Raccourcis** : Configurez vos propres raccourcis clavier pour accéder rapidement au menu contextuel, à la capture d'écran et à l'interaction vocale.
 *   **Thèmes** : Personnalisez l'apparence de l'application avec des thèmes (par exemple, Clair, Sombre, Abeille).
@@ -26,7 +25,7 @@ SuperMenu est une application Windows qui offre un menu contextuel intelligent a
 - Windows 10/11
 - Python 3.8 ou supérieur
 - Connexion Internet (pour les appels API)
-- Clé API OpenAI (ou accès à un serveur compatible) (pour les fonctionnalités d'IA)
+- Clé API OpenAI (pour les fonctionnalités d'IA)
 
 ## Installation
 
