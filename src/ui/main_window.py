@@ -77,14 +77,8 @@ class MainWindow(QMainWindow):
         # Model selection
         model_label = QLabel("Modèle:")
         self.model_combo = QComboBox()
-        self.model_combo.setEditable(True)  # Permettre la saisie de modèles personnalisés
-        default_models = ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"]
-        self.model_combo.addItems(default_models)
-        current_model = self.settings.get_model()
-        # Ajouter le modèle actuel s'il n'est pas dans la liste par défaut
-        if current_model and current_model not in default_models:
-            self.model_combo.addItem(current_model)
-        self.model_combo.setCurrentText(current_model)
+        self.model_combo.addItems(["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"])
+        self.model_combo.setCurrentText(self.settings.get_model())
 
         # API base URL input
         api_base_label = QLabel("URL de l'API:")
