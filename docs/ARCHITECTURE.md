@@ -166,7 +166,7 @@ Ce document est destiné aux développeurs souhaitant comprendre l'architecture 
 ### Flux de données (Exemple : Changement de Modèle OpenAI)
 
 1.  L'utilisateur ouvre la fenêtre `MainWindow` et va dans l'onglet "Général".
-2.  L'utilisateur sélectionne ou saisit un nouveau modèle compatible dans la liste déroulante puis clique sur "Enregistrer la clé et le modèle".
+2.  L'utilisateur sélectionne un nouveau modèle dans la liste déroulante et clique sur "Enregistrer la clé et le modèle".
 3.  `MainWindow` appelle `settings.set_model()` pour sauvegarder le nouveau modèle.
 4.  `MainWindow` appelle `context_menu_manager.update_client_config()`.
 5.  `ContextMenuManager` appelle `api_client.set_model()` et `api_client.set_api_key()` pour mettre à jour l'instance `OpenAIClient` avec les nouvelles valeurs des `Settings`.
