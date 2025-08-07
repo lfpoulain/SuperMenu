@@ -37,7 +37,8 @@ class MainWindow(QMainWindow):
         
         # Set window properties
         self.setWindowTitle("SuperMenu - Configuration")
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(850, 650)
+        self.resize(850, 650)
         
         # Create the central widget
         self.central_widget = QWidget()
@@ -61,6 +62,15 @@ class MainWindow(QMainWindow):
     
     def create_general_tab(self):
         """Create the general settings tab"""
+        from PySide6.QtWidgets import QScrollArea
+        
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        
+        # Create the content widget
         general_tab = QWidget()
         general_layout = QVBoxLayout(general_tab)
         
@@ -224,8 +234,11 @@ class MainWindow(QMainWindow):
         general_layout.addWidget(theme_group)
         general_layout.addStretch()
         
+        # Set the content widget in the scroll area
+        scroll_area.setWidget(general_tab)
+        
         # Add tab to tab widget
-        self.tab_widget.addTab(general_tab, "Général")
+        self.tab_widget.addTab(scroll_area, "Général")
     
     def create_prompts_tab(self):
         """Create the prompts settings tab"""
