@@ -8,28 +8,21 @@ import os
 import base64
 from PySide6.QtCore import QObject, Signal
 
-
 class OpenAIClient(QObject):
     """Client for OpenAI API interactions"""
-
+    
     # Signals
     request_started = Signal()
     request_finished = Signal(str)
     request_error = Signal(str)
-
+    
     def __init__(self, api_key=None, api_base=None):
         super().__init__()
         self.api_key = api_key
         self.api_base = api_base or "https://api.openai.com/v1"
-        self.api_url = self._build_api_url()
+        self.api_url = f"{self.api_base.rstrip('/')}/chat/completions"
         self.model = "gpt-4o-mini"  # Default model
-
-    def _build_api_url(self):
-        base = (self.api_base or "").rstrip("/")
-        if not base.endswith("/v1"):
-            base += "/v1"
-        return f"{base}/chat/completions"
-
+    
     def set_api_key(self, api_key):
         """Set the API key"""
         self.api_key = api_key
@@ -41,7 +34,7 @@ class OpenAIClient(QObject):
     def set_api_base(self, api_base):
         """Set the API base URL"""
         self.api_base = api_base
-        self.api_url = self._build_api_url()
+        self.api_url = f"{self.api_base.rstrip('/')}/chat/completions"
     
     def send_request(self, prompt, content, insert_directly=False):
         """Envoie une requête à l'API OpenAI en arrière-plan"""
