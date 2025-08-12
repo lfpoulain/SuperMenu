@@ -184,17 +184,13 @@ class MainWindow(QMainWindow):
         
         self.microphone_combo = QComboBox()
         self.populate_microphone_combo()
+        self.microphone_combo.currentIndexChanged.connect(self.save_microphone_selection)
         microphone_layout.addWidget(self.microphone_combo)
-        
+
         # Refresh microphone list button
         refresh_mic_button = QPushButton("Actualiser la liste")
         refresh_mic_button.clicked.connect(self.populate_microphone_combo)
         microphone_layout.addWidget(refresh_mic_button)
-        
-        # Save microphone button
-        save_mic_button = QPushButton("Enregistrer la sélection")
-        save_mic_button.clicked.connect(self.save_microphone_selection)
-        microphone_layout.addWidget(save_mic_button)
         
         # Theme section
         theme_group = QGroupBox("Thème de l'application")
@@ -562,11 +558,9 @@ class MainWindow(QMainWindow):
         """Save the selected microphone to settings"""
         selected_index = self.microphone_combo.currentIndex()
         mic_index = self.microphone_combo.itemData(selected_index)
-        
+
         # Update settings
         self.settings.set_microphone_index(mic_index)
-        
-        QMessageBox.information(self, "Succès", "Microphone enregistré avec succès!")
     
     def change_hotkey(self):
         """Modifier le raccourci clavier"""
