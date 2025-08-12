@@ -592,17 +592,20 @@ class MainWindow(QMainWindow):
                 self,
                 "Raccourci modifié",
                 f"Le raccourci a été modifié avec succès en {self.settings.get_hotkey()}.\n\n"
-                "Pour que le nouveau raccourci soit pris en compte, l'application doit être redémarrée.\n\n"
+                "Le raccourci est actif immédiatement, mais vous pouvez redémarrer l'application si nécessaire.\n\n"
                 "Voulez-vous redémarrer l'application maintenant ?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes
             )
-            
+
             if reply == QMessageBox.Yes:
                 # Redémarrer l'application
                 self.restart_application()
+            else:
+                # Réenregistrer le nouveau raccourci sans redémarrer
+                self.hotkey_manager.register_hotkey()
         else:
-            # Réenregistrer l'ancien raccourci
+            # Réenregistrer l'ancien raccourci si l'utilisateur annule
             self.hotkey_manager.register_hotkey()
     
     def change_voice_hotkey(self):
@@ -629,17 +632,20 @@ class MainWindow(QMainWindow):
                 self,
                 "Raccourci modifié",
                 f"Le raccourci vocal a été modifié avec succès en {self.settings.get_voice_hotkey()}.\n\n"
-                "Pour que le nouveau raccourci soit pris en compte, l'application doit être redémarrée.\n\n"
+                "Le raccourci est actif immédiatement, mais vous pouvez redémarrer l'application si nécessaire.\n\n"
                 "Voulez-vous redémarrer l'application maintenant ?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes
             )
-            
+
             if reply == QMessageBox.Yes:
                 # Redémarrer l'application
                 self.restart_application()
+            else:
+                # Réenregistrer le nouveau raccourci sans redémarrer
+                self.voice_hotkey_manager.register_hotkey()
         else:
-            # Réenregistrer l'ancien raccourci
+            # Réenregistrer l'ancien raccourci si l'utilisateur annule
             self.voice_hotkey_manager.register_hotkey()
     
     def change_screenshot_hotkey(self):
@@ -666,17 +672,20 @@ class MainWindow(QMainWindow):
                 self,
                 "Raccourci modifié",
                 f"Le raccourci de capture d'écran a été modifié avec succès en {self.settings.get_screenshot_hotkey()}.\n\n"
-                "Pour que le nouveau raccourci soit pris en compte, l'application doit être redémarrée.\n\n"
+                "Le raccourci est actif immédiatement, mais vous pouvez redémarrer l'application si nécessaire.\n\n"
                 "Voulez-vous redémarrer l'application maintenant ?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.Yes
             )
-            
+
             if reply == QMessageBox.Yes:
                 # Redémarrer l'application
                 self.restart_application()
+            else:
+                # Réenregistrer le nouveau raccourci sans redémarrer
+                self.screenshot_hotkey_manager.register_hotkey()
         else:
-            # Réenregistrer l'ancien raccourci
+            # Réenregistrer l'ancien raccourci si l'utilisateur annule
             self.screenshot_hotkey_manager.register_hotkey()
     
     def restart_application(self):

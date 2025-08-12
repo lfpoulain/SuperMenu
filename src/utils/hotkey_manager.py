@@ -261,6 +261,12 @@ class HotkeyManager(QObject):
         else:
             log("Hotkey triggered", logging.DEBUG)
             self.hotkey_triggered.emit()
+
+        # Re-register the hotkey after each trigger to ensure the next
+        # activation remains functional. Clear any currently tracked keys
+        # to avoid stale state before re-registration.
+        self.current_keys.clear()
+        self.register_hotkey()
     
     def show_hotkey_recorder(self):
         """Show a dialog to record a new hotkey"""
