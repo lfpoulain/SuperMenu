@@ -54,9 +54,6 @@ class SuperMenu:
             screenshot_hotkey_manager=self.screenshot_hotkey_manager
         )
         
-        # Connecter le signal aboutToQuit pour nettoyer les ressources
-        self.app.aboutToQuit.connect(self.cleanup)
-        
         # Apply theme
         self.apply_theme()
     
@@ -89,25 +86,6 @@ class SuperMenu:
     def take_screenshot(self):
         """Take a screenshot"""
         self.context_menu_manager._handle_screenshot_action()
-    
-    def cleanup(self):
-        """Nettoyer les ressources avant de quitter l'application"""
-        import logging
-        logging.info("Nettoyage des ressources avant fermeture...")
-        
-        # Nettoyer les gestionnaires de raccourcis
-        if hasattr(self, 'hotkey_manager'):
-            self.hotkey_manager.close()
-        if hasattr(self, 'voice_hotkey_manager'):
-            self.voice_hotkey_manager.close()
-        if hasattr(self, 'screenshot_hotkey_manager'):
-            self.screenshot_hotkey_manager.close()
-        
-        # Arrêter la reconnaissance vocale si elle est en cours
-        if hasattr(self, 'context_menu_manager'):
-            self.context_menu_manager.stop_voice_recognition()
-        
-        logging.info("Nettoyage terminé")
     
     def run(self):
         """Run the application"""
