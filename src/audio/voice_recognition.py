@@ -155,8 +155,8 @@ class VoiceRecognition:
             self.is_recording = False
             try:
                 QMessageBox.critical(None, "Erreur de reconnaissance vocale", f"Erreur lors de la reconnaissance vocale: {e}")
-            except:
-                pass
+            except Exception as msg_error:
+                log(f"Could not show error message: {msg_error}", level=logging.ERROR)
             return False
     
     def describe_voice_response(self, text):

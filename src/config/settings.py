@@ -3,8 +3,10 @@
 
 import os
 import json
+import logging
 import keyring
 from PySide6.QtCore import QSettings
+from utils.logger import log
 
 class Settings:
     """Manage application settings"""
@@ -181,7 +183,8 @@ class Settings:
         """Get the OpenAI API key"""
         try:
             return keyring.get_password("SuperMenu", "openai_api_key")
-        except:
+        except Exception as e:
+            log(f"Error retrieving API key from keyring: {e}", logging.WARNING)
             return ""
     
     def set_api_key(self, api_key):
@@ -233,7 +236,8 @@ class Settings:
         index = self.settings.value("microphone_index", self.default_microphone_index)
         try:
             index = int(index)
-        except:
+        except (ValueError, TypeError) as e:
+            log(f"Invalid microphone index, using default: {e}", logging.WARNING)
             index = self.default_microphone_index
         return index if index >= 0 else None
     

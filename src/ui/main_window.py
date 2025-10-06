@@ -16,6 +16,7 @@ from PySide6.QtGui import QIcon, QAction, QKeySequence
 from src.config.settings import Settings
 from src.utils.hotkey_manager import HotkeyManager
 from src.ui.screenshot_dialog import ScreenshotDialog
+from src.utils.validators import Validators
 import uuid
 
 class MainWindow(QMainWindow):
@@ -1244,49 +1245,39 @@ class MainWindow(QMainWindow):
         self.custom_group.setVisible(use_custom)
     
     def save_api_key(self):
-        """Save the API configuration to settings"""
+        """Save the API key and configuration"""
+        api_key = self.api_key_input.text().strip()
+        model = self.model_combo.currentText()
         use_custom = self.use_custom_endpoint_checkbox.isChecked()
+        custom_endpoint = self.custom_endpoint_input.text().strip()
+        custom_model = self.custom_model_input.text().strip()
+        
+        # Validation
+        if not use_custom and api_key:
+            is_valid, error_msg = Validators.validate_api_key(api_key)
+            if not is_valid:
+                QMessageBox.warning(self, "Clé API invalide", error_msg)
+                return
         
         if use_custom:
-            # Configuration endpoint personnalisé
-            custom_endpoint = self.custom_endpoint_input.text().strip()
-            custom_model = self.custom_model_input.text().strip()
+            if custom_endpoint:
+                is_valid, error_msg = Validators.validate_url(custom_endpoint)
+                if not is_valid:
+                    QMessageBox.warning(self, "URL invalide", error_msg)
+                    return
             
-            if not custom_endpoint:
-                QMessageBox.warning(self, "Erreur", "Veuillez entrer une URL d'endpoint valide.")
-                return
-            
-            if not custom_model:
-                QMessageBox.warning(self, "Erreur", "Veuillez entrer un nom de modèle valide.")
-                return
-            
-            # Sauvegarder la configuration personnalisée
-            self.settings.set_use_custom_endpoint(True)
-            self.settings.set_custom_endpoint(custom_endpoint)
-            self.settings.set_custom_model(custom_model)
-            
-            # Optionnellement sauvegarder la clé API si fournie
-            api_key = self.api_key_input.text().strip()
-            if api_key:
-                self.settings.set_api_key(api_key)
-            
-            QMessageBox.information(self, "Succès", f"Configuration personnalisée enregistrée!\nEndpoint: {custom_endpoint}\nModèle: {custom_model}")
-        else:
-            # Configuration OpenAI
-            api_key = self.api_key_input.text().strip()
-            model = self.model_combo.currentText()
-            
-            if not api_key:
-                QMessageBox.warning(self, "Erreur", "Veuillez entrer une clé API valide.")
-                return
-            
-            # Sauvegarder la configuration OpenAI
-            self.settings.set_use_custom_endpoint(False)
-            self.settings.set_api_key(api_key)
-            self.settings.set_model(model)
-            
-            QMessageBox.information(self, "Succès", f"Configuration OpenAI enregistrée!\nModèle: {model}")
+            if custom_model:
+                is_valid, error_msg = Validators.validate_model_name(custom_model)
+                if not is_valid:
+                    QMessageBox.warning(self, "Nom de modèle invalide", error_msg)
+                    return
         
-        # Mettre à jour la configuration du client API dans ContextMenuManager
-        if self.context_menu_manager:
-            self.context_menu_manager.update_client_config()
+        # Save settings
+        self.settings.set_api_key(api_key)
+        self.settings.set_model(model)
+        self.settings.set_use_custom_endpoint(use_custom)
+        self.settings.set_custom_endpoint(custom_endpoint)
+        self.settings.set_custom_model(custom_model)
+        
+        QMessageBox.information(self, "Configuration enregistrée", 
+                              "La configuration a été enregistrée avec succès.")

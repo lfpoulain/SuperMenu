@@ -9,6 +9,7 @@ import win32con
 import win32clipboard
 from pynput.keyboard import Controller, Key
 from utils.logger import log
+from utils.clipboard_manager import ClipboardManager
 from audio.audio_config import CLIPBOARD_PASTE_DELAY, CLIPBOARD_COPY_DELAY
 
 class TextInserter:
@@ -30,11 +31,13 @@ class TextInserter:
             return
             
         # Sauvegarder le contenu actuel du presse-papiers
-        original_clipboard = self._get_clipboard_data()
+        original_clipboard = ClipboardManager.get_clipboard_text_safe()
         
         try:
             # Copier le nouveau texte dans le presse-papiers
-            self._set_clipboard_data(text)
+            if not ClipboardManager.set_clipboard_text_safe(text):
+                log("Échec de la copie dans le presse-papiers")
+                return
             
             # Simuler Ctrl+V pour coller le texte
             time.sleep(CLIPBOARD_COPY_DELAY)  # Petit délai pour s'assurer que le presse-papiers est prêt
@@ -49,36 +52,13 @@ class TextInserter:
         finally:
             # Restaurer le contenu original du presse-papiers
             if original_clipboard:
-                self._set_clipboard_data(original_clipboard)
+                ClipboardManager.set_clipboard_text_safe(original_clipboard)
     
+    # Méthodes obsolètes - conservées pour compatibilité descendante
     def _get_clipboard_data(self):
-        """Récupère le contenu actuel du presse-papiers."""
-        try:
-            win32clipboard.OpenClipboard()
-            if win32clipboard.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT):
-                data = win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT)
-            else:
-                data = None
-            win32clipboard.CloseClipboard()
-            return data
-        except Exception as e:
-            log(f"Erreur lors de la récupération du presse-papiers: {e}")
-            try:
-                win32clipboard.CloseClipboard()
-            except:
-                pass
-            return None
+        """Récupère le contenu actuel du presse-papiers (obsolète - utiliser ClipboardManager)."""
+        return ClipboardManager.get_clipboard_text_safe()
     
     def _set_clipboard_data(self, data):
-        """Définit le contenu du presse-papiers."""
-        try:
-            win32clipboard.OpenClipboard()
-            win32clipboard.EmptyClipboard()
-            win32clipboard.SetClipboardText(data, win32con.CF_UNICODETEXT)
-            win32clipboard.CloseClipboard()
-        except Exception as e:
-            log(f"Erreur lors de la définition du presse-papiers: {e}")
-            try:
-                win32clipboard.CloseClipboard()
-            except:
-                pass
+        """Définit le contenu du presse-papiers (obsolète - utiliser ClipboardManager)."""
+        ClipboardManager.set_clipboard_text_safe(data)

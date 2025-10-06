@@ -6,7 +6,10 @@ import json
 import threading
 import os
 import base64
+import time
+import logging
 from PySide6.QtCore import QObject, Signal
+from utils.logger import log
 
 class OpenAIClient(QObject):
     """Client for OpenAI API interactions"""
@@ -16,10 +19,12 @@ class OpenAIClient(QObject):
     request_finished = Signal(str)
     request_error = Signal(str)
     
-    def __init__(self, api_key=None, custom_endpoint=None, custom_model=None, use_custom_endpoint=False):
+    def __init__(self, api_key=None, custom_endpoint=None, custom_model=None, use_custom_endpoint=False, max_retries=3, retry_delay=1.0):
         super().__init__()
         self.api_key = api_key
         self.use_custom_endpoint = use_custom_endpoint
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
         
         if use_custom_endpoint and custom_endpoint:
             # Utiliser l'endpoint personnalisé (ex: Ollama)
@@ -58,6 +63,73 @@ class OpenAIClient(QObject):
             args=(prompt, content, insert_directly),
             daemon=True
         ).start()
+    
+    def _make_request_with_retry(self, headers, data, timeout=60):
+        """Effectue une requête avec retry logic.
+        
+        Args:
+            headers (dict): En-têtes de la requête
+            data (dict): Données JSON à envoyer
+            timeout (int): Timeout en secondes
+            
+        Returns:
+            requests.Response: Réponse de l'API
+            
+        Raises:
+            Exception: Si toutes les tentatives échouent
+        """
+        last_exception = None
+        
+        for attempt in range(self.max_retries):
+            try:
+                response = requests.post(
+                    self.api_url,
+                    headers=headers,
+                    data=json.dumps(data),
+                    timeout=timeout
+                )
+                
+                # Si succès, retourner immédiatement
+                if response.status_code == 200:
+                    return response
+                
+                # Si erreur 429 (rate limit) ou 503 (service unavailable), réessayer
+                if response.status_code in [429, 503, 502, 504]:
+                    if attempt < self.max_retries - 1:
+                        wait_time = self.retry_delay * (2 ** attempt)  # Backoff exponentiel
+                        log(f"API error {response.status_code}, retrying in {wait_time}s (attempt {attempt + 1}/{self.max_retries})...", logging.WARNING)
+                        time.sleep(wait_time)
+                        continue
+                
+                # Pour d'autres erreurs, retourner la réponse pour traitement
+                return response
+                
+            except requests.exceptions.Timeout as e:
+                last_exception = e
+                if attempt < self.max_retries - 1:
+                    wait_time = self.retry_delay * (2 ** attempt)
+                    log(f"Request timeout, retrying in {wait_time}s (attempt {attempt + 1}/{self.max_retries})...", logging.WARNING)
+                    time.sleep(wait_time)
+                else:
+                    raise Exception(f"Request timed out after {self.max_retries} attempts") from e
+            
+            except requests.exceptions.ConnectionError as e:
+                last_exception = e
+                if attempt < self.max_retries - 1:
+                    wait_time = self.retry_delay * (2 ** attempt)
+                    log(f"Connection error, retrying in {wait_time}s (attempt {attempt + 1}/{self.max_retries})...", logging.WARNING)
+                    time.sleep(wait_time)
+                else:
+                    raise Exception(f"Connection failed after {self.max_retries} attempts") from e
+            
+            except Exception as e:
+                # Pour les autres exceptions, ne pas réessayer
+                raise
+        
+        # Si on arrive ici, toutes les tentatives ont échoué
+        if last_exception:
+            raise last_exception
+        raise Exception("All retry attempts failed")
     
     def _process_request_thread(self, prompt, content, insert_directly=False):
         """Traite la requête dans un thread séparé"""
@@ -108,13 +180,8 @@ class OpenAIClient(QObject):
                     "max_tokens": 2048  # Limiter la taille de la réponse
                 }
             
-            # Envoyer la requête
-            response = requests.post(
-                self.api_url,
-                headers=headers,
-                data=json.dumps(data),
-                timeout=60
-            )
+            # Envoyer la requête avec retry logic
+            response = self._make_request_with_retry(headers, data, timeout=60)
             
             # Vérifier si la requête a réussi
             if response.status_code == 200:
@@ -205,13 +272,8 @@ class OpenAIClient(QObject):
                     "max_tokens": 2048  # Limiter la taille de la réponse
                 }
             
-            # Envoyer la requête
-            response = requests.post(
-                self.api_url,
-                headers=headers,
-                data=json.dumps(data),
-                timeout=60
-            )
+            # Envoyer la requête avec retry logic
+            response = self._make_request_with_retry(headers, data, timeout=60)
             
             # Vérifier si la requête a réussi
             if response.status_code == 200:

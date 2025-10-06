@@ -45,6 +45,27 @@ class ContextMenuManager(QObject):
         self.api_client.request_finished.connect(self.on_request_finished)
         self.api_client.request_error.connect(self.on_request_error)
     
+    def _create_temp_api_client(self):
+        """
+        Crée un client OpenAI temporaire avec les paramètres actuels.
+        Utilisé pour les requêtes vocales où on ne veut pas interférer avec le client principal.
+        
+        Returns:
+            OpenAIClient: Un nouveau client API configuré
+        """
+        temp_client = OpenAIClient(
+            api_key=self.settings.get_api_key(),
+            custom_endpoint=self.settings.get_custom_endpoint(),
+            custom_model=self.settings.get_custom_model(),
+            use_custom_endpoint=self.settings.get_use_custom_endpoint()
+        )
+        
+        # Définir le modèle actuel (seulement si on n'utilise pas d'endpoint personnalisé)
+        if not self.settings.get_use_custom_endpoint():
+            temp_client.set_model(self.settings.get_model())
+        
+        return temp_client
+    
     def show_menu(self):
         """Show the context menu at the current cursor position"""
         # Créer le menu
@@ -402,16 +423,7 @@ class ContextMenuManager(QObject):
                     full_prompt = f"{describe_prompt}\n\n{text}"
                     
                     # Créer un client OpenAI temporaire pour cette requête spécifique
-                    temp_client = OpenAIClient(
-                        api_key=self.settings.get_api_key(),
-                        custom_endpoint=self.settings.get_custom_endpoint(),
-                        custom_model=self.settings.get_custom_model(),
-                        use_custom_endpoint=self.settings.get_use_custom_endpoint()
-                    )
-                    
-                    # Définir le modèle actuel (seulement si on n'utilise pas d'endpoint personnalisé)
-                    if not self.settings.get_use_custom_endpoint():
-                        temp_client.set_model(self.settings.get_model())
+                    temp_client = self._create_temp_api_client()
                     
                     # Afficher un message d'attente
                     QApplication.setOverrideCursor(Qt.WaitCursor)
@@ -514,16 +526,7 @@ class ContextMenuManager(QObject):
                         full_prompt = f"{prompt_text}\n\n{text}"
                     
                     # Créer un client OpenAI temporaire pour cette requête spécifique
-                    temp_client = OpenAIClient(
-                        api_key=self.settings.get_api_key(),
-                        custom_endpoint=self.settings.get_custom_endpoint(),
-                        custom_model=self.settings.get_custom_model(),
-                        use_custom_endpoint=self.settings.get_use_custom_endpoint()
-                    )
-                    
-                    # Définir le modèle actuel (seulement si on n'utilise pas d'endpoint personnalisé)
-                    if not self.settings.get_use_custom_endpoint():
-                        temp_client.set_model(self.settings.get_model())
+                    temp_client = self._create_temp_api_client()
                     
                     if insert_directly:
                         # Afficher un message d'attente
