@@ -1,11 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import sys
 import keyboard
 import time
 import logging
-from PySide6.QtCore import QObject, Signal, QTimer, Qt
+from PySide6.QtCore import QObject, Signal, Qt, QTimer
 from PySide6.QtWidgets import QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QApplication
 from utils.logger import log
 
@@ -108,17 +107,9 @@ class HotkeyManager(QObject):
         self.registered = False
         self.voice_hotkey = voice_hotkey
         self.screenshot_hotkey = screenshot_hotkey
-        self.current_keys = set()
         self.last_hotkey_time = 0
-        self.key_listener_hook = None  # Initialiser la variable pour stocker le hook
-
-        # Timer pour nettoyer les touches coincées
-        # Utiliser `self` comme parent pour s'assurer que le timer est
-        # automatiquement détruit avec le gestionnaire.
-        self.cleanup_timer = QTimer(self)
-        self.cleanup_timer.setInterval(5000)  # 5 secondes d'inactivité
-        self.cleanup_timer.timeout.connect(self._reset_stuck_keys)
-        self.cleanup_timer.start()
+        self.hotkey_handler = None  # Identifiant renvoyé par keyboard.add_hotkey
+        self.hotkey = None
         
         # Register the hotkey
         self.register_hotkey()
@@ -143,112 +134,47 @@ class HotkeyManager(QObject):
         try:
             # Register the hotkey
             log(f"Registering hotkey: {self.hotkey}", logging.INFO)
-
-            # Hook pour capturer toutes les touches
-            self.key_listener_hook = keyboard.hook(self._on_any_key)  # Stocker la référence du hook
+            self.hotkey_handler = keyboard.add_hotkey(
+                self.hotkey,
+                self._hotkey_triggered_wrapper,
+                suppress=False,
+                trigger_on_release=False,
+            )
             self.registered = True
-            # S'assurer que le timer est actif après (ré)enregistrement
-            self.cleanup_timer.start()
+            log(f"Hotkey registered successfully: {self.hotkey}", logging.DEBUG)
 
         except Exception as e:
-            log(f"Error registering hotkey: {e}", logging.ERROR)
+            log(f"Error registering hotkey '{self.hotkey}': {e}", logging.ERROR)
+            self.registered = False
+            self.hotkey_handler = None
     
     def unregister_hotkey(self):
         """Unregister the global hotkey"""
-        # Arrêter le timer de nettoyage lorsqu'on se désinscrit
-        if self.cleanup_timer.isActive():
-            self.cleanup_timer.stop()
-        if self.registered and self.key_listener_hook:
+        if self.registered and self.hotkey_handler is not None:
             try:
-                # Unhook the keyboard listener
-                keyboard.unhook(self.key_listener_hook)  # Utiliser la référence spécifique du hook
-                self.key_listener_hook = None
+                keyboard.remove_hotkey(self.hotkey_handler)
                 self.registered = False
                 log("Hotkey unregistered")
             except Exception as e:
                 log(f"Error unregistering hotkey: {e}", logging.ERROR)
         elif self.registered:
-            # Fallback ou cas où key_listener_hook n'est pas défini mais registered est True
-            # Cela ne devrait pas arriver avec la logique actuelle, mais c'est une sécurité
-            try:
-                keyboard.unhook_all() # Tentative de nettoyage général si le hook spécifique n'est pas connu
-                self.registered = False
-                log("Fallback: All hotkeys unregistered due to missing specific hook reference", logging.WARNING)
-            except Exception as e:
-                log(f"Error during fallback unregister_hotkey: {e}", logging.ERROR)
+            # Si nous n'avons plus de gestionnaire mais que registered est True, réinitialiser l'état
+            self.registered = False
 
     def close(self):
         """Stopper le timer et nettoyer les raccourcis."""
         self.unregister_hotkey()
 
-    
-    def _on_any_key(self, event):
-        """Handle key events to detect hotkey combinations"""
-        # Redémarrer le timer de nettoyage à chaque événement
-        self.cleanup_timer.start()
-
-        # Obtenir le nom de la touche
-        key_name = event.name.lower()
-        
-        # Ignorer certaines touches spéciales
-        if key_name in ['left ctrl', 'right ctrl']:
-            key_name = 'ctrl'
-        elif key_name in ['left alt', 'right alt']:
-            key_name = 'alt'
-        elif key_name in ['left shift', 'right shift']:
-            key_name = 'shift'
-        
-        # Gérer les événements de touche
-        if event.event_type == keyboard.KEY_DOWN:
-            # Ajouter la touche à l'ensemble des touches enfoncées
-            if key_name not in self.current_keys:
-                self.current_keys.add(key_name)
-                self._check_hotkey()
-        elif event.event_type == keyboard.KEY_UP:
-            # Retirer la touche de l'ensemble des touches enfoncées
-            if key_name in self.current_keys:
-                self.current_keys.remove(key_name)
-
-    def _reset_stuck_keys(self):
-        """Réinitialise les touches si aucune activité n'est détectée."""
-        if self.current_keys:
-            log("Resetting stuck keys", logging.DEBUG)
-            self.current_keys.clear()
-                
-    def _check_hotkey(self):
-        """Check if the current keys match the hotkey"""
-        # Obtenir le raccourci configuré
-        if self.voice_hotkey:
-            configured_hotkey = self.settings.get_voice_hotkey().lower()
-        elif self.screenshot_hotkey:
-            configured_hotkey = self.settings.get_screenshot_hotkey().lower()
-        else:
-            configured_hotkey = self.settings.get_hotkey().lower()
-        
-        # Vérifier s'il s'agit d'un raccourci sans modificateur (une seule touche)
-        if "+" not in configured_hotkey:
-            # Pour les raccourcis à touche unique, vérifier si la touche est enfoncée
-            if configured_hotkey in self.current_keys and len(self.current_keys) == 1:
-                # Éviter les déclenchements multiples en vérifiant le temps écoulé
-                current_time = time.time()
-                if current_time - self.last_hotkey_time > 0.5:  # 500ms de délai
-                    self.last_hotkey_time = current_time
-                    self._hotkey_triggered()
+    def _hotkey_triggered_wrapper(self):
+        """Wrapper pour éviter les déclenchements multiples rapprochés."""
+        current_time = time.time()
+        if current_time - self.last_hotkey_time < 0.5:
             return
-        
-        # Pour les raccourcis avec modificateurs
-        # Diviser le raccourci en touches individuelles
-        hotkey_parts = configured_hotkey.split("+")
-        hotkey_parts = [part.strip().lower() for part in hotkey_parts]
-        
-        # Vérifier si toutes les touches du raccourci sont enfoncées
-        if all(part in self.current_keys for part in hotkey_parts) and len(self.current_keys) == len(hotkey_parts):
-            # Éviter les déclenchements multiples en vérifiant le temps écoulé
-            current_time = time.time()
-            if current_time - self.last_hotkey_time > 0.5:  # 500ms de délai
-                self.last_hotkey_time = current_time
-                self._hotkey_triggered()
-    
+        self.last_hotkey_time = current_time
+        # Utiliser QTimer.singleShot pour émettre le signal depuis le thread Qt principal
+        # Ceci garantit la thread-safety des signaux Qt
+        QTimer.singleShot(0, self._hotkey_triggered)
+
     def _hotkey_triggered(self):
         """Handle hotkey trigger"""
         # Émettre le signal approprié en fonction du type de raccourci
@@ -261,12 +187,6 @@ class HotkeyManager(QObject):
         else:
             log("Hotkey triggered", logging.DEBUG)
             self.hotkey_triggered.emit()
-
-        # Re-register the hotkey after each trigger to ensure the next
-        # activation remains functional. Clear any currently tracked keys
-        # to avoid stale state before re-registration.
-        self.current_keys.clear()
-        self.register_hotkey()
     
     def show_hotkey_recorder(self):
         """Show a dialog to record a new hotkey"""
