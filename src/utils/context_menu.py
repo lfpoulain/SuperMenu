@@ -28,10 +28,10 @@ class ContextMenuManager(QObject):
         super().__init__()
         self.settings = settings
         # Initialiser le client API avec les paramètres
+        # Ne pas passer le modèle ici, OpenAIClient le déterminera selon le type d'endpoint
         self.api_client = OpenAIClient(
             settings=settings,
-            api_key=settings.get_api_key(),
-            model=settings.get_model()
+            api_key=settings.get_api_key()
         )
         self.response_window = ResponseWindow()
         self.voice_recognition = None
@@ -49,15 +49,11 @@ class ContextMenuManager(QObject):
         Returns:
             OpenAIClient: Un nouveau client API configuré
         """
+        # Créer un client temporaire qui déterminera automatiquement le bon modèle
         temp_client = OpenAIClient(
             settings=self.settings,
-            api_key=self.settings.get_api_key(),
-            model=self.settings.get_model()
+            api_key=self.settings.get_api_key()
         )
-        
-        # Définir le modèle actuel (seulement si on n'utilise pas d'endpoint personnalisé)
-        if not self.settings.get_use_custom_endpoint():
-            temp_client.set_model(self.settings.get_model())
         
         return temp_client
     
@@ -675,20 +671,16 @@ class ContextMenuManager(QObject):
         """Met à jour la configuration du client API avec les paramètres actuels."""
         if self.api_client:
             # Recréer le client avec les nouveaux paramètres
+            # Le modèle sera automatiquement déterminé selon le type d'endpoint
             self.api_client = OpenAIClient(
                 settings=self.settings,
-                api_key=self.settings.get_api_key(),
-                model=self.settings.get_model()
+                api_key=self.settings.get_api_key()
             )
             
             # Reconnecter les signaux
             self.api_client.request_started.connect(self.on_request_started)
             self.api_client.request_finished.connect(self.on_request_finished)
             self.api_client.request_error.connect(self.on_request_error)
-            
-            # Définir le modèle actuel (seulement si on n'utilise pas d'endpoint personnalisé)
-            if not self.settings.get_use_custom_endpoint():
-                self.api_client.set_model(self.settings.get_model())
                 
             endpoint_info = self.settings.get_custom_endpoint() if self.settings.get_use_custom_endpoint() else "OpenAI"
             model_info = self.settings.get_custom_model() if self.settings.get_use_custom_endpoint() else self.settings.get_model()

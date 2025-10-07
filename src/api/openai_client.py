@@ -38,9 +38,11 @@ class OpenAIClient(QObject):
         if self.use_custom_endpoint:
             custom_model = settings.get_custom_model()
             self.model = model if model else (custom_model if custom_model else "llama2")
+            log(f"OpenAIClient: Utilisation du modèle personnalisé '{self.model}' avec endpoint {self.custom_endpoint}", logging.INFO)
         else:
             # Sinon utiliser le modèle OpenAI
             self.model = model if model else settings.get_model()
+            log(f"OpenAIClient: Utilisation du modèle OpenAI '{self.model}'", logging.INFO)
         
         # Connecter les signaux internes aux méthodes d'émission
         self._internal_finished.connect(self._emit_finished)
