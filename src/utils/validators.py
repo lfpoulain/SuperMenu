@@ -36,8 +36,9 @@ class Validators:
         if api_key.startswith("sk-"):
             if len(api_key) < 48:
                 return False, "La clé API OpenAI semble invalide (trop courte)"
-            # Format basique : sk-[proj-]XXXX...
-            if not re.match(r'^sk-[a-zA-Z0-9\-]+$', api_key):
+            # Format basique : sk-[proj-]XXXX... (accepte lettres, chiffres, tirets et underscores)
+            # Les nouvelles clés OpenAI peuvent contenir des underscores : sk-proj-XXXX_YYYY
+            if not re.match(r'^sk-[a-zA-Z0-9\-_]+$', api_key):
                 return False, "La clé API contient des caractères invalides"
         
         return True, ""
