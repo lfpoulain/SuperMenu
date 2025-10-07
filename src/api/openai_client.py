@@ -8,7 +8,7 @@ import os
 import base64
 import time
 import logging
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QMetaObject, Qt, Q_ARG
 from utils.logger import log
 
 class OpenAIClient(QObject):
@@ -195,16 +195,33 @@ class OpenAIClient(QObject):
                     inserter = TextInserter()
                     inserter.insert_text(content)
                 else:
-                    # Envoyer le contenu à la fenêtre de réponse
-                    self.request_finished.emit(content)
+                    # Envoyer le contenu à la fenêtre de réponse dans le thread Qt
+                    QMetaObject.invokeMethod(self, "_emit_finished", Qt.QueuedConnection,
+                                           Q_ARG(str, content))
             else:
-                # Gérer l'erreur
+                # Gérer l'erreur dans le thread Qt
                 error_message = f"Erreur {response.status_code}: {response.text}"
-                self.request_error.emit(error_message)
+                QMetaObject.invokeMethod(self, "_emit_error", Qt.QueuedConnection,
+                                       Q_ARG(str, error_message))
         
         except Exception as e:
-            # Gérer l'exception
-            self.request_error.emit(f"Erreur: {str(e)}")
+            # Gérer l'exception dans le thread Qt
+            QMetaObject.invokeMethod(self, "_emit_error", Qt.QueuedConnection,
+                                   Q_ARG(str, f"Erreur: {str(e)}"))
+    
+    def _emit_finished(self, content):
+        """Émet le signal finished dans le thread Qt principal"""
+        try:
+            self.request_finished.emit(content)
+        except Exception as e:
+            log(f"Error emitting finished signal: {e}", logging.ERROR)
+    
+    def _emit_error(self, error_message):
+        """Émet le signal error dans le thread Qt principal"""
+        try:
+            self.request_error.emit(error_message)
+        except Exception as e:
+            log(f"Error emitting error signal: {e}", logging.ERROR)
     
     def _cleanup_image(self, image_path):
         """Nettoyer l'image temporaire après utilisation"""

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import win32clipboard
-from PySide6.QtWidgets import QMenu, QApplication, QMessageBox, QDialog
+from PySide6.QtWidgets import QMenu, QApplication, QDialog
 from PySide6.QtGui import QCursor
 from PySide6.QtCore import QObject, Signal, Qt
 import os
@@ -13,6 +13,7 @@ import pyautogui
 import logging
 
 from src.api.openai_client import OpenAIClient
+from utils.safe_dialogs import SafeDialogs
 from src.ui.response_window import ResponseWindow
 from src.ui.prompt_dialog import PromptDialog
 from src.ui.screen_capture import capture_screen
@@ -264,11 +265,9 @@ class ContextMenuManager(QObject):
         
         if not selected_text:
             log("Aucun texte sélectionné", logging.DEBUG)
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.information(
-                None,
+            SafeDialogs.show_information(
                 "Information",
-                "Aucun texte sélectionné. Veuillez sélectionner du texte avant d'utiliser le raccourci.",
+                "Aucun texte sélectionné. Veuillez sélectionner du texte avant d'utiliser le raccourci."
             )
             return ""
             
@@ -401,7 +400,7 @@ class ContextMenuManager(QObject):
             # Démarrer la reconnaissance vocale
             self.voice_recognition.start_voice_recognition()
         except Exception as e:
-            QMessageBox.critical(None, "Erreur de reconnaissance vocale",
+            SafeDialogs.show_critical("Erreur de reconnaissance vocale",
                                 f"Une erreur s'est produite lors de la reconnaissance vocale : {str(e)}")
 
     
@@ -439,10 +438,9 @@ class ContextMenuManager(QObject):
                         log("Réponse insérée avec succès", logging.INFO)
                     except Exception as e:
                         log(f"Erreur lors de la requête API: {e}", logging.ERROR)
-                        QMessageBox.critical(
-                            None,
+                        SafeDialogs.show_critical(
                             "Erreur de traitement",
-                            f"Une erreur s'est produite lors du traitement de la réponse : {str(e)}",
+                            f"Une erreur s'est produite lors du traitement de la réponse : {str(e)}"
                         )
                     finally:
                         # Restaurer le curseur
@@ -468,7 +466,7 @@ class ContextMenuManager(QObject):
             self.voice_recognition.start_voice_recognition(insert_text=False)
             
         except Exception as e:
-            QMessageBox.critical(None, "Erreur de description de réponse", 
+            SafeDialogs.show_critical("Erreur de description de réponse", 
                                 f"Une erreur s'est produite lors de la description de réponse : {str(e)}")
 
     def _handle_voice_prompt_action(self, prompt_id):
@@ -543,10 +541,9 @@ class ContextMenuManager(QObject):
                             log("Réponse insérée avec succès", logging.INFO)
                         except Exception as e:
                             log(f"Erreur lors de la requête API: {e}", logging.ERROR)
-                            QMessageBox.critical(
-                                None,
+                            SafeDialogs.show_critical(
                                 "Erreur de traitement",
-                                f"Une erreur s'est produite lors du traitement de la réponse : {str(e)}",
+                                f"Une erreur s'est produite lors du traitement de la réponse : {str(e)}"
                             )
                         finally:
                             # Restaurer le curseur
@@ -581,7 +578,7 @@ class ContextMenuManager(QObject):
             self.voice_recognition.start_voice_recognition(insert_text=False)
             
         except Exception as e:
-            QMessageBox.critical(None, "Erreur de prompt vocal", 
+            SafeDialogs.show_critical("Erreur de prompt vocal", 
                                 f"Une erreur s'est produite lors de l'exécution du prompt vocal : {str(e)}")
     
     def _handle_voice_godmode_action(self):
@@ -637,7 +634,7 @@ class ContextMenuManager(QObject):
             self.voice_recognition.start_voice_recognition(insert_text=False)
 
         except Exception as e:
-            QMessageBox.critical(None, "Erreur de prompt personnalisé",
+            SafeDialogs.show_critical("Erreur de prompt personnalisé",
                                 f"Une erreur s'est produite lors du traitement du prompt personnalisé : {str(e)}")
 
     def stop_voice_recognition(self):

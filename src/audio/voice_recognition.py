@@ -8,9 +8,10 @@ import os
 import threading
 import time
 import logging
-from PySide6.QtWidgets import QApplication, QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton
+from PySide6.QtWidgets import QApplication, QDialog, QVBoxLayout, QLabel, QPushButton
 from PySide6.QtCore import Qt, QTimer
 from utils.logger import log
+from utils.safe_dialogs import SafeDialogs
 from audio.audio_recorder import AudioRecorder
 from audio.transcription import Transcriber
 from audio.text_inserter import TextInserter
@@ -81,7 +82,7 @@ class VoiceRecognition:
             if not self.recording_file:
                 log("Échec du démarrage de l'enregistrement", level=logging.ERROR)
                 self.is_recording = False
-                QMessageBox.critical(None, "Erreur de reconnaissance vocale", "Échec du démarrage de l'enregistrement")
+                SafeDialogs.show_critical("Erreur de reconnaissance vocale", "Échec du démarrage de l'enregistrement")
                 return False
             
             # Créer et afficher la boîte de dialogue d'enregistrement
@@ -117,7 +118,7 @@ class VoiceRecognition:
             
             if not audio_file or not os.path.exists(audio_file):
                 log("Aucun fichier audio enregistré", level=logging.ERROR)
-                QMessageBox.critical(None, "Erreur de reconnaissance vocale", "Aucun fichier audio n'a été enregistré")
+                SafeDialogs.show_critical("Erreur de reconnaissance vocale", "Aucun fichier audio n'a été enregistré")
                 return False
             
             # Transcrire l'audio
@@ -126,7 +127,7 @@ class VoiceRecognition:
             
             if not text:
                 log("Échec de la transcription", level=logging.ERROR)
-                QMessageBox.critical(None, "Erreur de reconnaissance vocale", "Échec de la transcription audio")
+                SafeDialogs.show_critical("Erreur de reconnaissance vocale", "Échec de la transcription audio")
                 return False
             
             # Supprimer le fichier audio temporaire
@@ -153,10 +154,7 @@ class VoiceRecognition:
         except Exception as e:
             log(f"Erreur lors de la reconnaissance vocale: {e}", level=logging.ERROR)
             self.is_recording = False
-            try:
-                QMessageBox.critical(None, "Erreur de reconnaissance vocale", f"Erreur lors de la reconnaissance vocale: {e}")
-            except Exception as msg_error:
-                log(f"Could not show error message: {msg_error}", level=logging.ERROR)
+            SafeDialogs.show_critical("Erreur de reconnaissance vocale", f"Erreur lors de la reconnaissance vocale: {e}")
             return False
     
     def describe_voice_response(self, text):

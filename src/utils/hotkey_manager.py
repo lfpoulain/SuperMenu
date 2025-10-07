@@ -6,7 +6,7 @@ import keyboard
 import time
 import logging
 import threading
-from PySide6.QtCore import QObject, Signal, QTimer, Qt
+from PySide6.QtCore import QObject, Signal, QTimer, Qt, QMetaObject, Q_ARG
 from PySide6.QtWidgets import QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QApplication
 from utils.logger import log
 
@@ -329,16 +329,18 @@ class HotkeyManager(QObject):
         self._is_processing_trigger = True
         
         try:
-            # Émettre le signal approprié en fonction du type de raccourci
+            # Émettre le signal dans le thread principal Qt pour éviter les problèmes de threading
+            # CRITIQUE : keyboard.hook() s'exécute dans un thread Windows, pas le thread Qt
+            # On doit donc forcer l'émission du signal dans le thread principal
             if self.voice_hotkey:
                 log("Voice hotkey triggered", logging.INFO)
-                self.voice_hotkey_triggered.emit()
+                QMetaObject.invokeMethod(self, "_emit_voice_signal", Qt.QueuedConnection)
             elif self.screenshot_hotkey:
                 log("Screenshot hotkey triggered", logging.INFO)
-                self.screenshot_hotkey_triggered.emit()
+                QMetaObject.invokeMethod(self, "_emit_screenshot_signal", Qt.QueuedConnection)
             else:
                 log("Hotkey triggered", logging.INFO)
-                self.hotkey_triggered.emit()
+                QMetaObject.invokeMethod(self, "_emit_hotkey_signal", Qt.QueuedConnection)
         except Exception as e:
             log(f"Error emitting hotkey signal: {e}", logging.ERROR)
         finally:
@@ -346,6 +348,27 @@ class HotkeyManager(QObject):
             # Ne PAS ré-enregistrer le hook - il reste actif en permanence
             self.current_keys.clear()
             self._is_processing_trigger = False
+    
+    def _emit_hotkey_signal(self):
+        """Émet le signal hotkey dans le thread principal Qt"""
+        try:
+            self.hotkey_triggered.emit()
+        except Exception as e:
+            log(f"Error in _emit_hotkey_signal: {e}", logging.ERROR)
+    
+    def _emit_voice_signal(self):
+        """Émet le signal voice hotkey dans le thread principal Qt"""
+        try:
+            self.voice_hotkey_triggered.emit()
+        except Exception as e:
+            log(f"Error in _emit_voice_signal: {e}", logging.ERROR)
+    
+    def _emit_screenshot_signal(self):
+        """Émet le signal screenshot hotkey dans le thread principal Qt"""
+        try:
+            self.screenshot_hotkey_triggered.emit()
+        except Exception as e:
+            log(f"Error in _emit_screenshot_signal: {e}", logging.ERROR)
     
     def show_hotkey_recorder(self):
         """Show a dialog to record a new hotkey"""
