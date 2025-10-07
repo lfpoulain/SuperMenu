@@ -8,36 +8,48 @@ import os
 import base64
 import time
 import logging
-from PySide6.QtCore import QObject, Signal, QMetaObject, Qt, Q_ARG
+from PySide6.QtCore import QObject, Signal, QTimer, Slot
 from utils.logger import log
 
 class OpenAIClient(QObject):
     """Client for OpenAI API interactions"""
     
-    # Signals
+    # Signals publics
     request_started = Signal()
     request_finished = Signal(str)
     request_error = Signal(str)
     
-    def __init__(self, api_key=None, custom_endpoint=None, custom_model=None, use_custom_endpoint=False, max_retries=3, retry_delay=1.0):
+    # Signaux internes pour communication inter-threads (thread-safe)
+    _internal_finished = Signal(str)
+    _internal_error = Signal(str)
+    
+    def __init__(self, settings, api_key=None, model=None, max_retries=3, retry_delay=1.0):
         super().__init__()
         self.api_key = api_key
-        self.use_custom_endpoint = use_custom_endpoint
+        self.settings = settings
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.model = model if model else settings.get_model()
+        self.use_custom_endpoint = settings.get_use_custom_endpoint()
+        self.custom_endpoint = settings.get_custom_endpoint() if self.use_custom_endpoint else None
         
-        if use_custom_endpoint and custom_endpoint:
-            # Utiliser l'endpoint personnalisé (ex: Ollama)
-            self.api_url = custom_endpoint
-            if not self.api_url.endswith('/chat/completions'):
-                if not self.api_url.endswith('/'):
-                    self.api_url += '/'
-                self.api_url += 'v1/chat/completions'
-            self.model = custom_model if custom_model else "llama2"  # Modèle par défaut pour Ollama
+        # Connecter les signaux internes aux méthodes d'émission
+        self._internal_finished.connect(self._emit_finished)
+        self._internal_error.connect(self._emit_error)
+        
+        # Configurer l'URL de l'API
+        if self.use_custom_endpoint and self.custom_endpoint:
+            self.api_url = self.custom_endpoint
+            if not self.api_url.endswith('/'):
+                self.api_url += '/'
+            self.api_url += 'v1/chat/completions'
+            if not model:
+                self.model = "llama2"  # Modèle par défaut pour Ollama
         else:
             # Utiliser OpenAI par défaut
             self.api_url = "https://api.openai.com/v1/chat/completions"
-            self.model = "gpt-4o-mini"  # Default model
+            if not model:
+                self.model = "gpt-4o-mini"  # Default model
     
     def set_api_key(self, api_key):
         """Set the API key"""
@@ -195,20 +207,18 @@ class OpenAIClient(QObject):
                     inserter = TextInserter()
                     inserter.insert_text(content)
                 else:
-                    # Envoyer le contenu à la fenêtre de réponse dans le thread Qt
-                    QMetaObject.invokeMethod(self, "_emit_finished", Qt.QueuedConnection,
-                                           Q_ARG(str, content))
+                    # Envoyer le contenu à la fenêtre de réponse via signal interne thread-safe
+                    self._internal_finished.emit(content)
             else:
-                # Gérer l'erreur dans le thread Qt
+                # Gérer l'erreur via signal interne thread-safe
                 error_message = f"Erreur {response.status_code}: {response.text}"
-                QMetaObject.invokeMethod(self, "_emit_error", Qt.QueuedConnection,
-                                       Q_ARG(str, error_message))
+                self._internal_error.emit(error_message)
         
         except Exception as e:
-            # Gérer l'exception dans le thread Qt
-            QMetaObject.invokeMethod(self, "_emit_error", Qt.QueuedConnection,
-                                   Q_ARG(str, f"Erreur: {str(e)}"))
+            # Gérer l'exception via signal interne thread-safe
+            self._internal_error.emit(f"Erreur: {str(e)}")
     
+    @Slot(str)
     def _emit_finished(self, content):
         """Émet le signal finished dans le thread Qt principal"""
         try:
@@ -216,6 +226,7 @@ class OpenAIClient(QObject):
         except Exception as e:
             log(f"Error emitting finished signal: {e}", logging.ERROR)
     
+    @Slot(str)
     def _emit_error(self, error_message):
         """Émet le signal error dans le thread Qt principal"""
         try:
