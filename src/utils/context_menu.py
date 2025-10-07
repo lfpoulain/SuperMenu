@@ -27,17 +27,12 @@ class ContextMenuManager(QObject):
     def __init__(self, settings):
         super().__init__()
         self.settings = settings
-        # Initialiser le client API avec les paramètres personnalisés
+        # Initialiser le client API avec les paramètres
         self.api_client = OpenAIClient(
+            settings=settings,
             api_key=settings.get_api_key(),
-            custom_endpoint=settings.get_custom_endpoint(),
-            custom_model=settings.get_custom_model(),
-            use_custom_endpoint=settings.get_use_custom_endpoint()
+            model=settings.get_model()
         )
-        
-        # Définir le modèle actuel (seulement si on n'utilise pas d'endpoint personnalisé)
-        if not settings.get_use_custom_endpoint():
-            self.api_client.set_model(self.settings.get_model())
         self.response_window = ResponseWindow()
         self.voice_recognition = None
         
@@ -55,10 +50,9 @@ class ContextMenuManager(QObject):
             OpenAIClient: Un nouveau client API configuré
         """
         temp_client = OpenAIClient(
+            settings=self.settings,
             api_key=self.settings.get_api_key(),
-            custom_endpoint=self.settings.get_custom_endpoint(),
-            custom_model=self.settings.get_custom_model(),
-            use_custom_endpoint=self.settings.get_use_custom_endpoint()
+            model=self.settings.get_model()
         )
         
         # Définir le modèle actuel (seulement si on n'utilise pas d'endpoint personnalisé)
@@ -682,10 +676,9 @@ class ContextMenuManager(QObject):
         if self.api_client:
             # Recréer le client avec les nouveaux paramètres
             self.api_client = OpenAIClient(
+                settings=self.settings,
                 api_key=self.settings.get_api_key(),
-                custom_endpoint=self.settings.get_custom_endpoint(),
-                custom_model=self.settings.get_custom_model(),
-                use_custom_endpoint=self.settings.get_use_custom_endpoint()
+                model=self.settings.get_model()
             )
             
             # Reconnecter les signaux

@@ -9,7 +9,7 @@ import threading
 import time
 import logging
 from PySide6.QtWidgets import QApplication, QDialog, QVBoxLayout, QLabel, QPushButton
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, QObject, Slot
 from PySide6.QtGui import QFont
 from utils.logger import log
 from utils.safe_dialogs import SafeDialogs
@@ -134,8 +134,12 @@ class RecordingDialog(QDialog):
         self.recording_stopped.emit()
         self.close()
 
-class VoiceRecognition:
+class VoiceRecognition(QObject):
     """Classe principale pour la reconnaissance vocale."""
+    
+    # Signaux internes pour communication thread-safe
+    _close_indicator_signal = Signal()
+    _callback_signal = Signal(str)  # Signal pour exécuter le callback
     
     def __init__(self, api_key=None, microphone_index=None, callback=None):
         """
@@ -146,6 +150,7 @@ class VoiceRecognition:
             microphone_index (int, optional): Index du microphone à utiliser
             callback (function, optional): Fonction de rappel à appeler avec le texte transcrit
         """
+        super().__init__()
         self.api_key = api_key
         self.microphone_index = microphone_index
         self.callback = callback
@@ -154,6 +159,10 @@ class VoiceRecognition:
         self.text_inserter = TextInserter()
         self.is_recording = False
         self.recording_file = None
+        
+        # Connecter le signal de callback
+        if self.callback and callable(self.callback):
+            self._callback_signal.connect(lambda text: self.callback(text))
         
         log("Module de reconnaissance vocale initialisé")
         
@@ -231,6 +240,13 @@ class VoiceRecognition:
         from utils.loading_indicator import SimpleLoadingIndicator
         self.processing_indicator = SimpleLoadingIndicator.show_simple("🎤 Transcription en cours...")
         
+        # Connecter le signal de fermeture (une seule fois)
+        try:
+            self._close_indicator_signal.disconnect()
+        except:
+            pass
+        self._close_indicator_signal.connect(self._close_indicator_impl)
+        
         # Traiter l'audio dans un thread séparé pour ne pas bloquer l'UI
         def process_audio():
             try:
@@ -246,8 +262,8 @@ class VoiceRecognition:
                 except Exception as e:
                     log(f"Erreur lors de la suppression du fichier audio temporaire: {e}")
                 
-                # Fermer l'indicateur de traitement dans le thread Qt
-                QTimer.singleShot(0, self.processing_indicator.close)
+                # Fermer l'indicateur de traitement via signal thread-safe
+                self._close_indicator_signal.emit()
                 
                 if not text:
                     log("Échec de la transcription", level=logging.ERROR)
@@ -256,13 +272,8 @@ class VoiceRecognition:
                 
                 # Si nous avons une fonction de rappel, l'appeler avec le texte
                 if self.callback and callable(self.callback):
-                    # Exécuter le callback dans le thread Qt principal
-                    from PySide6.QtCore import QMetaObject, Qt
-                    QMetaObject.invokeMethod(
-                        QApplication.instance(),
-                        lambda: self.callback(text),
-                        Qt.QueuedConnection
-                    )
+                    # Exécuter le callback dans le thread Qt principal via signal thread-safe
+                    self._callback_signal.emit(text)
                     return
                 
                 # Sinon, insérer le texte selon le paramètre
@@ -276,12 +287,24 @@ class VoiceRecognition:
                     
             except Exception as e:
                 log(f"Erreur lors du traitement de l'audio: {e}", level=logging.ERROR)
-                QTimer.singleShot(0, self.processing_indicator.close)
+                # Fermer l'indicateur même en cas d'erreur via signal thread-safe
+                self._close_indicator_signal.emit()
                 SafeDialogs.show_critical("Erreur de traitement", f"Erreur lors du traitement de l'audio: {e}")
         
         # Lancer le traitement dans un thread
         thread = threading.Thread(target=process_audio, daemon=True)
         thread.start()
+    
+    @Slot()
+    def _close_indicator_impl(self):
+        """Ferme l'indicateur de traitement dans le thread Qt principal."""
+        try:
+            if hasattr(self, 'processing_indicator') and self.processing_indicator:
+                self.processing_indicator.close()
+                self.processing_indicator = None
+                log("Indicateur de transcription fermé")
+        except Exception as e:
+            log(f"Erreur lors de la fermeture de l'indicateur: {e}", level=logging.ERROR)
     
     def describe_voice_response(self, text):
         """

@@ -29,9 +29,18 @@ class OpenAIClient(QObject):
         self.settings = settings
         self.max_retries = max_retries
         self.retry_delay = retry_delay
-        self.model = model if model else settings.get_model()
+        
+        # Déterminer le modèle à utiliser
         self.use_custom_endpoint = settings.get_use_custom_endpoint()
         self.custom_endpoint = settings.get_custom_endpoint() if self.use_custom_endpoint else None
+        
+        # Si on utilise un endpoint personnalisé et qu'on a un custom_model dans les settings, l'utiliser
+        if self.use_custom_endpoint:
+            custom_model = settings.get_custom_model()
+            self.model = model if model else (custom_model if custom_model else "llama2")
+        else:
+            # Sinon utiliser le modèle OpenAI
+            self.model = model if model else settings.get_model()
         
         # Connecter les signaux internes aux méthodes d'émission
         self._internal_finished.connect(self._emit_finished)
@@ -43,13 +52,9 @@ class OpenAIClient(QObject):
             if not self.api_url.endswith('/'):
                 self.api_url += '/'
             self.api_url += 'v1/chat/completions'
-            if not model:
-                self.model = "llama2"  # Modèle par défaut pour Ollama
         else:
             # Utiliser OpenAI par défaut
             self.api_url = "https://api.openai.com/v1/chat/completions"
-            if not model:
-                self.model = "gpt-4o-mini"  # Default model
     
     def set_api_key(self, api_key):
         """Set the API key"""

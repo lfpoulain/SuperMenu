@@ -130,10 +130,10 @@ class HotkeyManager(QObject):
         self._max_errors = 5  # Nombre maximum d'erreurs avant tentative de récupération
 
         # Timer pour nettoyer les touches coincées
-        # Utiliser `self` comme parent pour s'assurer que le timer est
-        # automatiquement détruit avec le gestionnaire.
+        # Note: Ces timers sont créés dans le thread Qt et ne doivent JAMAIS être
+        # démarrés/arrêtés depuis le thread keyboard.hook()
         self.cleanup_timer = QTimer(self)
-        self.cleanup_timer.setInterval(5000)  # 5 secondes d'inactivité
+        self.cleanup_timer.setInterval(10000)  # 10 secondes (plus long pour éviter trop d'appels)
         self.cleanup_timer.timeout.connect(self._reset_stuck_keys)
         self.cleanup_timer.start()
         
@@ -249,8 +249,8 @@ class HotkeyManager(QObject):
         if not self.registered:
             return
         
-        # Redémarrer le timer de nettoyage à chaque événement
-        self.cleanup_timer.start()
+        # Redémarrer le timer de nettoyage depuis le thread Qt principal
+        # Ne PAS appeler start() directement depuis le thread Windows
 
         # Obtenir le nom de la touche
         key_name = event.name.lower()
@@ -273,8 +273,9 @@ class HotkeyManager(QObject):
             elif event.event_type == keyboard.KEY_UP:
                 # Retirer la touche de l'ensemble des touches enfoncées
                 if key_name in self.current_keys:
-                    self.current_keys.remove(key_name)
+                    self.current_keys.discard(key_name)
 
+    @Slot()
     def _reset_stuck_keys(self):
         """Réinitialise les touches si aucune activité n'est détectée."""
         with self._lock:
