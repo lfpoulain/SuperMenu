@@ -9,7 +9,7 @@ import threading
 import time
 import logging
 from PySide6.QtWidgets import QApplication, QDialog, QVBoxLayout, QLabel, QPushButton
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from utils.logger import log
 from utils.safe_dialogs import SafeDialogs
 from audio.audio_recorder import AudioRecorder
@@ -21,6 +21,52 @@ from audio.audio_config import (
     VOICE_RECOGNITION_DIALOG_MESSAGE,
     VOICE_RECOGNITION_STOP_BUTTON_TEXT
 )
+
+class RecordingDialog(QDialog):
+    """Dialogue non-bloquant pour l'enregistrement vocal."""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(VOICE_RECOGNITION_DIALOG_TITLE)
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.Window)
+        self.setMinimumWidth(VOICE_RECOGNITION_DIALOG_WIDTH)
+        self.setModal(False)  # Non-bloquant
+        
+        # Layout
+        layout = QVBoxLayout()
+        
+        # Message
+        self.message = QLabel(VOICE_RECOGNITION_DIALOG_MESSAGE)
+        self.message.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.message)
+        
+        # Bouton stop
+        stop_button = QPushButton(VOICE_RECOGNITION_STOP_BUTTON_TEXT)
+        stop_button.clicked.connect(self.accept)
+        layout.addWidget(stop_button)
+        
+        self.setLayout(layout)
+        
+        # Timer de sécurité (30 secondes max)
+        self.timeout_timer = QTimer()
+        self.timeout_timer.setSingleShot(True)
+        self.timeout_timer.timeout.connect(self._on_timeout)
+    
+    def showEvent(self, event):
+        """Démarre le timer de timeout."""
+        super().showEvent(event)
+        self.timeout_timer.start(30000)  # 30 secondes
+    
+    def _on_timeout(self):
+        """Timeout de l'enregistrement."""
+        log("Recording dialog timeout after 30 seconds", logging.WARNING)
+        self.reject()
+    
+    def closeEvent(self, event):
+        """Arrête le timer."""
+        self.timeout_timer.stop()
+        super().closeEvent(event)
+
 
 class VoiceRecognition:
     """Classe principale pour la reconnaissance vocale."""
@@ -85,33 +131,34 @@ class VoiceRecognition:
                 SafeDialogs.show_critical("Erreur de reconnaissance vocale", "Échec du démarrage de l'enregistrement")
                 return False
             
-            # Créer et afficher la boîte de dialogue d'enregistrement
-            dialog = QDialog(None)
-            dialog.setWindowTitle(VOICE_RECOGNITION_DIALOG_TITLE)
-            dialog.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.Window)
-            dialog.setMinimumWidth(VOICE_RECOGNITION_DIALOG_WIDTH)
+            # Créer et afficher la boîte de dialogue d'enregistrement (NON-BLOQUANTE)
+            dialog = RecordingDialog()
             
-            # Créer le layout
-            layout = QVBoxLayout()
+            # Connecter le signal de fermeture pour traiter l'audio
+            dialog.finished.connect(lambda: self._process_recording(dialog, insert_text))
             
-            # Ajouter un message
-            message = QLabel(VOICE_RECOGNITION_DIALOG_MESSAGE)
-            message.setAlignment(Qt.AlignCenter)
-            layout.addWidget(message)
+            # Afficher de manière non-bloquante
+            dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
             
-            # Ajouter un bouton pour arrêter l'enregistrement
-            stop_button = QPushButton(VOICE_RECOGNITION_STOP_BUTTON_TEXT)
-            layout.addWidget(stop_button)
+            return True  # Retour immédiat, traitement asynchrone
             
-            # Configurer la boîte de dialogue
-            dialog.setLayout(layout)
-            
-            # Connecter le bouton à l'arrêt de l'enregistrement et à la fermeture de la boîte de dialogue
-            stop_button.clicked.connect(dialog.accept)
-            
-            # Afficher la boîte de dialogue de manière modale
-            dialog.exec()
-            
+        except Exception as e:
+            log(f"Erreur lors de la reconnaissance vocale: {e}", level=logging.ERROR)
+            self.is_recording = False
+            SafeDialogs.show_critical("Erreur de reconnaissance vocale", f"Erreur lors de la reconnaissance vocale: {e}")
+            return False
+    
+    def _process_recording(self, dialog, insert_text):
+        """
+        Traite l'enregistrement après fermeture du dialogue (asynchrone).
+        
+        Args:
+            dialog: Le dialogue d'enregistrement
+            insert_text (bool): Si True, insère le texte, sinon appelle le callback
+        """
+        try:
             # Arrêter l'enregistrement
             audio_file = self.recorder.stop_recording()
             self.is_recording = False
@@ -119,16 +166,45 @@ class VoiceRecognition:
             if not audio_file or not os.path.exists(audio_file):
                 log("Aucun fichier audio enregistré", level=logging.ERROR)
                 SafeDialogs.show_critical("Erreur de reconnaissance vocale", "Aucun fichier audio n'a été enregistré")
-                return False
+                return
             
+            # Afficher un indicateur de chargement pendant la transcription
+            from utils.loading_indicator import LoadingIndicatorManager
+            LoadingIndicatorManager.show("Transcription en cours...", 30000)
+            
+            # Transcrire l'audio dans un thread séparé pour ne pas bloquer
+            threading.Thread(
+                target=self._transcribe_and_process,
+                args=(audio_file, insert_text),
+                daemon=True
+            ).start()
+            
+        except Exception as e:
+            log(f"Erreur dans _process_recording: {e}", level=logging.ERROR)
+            SafeDialogs.show_critical("Erreur", f"Erreur: {str(e)}")
+            self.is_recording = False
+    
+    def _transcribe_and_process(self, audio_file, insert_text):
+        """
+        Transcrit et traite l'audio (exécuté dans un thread).
+        
+        Args:
+            audio_file (str): Chemin du fichier audio
+            insert_text (bool): Si True, insère le texte
+        """
+        try:
             # Transcrire l'audio
             log("Transcription de l'audio en cours...")
             text = self.transcriber.transcribe(audio_file)
             
+            # Fermer l'indicateur de chargement
+            from utils.loading_indicator import LoadingIndicatorManager
+            LoadingIndicatorManager.close()
+            
             if not text:
                 log("Échec de la transcription", level=logging.ERROR)
                 SafeDialogs.show_critical("Erreur de reconnaissance vocale", "Échec de la transcription audio")
-                return False
+                return
             
             # Supprimer le fichier audio temporaire
             try:
@@ -141,21 +217,17 @@ class VoiceRecognition:
             # Si nous avons une fonction de rappel, l'appeler avec le texte
             if self.callback and callable(self.callback):
                 self.callback(text)
-                return True
+                return
             
             # Sinon, insérer le texte ou le retourner selon le paramètre
             if insert_text:
                 log(f"Insertion du texte transcrit: {text[:50]}{'...' if len(text) > 50 else ''}")
                 self.text_inserter.insert_text(text)
-                return True
-            else:
-                return text
             
         except Exception as e:
-            log(f"Erreur lors de la reconnaissance vocale: {e}", level=logging.ERROR)
-            self.is_recording = False
-            SafeDialogs.show_critical("Erreur de reconnaissance vocale", f"Erreur lors de la reconnaissance vocale: {e}")
-            return False
+            LoadingIndicatorManager.close()
+            log(f"Erreur dans _transcribe_and_process: {e}", level=logging.ERROR)
+            SafeDialogs.show_critical("Erreur", f"Erreur: {str(e)}")
     
     def describe_voice_response(self, text):
         """
