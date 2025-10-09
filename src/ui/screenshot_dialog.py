@@ -32,9 +32,6 @@ class ScreenshotDialog(QDialog):
         
         # Création de l'interface
         self.init_ui()
-        
-        # Application du style
-        self.apply_style()
     
     def init_ui(self):
         """Initialisation de l'interface utilisateur"""
@@ -61,50 +58,19 @@ class ScreenshotDialog(QDialog):
         button_layout.addWidget(self.cancel_button)
         
         layout.addLayout(button_layout)
-    
-    def apply_style(self):
-        """Appliquer le style sombre"""
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #2c3e50;
-                color: #ecf0f1;
-            }
-            
-            #instructions {
-                color: #ecf0f1;
-                font-size: 14px;
-                margin-bottom: 20px;
-            }
-            
+        
+        # Style pour le bouton de capture (vert pour le mettre en évidence)
+        capture_button.setStyleSheet("""
             QPushButton {
-                background-color: #3498db;
-                color: #ecf0f1;
-                border: none;
-                border-radius: 4px;
-                padding: 10px 20px;
-                font-weight: bold;
-            }
-            
-            QPushButton:hover {
-                background-color: #2980b9;
-            }
-            
-            QPushButton:pressed {
-                background-color: #1f6dad;
-            }
-            
-            #captureButton {
                 background-color: #2ecc71;
                 font-size: 16px;
                 padding: 15px;
                 margin: 20px 0;
             }
-            
-            #captureButton:hover {
+            QPushButton:hover {
                 background-color: #27ae60;
             }
-            
-            #captureButton:pressed {
+            QPushButton:pressed {
                 background-color: #219651;
             }
         """)

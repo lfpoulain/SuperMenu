@@ -18,7 +18,7 @@ class PromptDialog(QDialog):
         super().__init__(parent)
         
         # Configurer la fenêtre
-        self.setWindowTitle(" GodMode - Prompt personnalisé")
+        self.setWindowTitle("🔮 GodMode - Prompt personnalisé")
         self.setMinimumSize(600, 400)
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.Window)
         
@@ -83,9 +83,6 @@ class PromptDialog(QDialog):
         
         layout.addLayout(button_layout)
         
-        # Appliquer le style
-        self.apply_style()
-        
         # Focus sur le champ de saisie
         self.prompt_input.setFocus()
     
@@ -111,13 +108,7 @@ class PromptDialog(QDialog):
         image_frame.setObjectName("imageFrame")
         image_frame.setFrameShape(QFrame.StyledPanel)
         image_frame.setFrameShadow(QFrame.Sunken)
-        image_frame.setStyleSheet("""
-            #imageFrame {
-                background-color: #34495e;
-                border-radius: 8px;
-                padding: 5px;
-            }
-        """)
+        image_frame.setStyleSheet("background-color: #34495e; border-radius: 8px; padding: 5px;")
         
         image_layout = QVBoxLayout(image_frame)
         
@@ -140,204 +131,7 @@ class PromptDialog(QDialog):
         self.prompt_input.setPlaceholderText("Exemple : Décris cette image en détail...")
         
         # Mettre à jour le titre de la fenêtre
-        self.setWindowTitle(" GodMode - Prompt personnalisé avec image")
-    
-    def apply_style(self):
-        """Appliquer le style sombre"""
-        self.apply_dark_style()
-    
-    def apply_neomorphic_dark_style(self):
-        """Appliquer le style Neumorphism sombre"""
-        # Couleurs
-        bg_color = "#252836"
-        border_color = "#2e3143"
-        text_color = "#ecf0f1"
-        accent_color = "#3498db"
-        
-        # Style global
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {bg_color};
-                border-radius: 15px;
-            }}
-            
-            #instructions {{
-                color: {text_color};
-                font-size: 14px;
-                margin-bottom: 10px;
-            }}
-            
-            #sectionLabel {{
-                color: {text_color};
-                font-size: 14px;
-                font-weight: bold;
-                margin-top: 10px;
-            }}
-            
-            QTextEdit {{
-                background-color: #2a2d3e;
-                color: {text_color};
-                border: 1px solid {border_color};
-                border-radius: 10px;
-                padding: 10px;
-                font-family: 'Segoe UI', Arial;
-                font-size: 14px;
-                selection-background-color: {accent_color};
-                selection-color: white;
-            }}
-            
-            #cancelButton, #submitButton {{
-                background-color: {bg_color};
-                color: {text_color};
-                border: 2px solid {border_color};
-                border-radius: 8px;
-                padding: 10px 20px;
-                font-weight: bold;
-                font-size: 14px;
-            }}
-            
-            #cancelButton:hover, #submitButton:hover {{
-                background-color: #2a2d3e;
-            }}
-            
-            #cancelButton:pressed, #submitButton:pressed {{
-                background-color: #1e212f;
-                border: 2px solid #1a1d2a;
-            }}
-            
-            #submitButton {{
-                color: {text_color};
-                font-weight: bold;
-            }}
-        """)
-    
-    def apply_neomorphic_light_style(self):
-        """Appliquer le style Neumorphism clair"""
-        # Couleurs
-        bg_color = "#e6e9ef"
-        border_color = "#d0d4dd"
-        text_color = "#2c3e50"
-        accent_color = "#3498db"
-        
-        # Style global
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {bg_color};
-                border-radius: 15px;
-            }}
-            
-            #instructions {{
-                color: {text_color};
-                font-size: 14px;
-                margin-bottom: 10px;
-            }}
-            
-            #sectionLabel {{
-                color: {text_color};
-                font-size: 14px;
-                font-weight: bold;
-                margin-top: 10px;
-            }}
-            
-            QTextEdit {{
-                background-color: #f0f3f9;
-                color: {text_color};
-                border: 1px solid {border_color};
-                border-radius: 10px;
-                padding: 10px;
-                font-family: 'Segoe UI', Arial;
-                font-size: 14px;
-                selection-background-color: {accent_color};
-                selection-color: white;
-            }}
-            
-            #cancelButton, #submitButton {{
-                background-color: {bg_color};
-                color: {text_color};
-                border: 2px solid {border_color};
-                border-radius: 8px;
-                padding: 10px 20px;
-                font-weight: bold;
-                font-size: 14px;
-            }}
-            
-            #cancelButton:hover, #submitButton:hover {{
-                background-color: #f0f3f9;
-            }}
-            
-            #cancelButton:pressed, #submitButton:pressed {{
-                background-color: #d8dbe1;
-                border: 2px solid #c8ccd4;
-            }}
-            
-            #submitButton {{
-                color: {text_color};
-                font-weight: bold;
-            }}
-        """)
-    
-    def apply_dark_style(self):
-        """Appliquer le style sombre standard"""
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #2c3e50;
-                color: #ecf0f1;
-            }
-            
-            #instructions {
-                color: #ecf0f1;
-                font-size: 14px;
-                margin-bottom: 10px;
-            }
-            
-            #sectionLabel {
-                color: #ecf0f1;
-                font-size: 14px;
-                font-weight: bold;
-                margin-top: 10px;
-            }
-            
-            QTextEdit {
-                background-color: #34495e;
-                color: #ecf0f1;
-                border: 1px solid #546e7a;
-                border-radius: 4px;
-                padding: 8px;
-                font-family: 'Segoe UI', Arial;
-                selection-background-color: #3498db;
-                selection-color: white;
-            }
-            
-            #cancelButton, #submitButton {
-                background-color: #3498db;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-weight: bold;
-            }
-            
-            #cancelButton:hover, #submitButton:hover {
-                background-color: #2980b9;
-            }
-            
-            #cancelButton:pressed, #submitButton:pressed {
-                background-color: #1f6dad;
-            }
-            
-            #cancelButton {
-                background-color: #e0e0e0;
-                color: #2c3e50;
-            }
-            
-            #cancelButton:hover {
-                background-color: #d0d0d0;
-            }
-            
-            #cancelButton:pressed {
-                background-color: #c0c0c0;
-            }
-        """)
+        self.setWindowTitle("🔮 GodMode - Prompt personnalisé avec image")
     
     def submit_prompt(self):
         """Soumettre le prompt personnalisé"""

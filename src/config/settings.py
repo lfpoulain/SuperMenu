@@ -135,8 +135,6 @@ class Settings:
         self.default_use_custom_endpoint = False
         self.default_microphone_index = -1
         self.default_describe_response_prompt = "Analyse et décris en détail ce qui suit, en fournissant un contexte pertinent et des explications claires :"
-        self.default_theme = "dark"
-        self.available_themes = ["dark", "bee"]  # Ajout des thèmes disponibles
         
         # Initialize settings if they don't exist
         self._initialize_settings()
@@ -148,9 +146,6 @@ class Settings:
         
         if not self.settings.contains("screenshot_hotkey"):
             self.settings.setValue("screenshot_hotkey", self.default_screenshot_hotkey)  # Raccourci de capture d'écran par défaut
-        
-        if not self.settings.contains("theme"):
-            self.settings.setValue("theme", self.default_theme)  # Default theme
         
         if not self.settings.contains("prompts"):
             self.settings.setValue("prompts", json.dumps(self.default_prompts))
@@ -268,17 +263,6 @@ class Settings:
     def set_voice_hotkey(self, hotkey):
         """Set the voice hotkey"""
         self.settings.setValue("voice_hotkey", hotkey)
-    
-    def get_theme(self):
-        """Get the configured theme"""
-        return self.settings.value("theme", self.default_theme)
-    
-    def set_theme(self, theme):
-        """Set the theme"""
-        if theme in self.available_themes:
-            self.settings.setValue("theme", theme)
-        else:
-            print("Le thème spécifié n'est pas disponible.")
     
     def get_prompts(self):
         """Get all prompts"""
@@ -536,7 +520,7 @@ class Settings:
         """Reset all settings to defaults"""
         self.set_hotkey(self.default_hotkey)
         self.set_screenshot_hotkey(self.default_screenshot_hotkey)
-        self.set_theme(self.default_theme)
+        self.set_voice_hotkey(self.default_voice_hotkey)
         self.set_prompts(self.default_prompts)
         self.set_voice_prompts(self.default_voice_prompts)
         self.set_model(self.default_model)

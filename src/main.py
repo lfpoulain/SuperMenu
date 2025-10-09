@@ -58,14 +58,11 @@ class SuperMenu:
         self.apply_theme()
     
     def apply_theme(self):
-        # Importer la fonction apply_theme depuis le module style
-        from src.ui.style import apply_theme
+        # Importer la fonction apply_style depuis le module style
+        from src.ui.style import apply_style
         
-        # Récupérer le thème depuis les paramètres
-        theme = self.settings.get_theme()
-        
-        # Appliquer le thème choisi par l'utilisateur
-        apply_theme(self.app, theme)
+        # Appliquer le style unifié
+        apply_style(self.app)
     
     def show_context_menu(self):
         """Show the context menu at the current cursor position"""

@@ -207,42 +207,10 @@ class MainWindow(QMainWindow):
         refresh_mic_button.clicked.connect(self.populate_microphone_combo)
         microphone_layout.addWidget(refresh_mic_button)
         
-        # Theme section
-        theme_group = QGroupBox("Thème de l'application")
-        theme_layout = QVBoxLayout(theme_group)
-        
-        # Theme selection
-        theme_label = QLabel("Sélectionnez un thème:")
-        theme_layout.addWidget(theme_label)
-        
-        self.theme_combo = QComboBox()
-        # Ajouter les thèmes disponibles
-        for theme in self.settings.available_themes:
-            # Convertir le nom du thème pour l'affichage (première lettre en majuscule)
-            display_name = theme.capitalize()
-            if theme == "bee":
-                display_name = "Abeille"
-            self.theme_combo.addItem(display_name, theme)
-        
-        # Sélectionner le thème actuel
-        current_theme = self.settings.get_theme()
-        for i in range(self.theme_combo.count()):
-            if self.theme_combo.itemData(i) == current_theme:
-                self.theme_combo.setCurrentIndex(i)
-                break
-                
-        theme_layout.addWidget(self.theme_combo)
-        
-        # Save theme button
-        save_theme_button = QPushButton("Appliquer le thème")
-        save_theme_button.clicked.connect(self.save_theme_selection)
-        theme_layout.addWidget(save_theme_button)
-        
         # Add groups to layout
         general_layout.addWidget(api_key_group)
         general_layout.addWidget(hotkey_group)
         general_layout.addWidget(microphone_group)
-        general_layout.addWidget(theme_group)
         general_layout.addStretch()
         
         # Set the content widget in the scroll area
@@ -1165,29 +1133,6 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.warning(self, "Réinitialisation impossible", 
                               f"Le prompt vocal '{name}' n'a pas de valeur par défaut.")
-
-    def save_theme_selection(self):
-        """Save the selected theme"""
-        selected_index = self.theme_combo.currentIndex()
-        theme = self.theme_combo.itemData(selected_index)
-        
-        # Update settings
-        self.settings.set_theme(theme)
-        
-        # Demander à l'utilisateur s'il souhaite redémarrer l'application
-        reply = QMessageBox.question(
-            self,
-            "Thème enregistré",
-            f"Le thème '{theme}' a été enregistré avec succès.\n\n"
-            "Pour que le nouveau thème soit appliqué, l'application doit être redémarrée.\n\n"
-            "Voulez-vous redémarrer l'application maintenant ?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
-        
-        if reply == QMessageBox.Yes:
-            # Redémarrer l'application
-            self.restart_application()
 
     def export_all_prompts(self):
         """Export all text and voice prompts to a JSON file."""
