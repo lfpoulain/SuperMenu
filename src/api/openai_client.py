@@ -324,3 +324,61 @@ class OpenAIClient(QObject):
         except Exception as e:
             # Propager l'exception
             raise Exception(f"Erreur lors de la requête API: {str(e)}")
+    
+    @staticmethod
+    def fetch_available_models(endpoint_url, api_key=None, timeout=10):
+        """
+        Récupère la liste des modèles disponibles depuis un endpoint compatible OpenAI.
+        
+        Args:
+            endpoint_url (str): URL de l'endpoint (ex: http://localhost:11434)
+            api_key (str, optional): Clé API si nécessaire
+            timeout (int): Timeout en secondes
+            
+        Returns:
+            tuple: (success: bool, models: list or error_message: str)
+        """
+        try:
+            # Construire l'URL de l'API models
+            models_url = endpoint_url
+            if not models_url.endswith('/'):
+                models_url += '/'
+            models_url += 'v1/models'
+            
+            # Préparer les en-têtes
+            headers = {
+                "Content-Type": "application/json"
+            }
+            
+            # Ajouter l'authentification si une clé API est fournie
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            
+            # Envoyer la requête
+            response = requests.get(models_url, headers=headers, timeout=timeout)
+            
+            # Vérifier si la requête a réussi
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Extraire les noms des modèles
+                models = []
+                if "data" in data and isinstance(data["data"], list):
+                    for model_info in data["data"]:
+                        if isinstance(model_info, dict) and "id" in model_info:
+                            models.append(model_info["id"])
+                
+                if models:
+                    log(f"Modèles récupérés avec succès: {models}", logging.INFO)
+                    return True, models
+                else:
+                    return False, "Aucun modèle trouvé dans la réponse de l'API"
+            else:
+                return False, f"Erreur {response.status_code}: {response.text}"
+        
+        except requests.exceptions.Timeout:
+            return False, "Timeout lors de la connexion au serveur"
+        except requests.exceptions.ConnectionError:
+            return False, "Impossible de se connecter au serveur"
+        except Exception as e:
+            return False, f"Erreur: {str(e)}"

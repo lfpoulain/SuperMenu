@@ -52,20 +52,34 @@ class HotkeyRecorderDialog(QDialog):
     
     def _on_key_press(self, event):
         """Gérer l'événement de pression de touche"""
+        # Ne traiter que les événements de type "down" (touche enfoncée)
+        if event.event_type != 'down':
+            return
+        
         # Réinitialiser le style
         self.current_hotkey_label.setStyleSheet("font-weight: bold; font-size: 16px; padding: 10px; color: #000000; background-color: #d0d0d0; border: 1px solid #a0a0a0; border-radius: 5px;")
         
-        # Collecter les modificateurs
+        # Collecter les modificateurs actuellement pressés
         modifiers = []
+        # Vérifier Ctrl (les noms corrects dans keyboard sont 'ctrl', pas 'left ctrl' ou 'right ctrl')
         if keyboard.is_pressed('ctrl'):
             modifiers.append('Ctrl')
+        # Vérifier Alt (keyboard utilise 'alt' pour les deux côtés)
         if keyboard.is_pressed('alt'):
             modifiers.append('Alt')
+        # Vérifier Shift
         if keyboard.is_pressed('shift'):
             modifiers.append('Shift')
             
         # Ajouter la touche principale
         key_name = event.name
+        
+        # Ignorer si c'est juste un modificateur seul
+        if key_name.lower() in ['ctrl', 'alt', 'shift', 'windows', 'win']:
+            # Afficher les modificateurs en attente
+            if modifiers:
+                self.current_hotkey_label.setText('+'.join(modifiers) + '+...')
+            return
         
         # Construire le raccourci complet
         if len(modifiers) == 0:

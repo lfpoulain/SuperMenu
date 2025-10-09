@@ -98,7 +98,7 @@ class MainWindow(QMainWindow):
         # Model selection
         model_label = QLabel("Modèle:")
         self.model_combo = QComboBox()
-        self.model_combo.addItems(["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"])
+        self.model_combo.addItems(["gpt-4o-mini", "gpt-4.1-nano", "gpt-5-mini", "gpt-5-nano", "gpt-5"])
         self.model_combo.setCurrentText(self.settings.get_model())
         
         openai_layout.addWidget(api_key_label)
@@ -116,16 +116,30 @@ class MainWindow(QMainWindow):
         self.custom_endpoint_input.setText(self.settings.get_custom_endpoint())
         self.custom_endpoint_input.setPlaceholderText("http://localhost:11434")
         
-        # Custom model input
-        custom_model_label = QLabel("Nom du modèle (ex: llama2, mistral):")
-        self.custom_model_input = QLineEdit()
-        self.custom_model_input.setText(self.settings.get_custom_model())
-        self.custom_model_input.setPlaceholderText("llama2")
+        # Custom model selection
+        custom_model_label = QLabel("Modèle:")
+        custom_model_layout = QHBoxLayout()
+        self.custom_model_combo = QComboBox()
+        self.custom_model_combo.setEditable(True)
+        self.custom_model_combo.setPlaceholderText("Sélectionnez ou entrez un modèle")
+        custom_model_layout.addWidget(self.custom_model_combo)
+        
+        # Refresh models button
+        refresh_models_button = QPushButton("Actualiser")
+        refresh_models_button.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+        refresh_models_button.clicked.connect(self.refresh_custom_models)
+        custom_model_layout.addWidget(refresh_models_button)
         
         custom_layout.addWidget(custom_endpoint_label)
         custom_layout.addWidget(self.custom_endpoint_input)
         custom_layout.addWidget(custom_model_label)
-        custom_layout.addWidget(self.custom_model_input)
+        custom_layout.addLayout(custom_model_layout)
+        
+        # Charger le modèle actuel
+        current_custom_model = self.settings.get_custom_model()
+        if current_custom_model:
+            self.custom_model_combo.addItem(current_custom_model)
+            self.custom_model_combo.setCurrentText(current_custom_model)
         
         # Note explicative
         note_label = QLabel("Note: La transcription audio restera sur OpenAI (4o-transcribe)")
@@ -438,40 +452,48 @@ class MainWindow(QMainWindow):
         """Create the about tab"""
         about_tab = QWidget()
         layout = QVBoxLayout(about_tab)
-        
-        # Title
-        title_label = QLabel("SuperMenu")
-        title_label.setAlignment(Qt.AlignCenter)
-        font = title_label.font()
-        font.setPointSize(16)
-        font.setBold(True)
-        title_label.setFont(font)
-        layout.addWidget(title_label)
-        
-        # Version
-        version_label = QLabel("Version 1.0.0")
-        version_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(version_label)
+        layout.setContentsMargins(20, 20, 20, 20)
         
         # Description
         description_text = QTextEdit()
         description_text.setReadOnly(True)
         description_text.setHtml("""
-        <h1 style="text-align: center; color: #4CAF50;">SuperMenu</h1>
-        <p style="text-align: center; font-size: 10px; color: #777;">Version 1.0.0</p>
-        <p>SuperMenu est une application conçue pour simplifier et améliorer votre interaction avec les modèles d'IA d'OpenAI. Elle offre un accès rapide et personnalisable à une variété de fonctionnalités directement depuis votre bureau.</p>
-        
-        <h3>Fonctionnalités clés :</h3>
-        <ul>
-            <li>Accès rapide à des prompts textuels personnalisés via un menu contextuel.</li>
-            <li>Interaction vocale pour dicter des prompts et recevoir des réponses.</li>
-            <li>Capture d'écran et analyse d'image avec l'IA.</li>
-            <li>Sélection dynamique du modèle OpenAI pour les requêtes texte et image.</li>
-            <li>Gestion des thèmes pour personnaliser l'apparence.</li>
-            <li>Export et import faciles de vos configurations de prompts.</li>
-            <li>Raccourcis clavier configurables pour toutes les fonctionnalités principales.</li>
-        </ul>
-        
+        <div style="font-family: 'Segoe UI', Arial, sans-serif;">
+            <h1 style="text-align: center; color: #4CAF50; margin-bottom: 5px;">🚀 SuperMenu</h1>
+            <p style="text-align: center; font-size: 14px; color: #aaa; margin-top: 0;">Version 2.0.0</p>
+            
+            <p style="font-size: 13px; line-height: 1.6; color: #ddd;">
+                SuperMenu est une application puissante conçue pour simplifier et améliorer votre interaction avec les modèles d'IA. 
+                Elle offre un accès rapide et personnalisable à une variété de fonctionnalités directement depuis votre bureau.
+            </p>
+            
+            <h3 style="color: #64B5F6; margin-top: 20px; margin-bottom: 10px;">✨ Fonctionnalités principales :</h3>
+            <ul style="line-height: 1.8; font-size: 13px; color: #ddd;">
+                <li><strong style="color: #fff;">Prompts personnalisés</strong> : Accès rapide à vos prompts textuels via un menu contextuel</li>
+                <li><strong style="color: #fff;">Interaction vocale</strong> : Dictez vos prompts et recevez des réponses instantanées</li>
+                <li><strong style="color: #fff;">Analyse d'images</strong> : Capture d'écran et analyse avec l'IA</li>
+                <li><strong style="color: #fff;">Multi-endpoints</strong> : Support OpenAI et endpoints personnalisés (Ollama, etc.)</li>
+                <li><strong style="color: #fff;">Sélection dynamique</strong> : Récupération automatique des modèles disponibles</li>
+                <li><strong style="color: #fff;">Thèmes personnalisables</strong> : Adaptez l'apparence à vos préférences</li>
+                <li><strong style="color: #fff;">Import/Export</strong> : Sauvegardez et partagez vos configurations</li>
+                <li><strong style="color: #fff;">Raccourcis clavier</strong> : Configurez vos propres raccourcis pour un accès ultra-rapide</li>
+            </ul>
+            
+            <h3 style="color: #FFB74D; margin-top: 20px; margin-bottom: 10px;">🆕 Nouveautés v2.0 :</h3>
+            <ul style="line-height: 1.8; font-size: 13px; color: #ddd;">
+                <li><strong style="color: #fff;">Récupération dynamique des modèles</strong> : Plus besoin de saisir manuellement le nom du modèle</li>
+                <li><strong style="color: #fff;">Changement d'endpoint sans redémarrage</strong> : Basculez instantanément entre OpenAI et votre serveur local</li>
+                <li><strong style="color: #fff;">Support des modèles avec slashes</strong> : Compatible avec tous les formats de noms (ex: google/gemma, qwen/qwen3)</li>
+                <li><strong style="color: #fff;">Interface améliorée</strong> : ComboBox éditable avec bouton de rafraîchissement</li>
+            </ul>
+            
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid #555;">
+            
+            <p style="text-align: center; font-size: 12px; color: #aaa; margin-top: 15px;">
+                <strong style="color: #ccc;">Développé avec ❤️ pour améliorer votre productivité</strong><br>
+                <span style="font-size: 11px; color: #999;">Utilise PySide6, OpenAI API, et supporte les endpoints compatibles OpenAI</span>
+            </p>
+        </div>
         """)
         layout.addWidget(description_text)
         
@@ -569,8 +591,9 @@ class MainWindow(QMainWindow):
             # Cette situation ne devrait plus se produire si HotkeyManager est toujours passé
             QMessageBox.warning(self, "Erreur", "HotkeyManager non initialisé.")
             return
-            # from src.utils.hotkey_manager import HotkeyManager
-            # self.hotkey_manager = HotkeyManager(self.settings)
+        
+        # Sauvegarder l'ancien raccourci au cas où l'utilisateur annule
+        old_hotkey = self.settings.get_hotkey()
         
         # Désactiver temporairement le raccourci actuel
         self.hotkey_manager.unregister_hotkey()
@@ -582,25 +605,16 @@ class MainWindow(QMainWindow):
             # Mettre à jour l'étiquette avec le nouveau raccourci
             self.hotkey_label.setText(f"Raccourci principal : {self.settings.get_hotkey()}")
             
-            # Demander à l'utilisateur s'il souhaite redémarrer l'application
-            reply = QMessageBox.question(
+            # Le raccourci a déjà été enregistré par show_hotkey_recorder()
+            # Informer l'utilisateur que c'est fait
+            QMessageBox.information(
                 self,
                 "Raccourci modifié",
                 f"Le raccourci a été modifié avec succès en {self.settings.get_hotkey()}.\n\n"
-                "Le raccourci est actif immédiatement, mais vous pouvez redémarrer l'application si nécessaire.\n\n"
-                "Voulez-vous redémarrer l'application maintenant ?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
+                "Le nouveau raccourci est maintenant actif."
             )
-
-            if reply == QMessageBox.Yes:
-                # Redémarrer l'application
-                self.restart_application()
-            else:
-                # Réenregistrer le nouveau raccourci sans redémarrer
-                self.hotkey_manager.register_hotkey()
         else:
-            # Réenregistrer l'ancien raccourci si l'utilisateur annule
+            # L'utilisateur a annulé, réenregistrer l'ancien raccourci
             self.hotkey_manager.register_hotkey()
     
     def change_voice_hotkey(self):
@@ -609,8 +623,9 @@ class MainWindow(QMainWindow):
             # Cette situation ne devrait plus se produire
             QMessageBox.warning(self, "Erreur", "VoiceHotkeyManager non initialisé.")
             return
-            # from src.utils.hotkey_manager import HotkeyManager
-            # self.voice_hotkey_manager = HotkeyManager(self.settings, voice_hotkey=True)
+        
+        # Sauvegarder l'ancien raccourci au cas où l'utilisateur annule
+        old_hotkey = self.settings.get_voice_hotkey()
         
         # Désactiver temporairement le raccourci actuel
         self.voice_hotkey_manager.unregister_hotkey()
@@ -622,25 +637,16 @@ class MainWindow(QMainWindow):
             # Mettre à jour l'étiquette avec le nouveau raccourci
             self.voice_hotkey_label.setText(f"Raccourci vocal : {self.settings.get_voice_hotkey()}")
             
-            # Demander à l'utilisateur s'il souhaite redémarrer l'application
-            reply = QMessageBox.question(
+            # Le raccourci a déjà été enregistré par show_hotkey_recorder()
+            # Informer l'utilisateur que c'est fait
+            QMessageBox.information(
                 self,
                 "Raccourci modifié",
                 f"Le raccourci vocal a été modifié avec succès en {self.settings.get_voice_hotkey()}.\n\n"
-                "Le raccourci est actif immédiatement, mais vous pouvez redémarrer l'application si nécessaire.\n\n"
-                "Voulez-vous redémarrer l'application maintenant ?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
+                "Le nouveau raccourci est maintenant actif."
             )
-
-            if reply == QMessageBox.Yes:
-                # Redémarrer l'application
-                self.restart_application()
-            else:
-                # Réenregistrer le nouveau raccourci sans redémarrer
-                self.voice_hotkey_manager.register_hotkey()
         else:
-            # Réenregistrer l'ancien raccourci si l'utilisateur annule
+            # L'utilisateur a annulé, réenregistrer l'ancien raccourci
             self.voice_hotkey_manager.register_hotkey()
     
     def change_screenshot_hotkey(self):
@@ -649,8 +655,9 @@ class MainWindow(QMainWindow):
             # Cette situation ne devrait plus se produire
             QMessageBox.warning(self, "Erreur", "ScreenshotHotkeyManager non initialisé.")
             return
-            # from src.utils.hotkey_manager import HotkeyManager
-            # self.screenshot_hotkey_manager = HotkeyManager(self.settings, screenshot_hotkey=True)
+        
+        # Sauvegarder l'ancien raccourci au cas où l'utilisateur annule
+        old_hotkey = self.settings.get_screenshot_hotkey()
 
         # Désactiver temporairement le raccourci actuel
         self.screenshot_hotkey_manager.unregister_hotkey()
@@ -662,25 +669,16 @@ class MainWindow(QMainWindow):
             # Mettre à jour l'étiquette avec le nouveau raccourci
             self.screenshot_hotkey_label.setText(f"Raccourci capture d'écran : {self.settings.get_screenshot_hotkey()}")
             
-            # Demander à l'utilisateur s'il souhaite redémarrer l'application
-            reply = QMessageBox.question(
+            # Le raccourci a déjà été enregistré par show_hotkey_recorder()
+            # Informer l'utilisateur que c'est fait
+            QMessageBox.information(
                 self,
                 "Raccourci modifié",
                 f"Le raccourci de capture d'écran a été modifié avec succès en {self.settings.get_screenshot_hotkey()}.\n\n"
-                "Le raccourci est actif immédiatement, mais vous pouvez redémarrer l'application si nécessaire.\n\n"
-                "Voulez-vous redémarrer l'application maintenant ?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
+                "Le nouveau raccourci est maintenant actif."
             )
-
-            if reply == QMessageBox.Yes:
-                # Redémarrer l'application
-                self.restart_application()
-            else:
-                # Réenregistrer le nouveau raccourci sans redémarrer
-                self.screenshot_hotkey_manager.register_hotkey()
         else:
-            # Réenregistrer l'ancien raccourci si l'utilisateur annule
+            # L'utilisateur a annulé, réenregistrer l'ancien raccourci
             self.screenshot_hotkey_manager.register_hotkey()
     
     def restart_application(self):
@@ -799,7 +797,11 @@ class MainWindow(QMainWindow):
             # Reload custom endpoint configuration
             self.use_custom_endpoint_checkbox.setChecked(self.settings.get_use_custom_endpoint())
             self.custom_endpoint_input.setText(self.settings.get_custom_endpoint())
-            self.custom_model_input.setText(self.settings.get_custom_model())
+            self.custom_model_combo.clear()
+            current_custom_model = self.settings.get_custom_model()
+            if current_custom_model:
+                self.custom_model_combo.addItem(current_custom_model)
+                self.custom_model_combo.setCurrentText(current_custom_model)
             
             # Update the display based on endpoint type
             self.toggle_custom_endpoint()
@@ -1244,13 +1246,65 @@ class MainWindow(QMainWindow):
         self.openai_group.setVisible(not use_custom)
         self.custom_group.setVisible(use_custom)
     
+    def refresh_custom_models(self):
+        """Récupérer la liste des modèles disponibles depuis l'endpoint personnalisé"""
+        from src.api.openai_client import OpenAIClient
+        
+        endpoint = self.custom_endpoint_input.text().strip()
+        
+        if not endpoint:
+            QMessageBox.warning(self, "Endpoint manquant", 
+                              "Veuillez d'abord entrer l'URL de l'endpoint personnalisé.")
+            return
+        
+        # Valider l'URL
+        is_valid, error_msg = Validators.validate_url(endpoint)
+        if not is_valid:
+            QMessageBox.warning(self, "URL invalide", error_msg)
+            return
+        
+        # Afficher un message de chargement
+        from PySide6.QtWidgets import QProgressDialog
+        progress = QProgressDialog("Récupération des modèles disponibles...", "Annuler", 0, 0, self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        progress.show()
+        QApplication.processEvents()
+        
+        # Récupérer les modèles
+        api_key = self.api_key_input.text().strip() if self.api_key_input.text().strip() else None
+        success, result = OpenAIClient.fetch_available_models(endpoint, api_key)
+        
+        progress.close()
+        
+        if success:
+            # Sauvegarder le modèle actuellement sélectionné
+            current_model = self.custom_model_combo.currentText()
+            
+            # Mettre à jour le combo box
+            self.custom_model_combo.clear()
+            self.custom_model_combo.addItems(result)
+            
+            # Restaurer la sélection si le modèle existe toujours
+            if current_model and current_model in result:
+                self.custom_model_combo.setCurrentText(current_model)
+            elif result:
+                self.custom_model_combo.setCurrentIndex(0)
+            
+            QMessageBox.information(self, "Modèles récupérés", 
+                                  f"{len(result)} modèle(s) trouvé(s) sur le serveur.")
+        else:
+            QMessageBox.warning(self, "Erreur", 
+                              f"Impossible de récupérer les modèles:\n\n{result}")
+    
     def save_api_key(self):
         """Save the API key and configuration"""
         api_key = self.api_key_input.text().strip()
         model = self.model_combo.currentText()
         use_custom = self.use_custom_endpoint_checkbox.isChecked()
         custom_endpoint = self.custom_endpoint_input.text().strip()
-        custom_model = self.custom_model_input.text().strip()
+        custom_model = self.custom_model_combo.currentText().strip()
         
         # Validation
         if not use_custom and api_key:
@@ -1279,5 +1333,9 @@ class MainWindow(QMainWindow):
         self.settings.set_custom_endpoint(custom_endpoint)
         self.settings.set_custom_model(custom_model)
         
+        # Mettre à jour la configuration du client API sans redémarrage
+        if self.context_menu_manager:
+            self.context_menu_manager.update_client_config()
+        
         QMessageBox.information(self, "Configuration enregistrée", 
-                              "La configuration a été enregistrée avec succès.")
+                              "La configuration a été enregistrée avec succès.\n\nLes modifications sont actives immédiatement.")

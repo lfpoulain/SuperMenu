@@ -96,9 +96,10 @@ class Validators:
         if len(model_name) < 2:
             return False, "Le nom du modèle est trop court"
         
-        # Autoriser lettres, chiffres, tirets, underscores et points
-        if not re.match(r'^[a-zA-Z0-9\-_.]+$', model_name):
-            return False, "Le nom du modèle contient des caractères invalides"
+        # Autoriser lettres, chiffres, tirets, underscores, points, deux-points et slashes
+        # Pattern plus permissif pour supporter différents formats de noms de modèles
+        if not re.match(r'^[a-zA-Z0-9._:/-]+$', model_name):
+            return False, "Le nom du modèle contient des caractères invalides (seuls les lettres, chiffres, points, tirets, underscores, deux-points et slashes sont autorisés)"
         
         return True, ""
     
