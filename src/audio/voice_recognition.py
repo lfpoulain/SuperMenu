@@ -13,9 +13,9 @@ from PySide6.QtCore import Qt, QTimer, Signal, QObject, Slot
 from PySide6.QtGui import QFont
 from utils.logger import log
 from utils.safe_dialogs import SafeDialogs
+from utils.text_inserter import TextInserter
 from audio.audio_recorder import AudioRecorder
 from audio.transcription import Transcriber
-from audio.text_inserter import TextInserter
 from audio.audio_config import (
     VOICE_RECOGNITION_DIALOG_WIDTH,
     VOICE_RECOGNITION_DIALOG_TITLE,

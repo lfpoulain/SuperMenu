@@ -210,7 +210,7 @@ class OpenAIClient(QObject):
                 
                 if insert_directly:
                     # Insérer directement le résultat
-                    from audio.text_inserter import TextInserter
+                    from utils.text_inserter import TextInserter
                     inserter = TextInserter()
                     inserter.insert_text(content)
                 else:

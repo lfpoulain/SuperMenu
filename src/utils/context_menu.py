@@ -16,7 +16,7 @@ from src.ui.response_window import ResponseWindow
 from src.ui.prompt_dialog import PromptDialog
 from src.ui.screen_capture import capture_screen
 from src.audio.voice_recognition import VoiceRecognition
-from audio.text_inserter import TextInserter
+from utils.text_inserter import TextInserter
 from utils.logger import log
 
 class ContextMenuManager(QObject):
@@ -159,6 +159,10 @@ class ContextMenuManager(QObject):
             # Sauvegarder le contenu actuel du presse-papiers avec ClipboardManager
             old_clipboard = ClipboardManager.get_clipboard_text_safe()
             
+            # IMPORTANT: Vider le clipboard avant de copier pour détecter si quelque chose a été copié
+            ClipboardManager.set_clipboard_text_safe("")
+            time.sleep(0.05)  # Petit délai pour s'assurer que le clipboard est vidé
+            
             # Méthode 1: Utiliser pynput pour copier le texte sélectionné
             try:
                 # Simuler Ctrl+C pour copier le texte sélectionné
@@ -173,6 +177,17 @@ class ContextMenuManager(QObject):
             
             # Méthode 2: Récupérer le texte avec ClipboardManager
             selected_text = ClipboardManager.get_clipboard_text_safe()
+            
+            # Si le clipboard est toujours vide, aucun texte n'était sélectionné
+            if not selected_text or selected_text == "":
+                log("Aucun texte détecté après Ctrl+C", logging.DEBUG)
+                # Restaurer immédiatement l'ancien clipboard
+                if old_clipboard:
+                    ClipboardManager.set_clipboard_text_safe(old_clipboard)
+                return ""
+            
+            # Log pour déboguer
+            log(f"Texte copié avec succès: {selected_text[:50]}{'...' if len(selected_text) > 50 else ''}", logging.DEBUG)
             
             # Attendre avant de restaurer pour éviter les interférences
             time.sleep(CLIPBOARD_RESTORE_DELAY)
