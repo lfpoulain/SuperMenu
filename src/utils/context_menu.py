@@ -1,16 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import win32clipboard
 from PySide6.QtWidgets import QMenu, QApplication, QDialog
 from PySide6.QtGui import QCursor
 from PySide6.QtCore import QObject, Signal, Qt
 import os
 import tempfile
 import time
-import tkinter as tk
-import pyautogui
 import logging
+from pynput.keyboard import Controller, Key
 
 from src.api.openai_client import OpenAIClient
 from utils.safe_dialogs import SafeDialogs
@@ -35,6 +33,9 @@ class ContextMenuManager(QObject):
         )
         self.response_window = ResponseWindow()
         self.voice_recognition = None
+        
+        # Créer un contrôleur de clavier réutilisable pour éviter les conflits
+        self.keyboard = Controller()
         
         # Connect signals
         self.api_client.request_started.connect(self.on_request_started)
@@ -149,92 +150,36 @@ class ContextMenuManager(QObject):
         Returns:
             str: Le texte sélectionné ou une chaîne vide si aucun texte n'est sélectionné
         """
+        from utils.clipboard_manager import ClipboardManager
+        from audio.audio_config import CLIPBOARD_COPY_DELAY, CLIPBOARD_RESTORE_DELAY
+        
         selected_text = ""
         
         try:
-            # Sauvegarder le contenu actuel du presse-papiers
-            try:
-                win32clipboard.OpenClipboard()
-                try:
-                    old_clipboard = (
-                        win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
-                        if win32clipboard.IsClipboardFormatAvailable(
-                            win32clipboard.CF_UNICODETEXT
-                        )
-                        else ""
-                    )
-                finally:
-                    win32clipboard.CloseClipboard()
-            except Exception as e:
-                # Utiliser log pour les erreurs non bloquantes
-                log(
-                    f"Erreur lors de la sauvegarde du presse-papiers: {e}",
-                    logging.DEBUG,
-                )
-                old_clipboard = ""
+            # Sauvegarder le contenu actuel du presse-papiers avec ClipboardManager
+            old_clipboard = ClipboardManager.get_clipboard_text_safe()
             
-            # Méthode 1: Utiliser pyautogui pour copier le texte sélectionné
-            old_pause = pyautogui.PAUSE
+            # Méthode 1: Utiliser pynput pour copier le texte sélectionné
             try:
-                # Désactiver la pause pour éviter les erreurs de _handlePause
-                pyautogui.PAUSE = 0
-                # Utiliser directement les fonctions de touche au lieu de hotkey
-                pyautogui.keyDown("ctrl")
-                pyautogui.press("c")
-                time.sleep(0.1)  # Réduire le délai pour améliorer la réactivité
+                # Simuler Ctrl+C pour copier le texte sélectionné
+                self.keyboard.press(Key.ctrl)
+                self.keyboard.press('c')
+                self.keyboard.release('c')
+                self.keyboard.release(Key.ctrl)
+                # Attendre que la copie soit terminée
+                time.sleep(CLIPBOARD_COPY_DELAY)
             except Exception as e:
-                log(f"Erreur pyautogui: {e}", logging.DEBUG)
-            finally:
-                try:
-                    pyautogui.keyUp("ctrl")
-                except Exception as e_keyup:
-                    log(
-                        f"Erreur spécifique lors de pyautogui.keyUp('ctrl'): {e_keyup}",
-                        logging.ERROR,
-                    )
-                pyautogui.PAUSE = old_pause
+                log(f"Erreur pynput: {e}", logging.DEBUG)
             
-            # Méthode 2: Récupérer le texte avec win32clipboard
-            try:
-                win32clipboard.OpenClipboard()
-                try:
-                    if win32clipboard.IsClipboardFormatAvailable(
-                        win32clipboard.CF_UNICODETEXT
-                    ):
-                        selected_text = win32clipboard.GetClipboardData(
-                            win32clipboard.CF_UNICODETEXT
-                        )
-                finally:
-                    win32clipboard.CloseClipboard()
-            except Exception as e:
-                log(f"Erreur win32clipboard: {e}", logging.DEBUG)
-                # Si la méthode 2 échoue, essayer une autre approche
-                try:
-                    # Méthode alternative avec tkinter
-                    root = tk.Tk()
-                    root.withdraw()
-                    selected_text = root.clipboard_get()
-                    root.destroy()
-                except Exception as e:
-                    log(f"Erreur tkinter: {e}", logging.DEBUG)
-                    selected_text = ""
+            # Méthode 2: Récupérer le texte avec ClipboardManager
+            selected_text = ClipboardManager.get_clipboard_text_safe()
+            
+            # Attendre avant de restaurer pour éviter les interférences
+            time.sleep(CLIPBOARD_RESTORE_DELAY)
             
             # Restaurer l'ancien contenu du presse-papiers
-            try:
-                if old_clipboard:
-                    win32clipboard.OpenClipboard()
-                    try:
-                        win32clipboard.EmptyClipboard()
-                        win32clipboard.SetClipboardText(
-                            old_clipboard, win32clipboard.CF_UNICODETEXT
-                        )
-                    finally:
-                        win32clipboard.CloseClipboard()
-            except Exception as e:
-                log(
-                    f"Erreur lors de la restauration du presse-papiers: {e}",
-                    logging.DEBUG,
-                )
+            if old_clipboard:
+                ClipboardManager.set_clipboard_text_safe(old_clipboard)
         
         except Exception as e:
             log(

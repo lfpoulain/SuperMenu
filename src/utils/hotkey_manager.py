@@ -26,8 +26,10 @@ class HotkeyRecorderDialog(QDialog):
         self.layout.addWidget(self.label)
         
         # Affichage du raccourci actuel
-        self.current_hotkey_label = QLabel("Appuyez sur une combinaison de touches...")
-        self.current_hotkey_label.setStyleSheet("font-weight: bold; font-size: 16px; padding: 10px; color: #000000; background-color: #d0d0d0; border: 1px solid #a0a0a0; border-radius: 5px;")
+        self.current_hotkey_label = QLabel("⏳ Appuyez sur une combinaison de touches...")
+        self.current_hotkey_label.setObjectName("hotkeyDisplay")
+        self.current_hotkey_label.setStyleSheet("font-weight: bold; font-size: 16px; padding: 10px; border-radius: 5px;")
+        self.current_hotkey_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.layout.addWidget(self.current_hotkey_label)
         
         # Boutons
@@ -56,8 +58,9 @@ class HotkeyRecorderDialog(QDialog):
         if event.event_type != 'down':
             return
         
-        # Réinitialiser le style
-        self.current_hotkey_label.setStyleSheet("font-weight: bold; font-size: 16px; padding: 10px; color: #000000; background-color: #d0d0d0; border: 1px solid #a0a0a0; border-radius: 5px;")
+        # Réinitialiser le style et la propriété
+        self.current_hotkey_label.setProperty("state", "normal")
+        self.current_hotkey_label.setStyleSheet("font-weight: bold; font-size: 16px; padding: 10px; border-radius: 5px;")
         
         # Collecter les modificateurs actuellement pressés
         modifiers = []
@@ -88,14 +91,17 @@ class HotkeyRecorderDialog(QDialog):
             
             # Avertissement pour les touches simples qui pourraient interférer avec la saisie normale
             if len(key_name) == 1 and key_name.isalnum():
-                self.current_hotkey_label.setText(f"Attention: La touche '{key_name}' pourrait interférer avec la saisie normale")
-                self.current_hotkey_label.setStyleSheet("font-weight: bold; font-size: 16px; padding: 10px; color: #ff7700; background-color: #fff0d0; border: 1px solid #ffc070; border-radius: 5px;")
+                self.current_hotkey_label.setText(f"⚠️ Attention: La touche '{key_name}' pourrait interférer avec la saisie normale")
+                self.current_hotkey_label.setProperty("state", "warning")
+                self.current_hotkey_label.setProperty("status", "warning")
             else:
-                self.current_hotkey_label.setText(hotkey)
+                self.current_hotkey_label.setText(f"✅ {hotkey}")
+                self.current_hotkey_label.setProperty("state", "success")
         else:
             # Raccourci avec modificateurs
             hotkey = '+'.join(modifiers) + '+' + key_name
-            self.current_hotkey_label.setText(hotkey)
+            self.current_hotkey_label.setText(f"✅ {hotkey}")
+            self.current_hotkey_label.setProperty("state", "success")
             
         self.recorded_hotkey = hotkey
         self.ok_button.setEnabled(True)

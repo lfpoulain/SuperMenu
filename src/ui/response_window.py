@@ -1,16 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import os
-import sys
+"""
+Fenêtre de réponse modernisée avec pyqtdarktheme
+"""
+
+import logging
+import win32com.client
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QPushButton, QTextEdit,
     QApplication
 )
-from PySide6.QtCore import Qt, QSize, QTimer, QPoint
-from PySide6.QtGui import QIcon, QCursor, QKeySequence
-import win32com.client
+from PySide6.QtCore import Qt, QTimer, QPoint
 
 class ResponseWindow(QWidget):
     """Window to display API responses"""
@@ -21,12 +23,15 @@ class ResponseWindow(QWidget):
         # Set window properties
         self.setWindowTitle("SuperMenu - Réponse")
         self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
-        self.setMinimumSize(650, 450)
         
         # Create the main layout
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(15, 15, 15, 15)
-        self.main_layout.setSpacing(10)
+        self.main_layout.setContentsMargins(10, 10, 10, 10)
+        
+        # Create the content layout
+        self.content_layout = QVBoxLayout()
+        self.content_layout.setContentsMargins(15, 15, 15, 15)
+        self.main_layout.addLayout(self.content_layout)
         
         # Create the title bar
         self.create_title_bar()
@@ -35,15 +40,14 @@ class ResponseWindow(QWidget):
         self.response_text = QTextEdit()
         self.response_text.setReadOnly(True)
         self.response_text.setMinimumSize(600, 400)
-        
-        # Add the response text to the layout
-        self.main_layout.addWidget(self.response_text)
+        self.response_text.setObjectName("responseText")
+        self.content_layout.addWidget(self.response_text)
         
         # Create the status bar
         self.status_label = QLabel("Prêt")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("color: #3498db; font-style: italic;")
-        self.main_layout.addWidget(self.status_label)
+        self.status_label.setProperty("status", "info")  # Pour le style automatique
+        self.content_layout.addWidget(self.status_label)
         
         # Create the button bar
         self.create_button_bar()
@@ -58,14 +62,23 @@ class ResponseWindow(QWidget):
     
     def create_title_bar(self):
         """Create the title bar"""
+        header = QWidget()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 10)
+        
+        # Title
         self.title_label = QLabel("SuperMenu - Réponse")
         self.title_label.setStyleSheet("font-size: 16px; font-weight: bold;")
-        self.title_label.setAlignment(Qt.AlignCenter)
-        self.main_layout.addWidget(self.title_label)
+        header_layout.addWidget(self.title_label)
+        header_layout.addStretch()
+        
+        self.content_layout.addWidget(header)
     
     def create_button_bar(self):
         """Create the button bar"""
-        button_layout = QHBoxLayout()
+        button_bar = QWidget()
+        button_layout = QHBoxLayout(button_bar)
+        button_layout.setSpacing(8)
         
         # Retry button
         self.retry_button = QPushButton("🔄 Réessayer")
@@ -79,55 +92,89 @@ class ResponseWindow(QWidget):
         button_layout.addWidget(self.copy_button)
         
         # Write button
-        self.write_button = QPushButton("✍️ Insérer")
+        self.write_button = QPushButton("✍️ Écrire")
         self.write_button.clicked.connect(self.write_response)
         button_layout.addWidget(self.write_button)
         
-        self.main_layout.addLayout(button_layout)
+        self.content_layout.addWidget(button_bar)
     
     def set_status(self, status):
         """Set the status message"""
         self.response_text.setText(status)
-        self.title_label.setText(f"SuperMenu - {status}")
+        self.title_label.setText(f"💬 SuperMenu - {status}")
+        self.status_label.setText(status)
     
     def set_response(self, response):
         """Set the response text"""
         self.response_text.setText(response)
+        self.response_text.setPlainText(response)  # Assure l'affichage en texte brut
+        self.title_label.setText("✨ SuperMenu - Réponse")
+        self.status_label.setText("✅ Terminé")
+        self.status_label.setProperty("status", "success")
         self.retry_button.setEnabled(True)
         self.copy_button.setEnabled(True)
+        self.write_button.setEnabled(True)
     
     def set_loading(self, is_loading):
         """Set the loading state"""
         if is_loading:
+            self.title_label.setText("⏳ SuperMenu - Chargement...")
+            self.status_label.setText("⏳ Traitement en cours...")
+            self.status_label.setProperty("status", "info")
             self.retry_button.setEnabled(False)
             self.copy_button.setEnabled(False)
+            self.write_button.setEnabled(False)
         else:
             self.retry_button.setEnabled(True)
             self.copy_button.setEnabled(True)
+            self.write_button.setEnabled(True)
     
     def copy_response(self):
         """Copy the response to the clipboard"""
         QApplication.clipboard().setText(self.response_text.toPlainText())
-        self.copy_button.setText("Copié!")
+        self.copy_button.setText("✅ Copié!")
+        self.copy_button.setEnabled(False)
         
         # Reset the button text after a delay
-        QTimer.singleShot(2000, lambda: self.copy_button.setText("Copier"))
+        def reset_button():
+            self.copy_button.setText("📋 Copier")
+            self.copy_button.setEnabled(True)
+        
+        QTimer.singleShot(2000, reset_button)
     
     def write_response(self):
         """Copy the response to the clipboard and paste it"""
-        # Copy the response to the clipboard
-        QApplication.clipboard().setText(self.response_text.toPlainText())
-        
-        # Hide the window
-        self.hide()
-        
-        # Simulate Ctrl+V to paste the text
-        shell = win32com.client.Dispatch("WScript.Shell")
-        shell.SendKeys("^v")
+        try:
+            # Copy the response to the clipboard
+            text = self.response_text.toPlainText()
+            if text:
+                QApplication.clipboard().setText(text)
+                
+                # Hide the window
+                self.hide()
+                
+                # Attendre un peu pour que la fenêtre se cache
+                QTimer.singleShot(100, self._paste_text)
+            else:
+                self.status_label.setText("⚠️ Aucun texte à coller")
+                self.status_label.setProperty("status", "warning")
+        except Exception as e:
+            self.status_label.setText(f"❌ Erreur: {str(e)}")
+            self.status_label.setProperty("status", "error")
+    
+    def _paste_text(self):
+        """Coller le texte avec Ctrl+V"""
+        try:
+            shell = win32com.client.Dispatch("WScript.Shell")
+            shell.SendKeys("^v")
+        except Exception as e:
+            logging.error(f"Erreur lors du collage: {e}")
     
     def retry_request(self):
-        # This method should be implemented
-        pass
+        """Retry the API request - to be implemented by the caller"""
+        # Cette méthode sera connectée par le gestionnaire de contexte
+        self.status_label.setText("🔄 Réessai...")
+        self.status_label.setProperty("status", "info")
 
     def showEvent(self, event):
         """Handle show event"""

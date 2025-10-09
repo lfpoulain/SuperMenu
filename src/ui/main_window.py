@@ -53,16 +53,17 @@ class MainWindow(QMainWindow):
         self.main_layout.addWidget(self.tab_widget)
         
         # Create tabs
-        self.create_general_tab()
+        self.create_models_tab()
         self.create_prompts_tab()
         self.create_voice_prompts_tab()
+        self.create_settings_tab()
         self.create_about_tab()
         
         # Create bottom buttons
         self.create_bottom_buttons()
     
-    def create_general_tab(self):
-        """Create the general settings tab"""
+    def create_models_tab(self):
+        """Create the models configuration tab"""
         from PySide6.QtWidgets import QScrollArea
         
         # Create scroll area
@@ -75,15 +76,11 @@ class MainWindow(QMainWindow):
         general_tab = QWidget()
         general_layout = QVBoxLayout(general_tab)
         
-        # API key section
-        api_key_group = QGroupBox("Configuration API")
-        api_key_layout = QVBoxLayout(api_key_group)
-        
         # Checkbox pour utiliser un endpoint personnalisé
-        self.use_custom_endpoint_checkbox = QCheckBox("Utiliser un endpoint personnalisé (ex: Ollama)")
+        self.use_custom_endpoint_checkbox = QCheckBox("Activer un endpoint personnalisé (ex: Ollama)")
         self.use_custom_endpoint_checkbox.setChecked(self.settings.get_use_custom_endpoint())
         self.use_custom_endpoint_checkbox.toggled.connect(self.toggle_custom_endpoint)
-        api_key_layout.addWidget(self.use_custom_endpoint_checkbox)
+        general_layout.addWidget(self.use_custom_endpoint_checkbox)
         
         # Section OpenAI (par défaut)
         self.openai_group = QGroupBox("OpenAI")
@@ -146,20 +143,331 @@ class MainWindow(QMainWindow):
         note_label.setStyleSheet("color: #666; font-style: italic;")
         custom_layout.addWidget(note_label)
         
+        # Add groups to layout
+        general_layout.addWidget(self.openai_group)
+        general_layout.addWidget(self.custom_group)
+        
         # Save API key button
         save_api_key_button = QPushButton("Enregistrer la configuration")
         save_api_key_button.clicked.connect(self.save_api_key)
-        
-        # Add widgets to layout
-        api_key_layout.addWidget(self.openai_group)
-        api_key_layout.addWidget(self.custom_group)
-        api_key_layout.addWidget(save_api_key_button)
+        general_layout.addWidget(save_api_key_button)
         
         # Initialiser l'affichage selon l'état actuel
         self.toggle_custom_endpoint()
         
+        general_layout.addStretch()
+        
+        # Set the content widget in the scroll area
+        scroll_area.setWidget(general_tab)
+        
+        # Add tab to tab widget
+        self.tab_widget.addTab(scroll_area, "🤖 Modèles")
+    
+    def create_prompts_tab(self):
+        """Create the prompts settings tab"""
+        prompts_tab = QWidget()
+        layout = QVBoxLayout(prompts_tab)
+        
+        # Prompt selection
+        prompt_selection_layout = QHBoxLayout()
+        selection_label = QLabel("📋 Sélectionner un prompt :")
+        selection_label.setStyleSheet("font-weight: bold;")
+        prompt_selection_layout.addWidget(selection_label)
+        
+        self.prompt_combo = QComboBox()
+        self.prompt_combo.setMinimumWidth(300)
+        self.populate_prompt_combo()
+        prompt_selection_layout.addWidget(self.prompt_combo)
+        
+        prompt_selection_layout.addStretch()
+        
+        # Boutons d'ajout et de suppression
+        add_prompt_button = QPushButton("➕ Ajouter")
+        add_prompt_button.setMinimumWidth(120)
+        add_prompt_button.clicked.connect(self.add_prompt)
+        prompt_selection_layout.addWidget(add_prompt_button)
+        
+        delete_prompt_button = QPushButton("🗑️ Supprimer")
+        delete_prompt_button.setMinimumWidth(120)
+        delete_prompt_button.clicked.connect(self.delete_prompt)
+        prompt_selection_layout.addWidget(delete_prompt_button)
+        
+        layout.addLayout(prompt_selection_layout)
+        
+        # Prompt editing
+        prompt_group = QGroupBox("✏️ Éditer le prompt")
+        prompt_layout = QFormLayout(prompt_group)
+        
+        # Nom affiché
+        name_label = QLabel("🏷️ Nom affiché :")
+        self.prompt_name_input = QLineEdit()
+        self.prompt_name_input.setPlaceholderText("Ex: Corriger l'orthographe")
+        prompt_layout.addRow(name_label, self.prompt_name_input)
+        
+        # Prompt
+        prompt_label = QLabel("📝 Prompt :")
+        self.prompt_text_input = QTextEdit()
+        self.prompt_text_input.setMinimumHeight(100)
+        self.prompt_text_input.setPlaceholderText("Ex: Corrige l'orthographe et la grammaire du texte suivant...")
+        prompt_layout.addRow(prompt_label, self.prompt_text_input)
+        
+        # Statut
+        status_label = QLabel("⏳ Message de statut :")
+        self.prompt_status_input = QLineEdit()
+        self.prompt_status_input.setPlaceholderText("Ex: Correction en cours...")
+        prompt_layout.addRow(status_label, self.prompt_status_input)
+        
+        # Options
+        options_label = QLabel("⚙️ Options :")
+        self.prompt_insert_directly = QCheckBox("Insérer automatiquement le résultat (sans afficher la fenêtre de réponse)")
+        self.prompt_insert_directly.setChecked(False)
+        prompt_layout.addRow(options_label, self.prompt_insert_directly)
+        
+        # Position avec slider
+        position_label = QLabel("📍 Position dans le menu :")
+        position_widget = QWidget()
+        position_layout = QHBoxLayout(position_widget)
+        position_layout.setContentsMargins(0, 0, 0, 0)
+        
+        from PySide6.QtWidgets import QSlider
+        self.prompt_position_slider = QSlider(Qt.Horizontal)
+        self.prompt_position_slider.setMinimum(1)
+        self.prompt_position_slider.setMaximum(20)
+        self.prompt_position_slider.setValue(20)
+        self.prompt_position_slider.setTickPosition(QSlider.TicksBelow)
+        self.prompt_position_slider.setTickInterval(1)
+        position_layout.addWidget(self.prompt_position_slider)
+        
+        self.prompt_position_input = QSpinBox()
+        self.prompt_position_input.setMinimum(1)
+        self.prompt_position_input.setMaximum(999)
+        self.prompt_position_input.setValue(999)
+        self.prompt_position_input.setMaximumWidth(80)
+        position_layout.addWidget(self.prompt_position_input)
+        
+        # Connecter slider et spinbox
+        self.prompt_position_slider.valueChanged.connect(self.prompt_position_input.setValue)
+        self.prompt_position_input.valueChanged.connect(self.prompt_position_slider.setValue)
+        
+        prompt_layout.addRow(position_label, position_widget)
+        
+        layout.addWidget(prompt_group)
+        
+        # Buttons
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addStretch()
+        
+        reset_prompt_button = QPushButton("🔄 Réinitialiser")
+        reset_prompt_button.setMinimumWidth(140)
+        reset_prompt_button.clicked.connect(self.reset_prompt)
+        buttons_layout.addWidget(reset_prompt_button)
+        
+        save_prompt_button = QPushButton("💾 Enregistrer")
+        save_prompt_button.setMinimumWidth(140)
+        save_prompt_button.setDefault(True)
+        save_prompt_button.clicked.connect(self.save_prompt)
+        buttons_layout.addWidget(save_prompt_button)
+        
+        layout.addLayout(buttons_layout)
+        
+        # Connect prompt selection change
+        self.prompt_combo.currentIndexChanged.connect(self.load_prompt)
+        
+        # Add stretch to push everything to the top
+        layout.addStretch()
+        
+        # Add the tab
+        self.tab_widget.addTab(prompts_tab, "📝 Prompts")
+        
+        # Load the first prompt
+        if self.prompt_combo.count() > 0:
+            self.load_prompt(0)
+    
+    def create_voice_prompts_tab(self):
+        """Create the voice prompts settings tab"""
+        voice_prompts_tab = QWidget()
+        layout = QVBoxLayout(voice_prompts_tab)
+        
+        # Prompt selection
+        prompt_selection_layout = QHBoxLayout()
+        selection_label = QLabel("🎤 Sélectionner un prompt vocal :")
+        selection_label.setStyleSheet("font-weight: bold;")
+        prompt_selection_layout.addWidget(selection_label)
+        
+        self.voice_prompt_combo = QComboBox()
+        self.voice_prompt_combo.setMinimumWidth(300)
+        self.populate_voice_prompt_combo()
+        prompt_selection_layout.addWidget(self.voice_prompt_combo)
+        
+        prompt_selection_layout.addStretch()
+        
+        # Boutons d'ajout et de suppression
+        add_prompt_button = QPushButton("➕ Ajouter")
+        add_prompt_button.setMinimumWidth(120)
+        add_prompt_button.clicked.connect(self.add_voice_prompt)
+        prompt_selection_layout.addWidget(add_prompt_button)
+        
+        delete_prompt_button = QPushButton("🗑️ Supprimer")
+        delete_prompt_button.setMinimumWidth(120)
+        delete_prompt_button.clicked.connect(self.delete_voice_prompt)
+        prompt_selection_layout.addWidget(delete_prompt_button)
+        
+        layout.addLayout(prompt_selection_layout)
+        
+        # Prompt editing
+        prompt_group = QGroupBox("🎤 Éditer le prompt vocal")
+        prompt_layout = QFormLayout(prompt_group)
+        
+        # Nom affiché
+        name_label = QLabel("🏷️ Nom affiché :")
+        self.voice_prompt_name_input = QLineEdit()
+        self.voice_prompt_name_input.setPlaceholderText("Ex: Décrire et résumer")
+        prompt_layout.addRow(name_label, self.voice_prompt_name_input)
+        
+        # Prompt
+        prompt_label = QLabel("📝 Prompt :")
+        self.voice_prompt_text_input = QTextEdit()
+        self.voice_prompt_text_input.setMinimumHeight(100)
+        self.voice_prompt_text_input.setPlaceholderText("Ex: Analyse et décris ce qui suit...")
+        prompt_layout.addRow(prompt_label, self.voice_prompt_text_input)
+        
+        # Statut
+        status_label = QLabel("⏳ Message de statut :")
+        self.voice_prompt_status_input = QLineEdit()
+        self.voice_prompt_status_input.setPlaceholderText("Ex: Traitement en cours...")
+        prompt_layout.addRow(status_label, self.voice_prompt_status_input)
+        
+        # Options
+        options_label = QLabel("⚙️ Options :")
+        options_widget = QWidget()
+        options_layout = QVBoxLayout(options_widget)
+        options_layout.setContentsMargins(0, 0, 0, 0)
+        options_layout.setSpacing(8)
+        
+        self.voice_prompt_insert_directly = QCheckBox("Insérer automatiquement le résultat (sans afficher la fenêtre de réponse)")
+        self.voice_prompt_insert_directly.setChecked(True)
+        options_layout.addWidget(self.voice_prompt_insert_directly)
+        
+        self.voice_prompt_include_selected_text = QCheckBox("Inclure automatiquement le texte sélectionné dans la requête vocale")
+        self.voice_prompt_include_selected_text.setChecked(False)
+        options_layout.addWidget(self.voice_prompt_include_selected_text)
+        
+        prompt_layout.addRow(options_label, options_widget)
+        
+        # Ordre des éléments
+        order_label = QLabel("🔄 Ordre des éléments :")
+        self.voice_prompt_order_combo = QComboBox()
+        self.voice_prompt_order_combo.addItem("📝 Prompt → 🎤 Transcription → 📄 Texte", "prompt_transcription_selected")
+        self.voice_prompt_order_combo.addItem("📝 Prompt → 📄 Texte → 🎤 Transcription", "prompt_selected_transcription")
+        self.voice_prompt_order_combo.addItem("📄 Texte → 📝 Prompt → 🎤 Transcription", "selected_prompt_transcription")
+        self.voice_prompt_order_combo.addItem("🎤 Transcription → 📝 Prompt → 📄 Texte", "transcription_prompt_selected")
+        self.voice_prompt_order_combo.addItem("🎤 Transcription → 📄 Texte → 📝 Prompt", "transcription_selected_prompt")
+        self.voice_prompt_order_combo.addItem("📄 Texte → 🎤 Transcription → 📝 Prompt", "selected_transcription_prompt")
+        prompt_layout.addRow(order_label, self.voice_prompt_order_combo)
+        
+        # Position avec slider
+        position_label = QLabel("📍 Position dans le menu :")
+        position_widget = QWidget()
+        position_layout = QHBoxLayout(position_widget)
+        position_layout.setContentsMargins(0, 0, 0, 0)
+        
+        from PySide6.QtWidgets import QSlider
+        self.voice_prompt_position_slider = QSlider(Qt.Horizontal)
+        self.voice_prompt_position_slider.setMinimum(1)
+        self.voice_prompt_position_slider.setMaximum(20)
+        self.voice_prompt_position_slider.setValue(20)
+        self.voice_prompt_position_slider.setTickPosition(QSlider.TicksBelow)
+        self.voice_prompt_position_slider.setTickInterval(1)
+        position_layout.addWidget(self.voice_prompt_position_slider)
+        
+        self.voice_prompt_position_input = QSpinBox()
+        self.voice_prompt_position_input.setMinimum(1)
+        self.voice_prompt_position_input.setMaximum(999)
+        self.voice_prompt_position_input.setValue(999)
+        self.voice_prompt_position_input.setMaximumWidth(80)
+        position_layout.addWidget(self.voice_prompt_position_input)
+        
+        # Connecter slider et spinbox
+        self.voice_prompt_position_slider.valueChanged.connect(self.voice_prompt_position_input.setValue)
+        self.voice_prompt_position_input.valueChanged.connect(self.voice_prompt_position_slider.setValue)
+        
+        prompt_layout.addRow(position_label, position_widget)
+        
+        layout.addWidget(prompt_group)
+        
+        # Buttons
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addStretch()
+        
+        reset_prompt_button = QPushButton("🔄 Réinitialiser")
+        reset_prompt_button.setMinimumWidth(140)
+        reset_prompt_button.clicked.connect(self.reset_voice_prompt)
+        buttons_layout.addWidget(reset_prompt_button)
+        
+        save_prompt_button = QPushButton("💾 Enregistrer")
+        save_prompt_button.setMinimumWidth(140)
+        save_prompt_button.setDefault(True)
+        save_prompt_button.clicked.connect(self.save_voice_prompt)
+        buttons_layout.addWidget(save_prompt_button)
+        
+        layout.addLayout(buttons_layout)
+        
+        # Connect prompt selection change
+        self.voice_prompt_combo.currentIndexChanged.connect(self.load_voice_prompt)
+        
+        # Add stretch to push everything to the top
+        layout.addStretch()
+        
+        # Add the tab
+        self.tab_widget.addTab(voice_prompts_tab, "🎤 Prompts Vocaux")
+        
+        # Load the first prompt
+        if self.voice_prompt_combo.count() > 0:
+            self.load_voice_prompt(0)
+    
+    def create_settings_tab(self):
+        """Create the settings tab"""
+        from PySide6.QtWidgets import QScrollArea
+        
+        # Create scroll area
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        
+        # Create the content widget
+        settings_tab = QWidget()
+        settings_layout = QVBoxLayout(settings_tab)
+        
+        # Import/Export section
+        import_export_group = QGroupBox("📦 Import/Export des Prompts")
+        import_export_layout = QVBoxLayout(import_export_group)
+        
+        # Description
+        info_label = QLabel("Exportez et importez tous vos prompts (texte et vocaux) en un seul fichier.")
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("font-size: 12px; color: #888; margin-bottom: 10px;")
+        import_export_layout.addWidget(info_label)
+        
+        # Buttons
+        buttons_layout = QHBoxLayout()
+        
+        export_button = QPushButton("📤 Exporter tous les Prompts")
+        # Icône retirée
+        export_button.clicked.connect(self.export_all_prompts)
+        export_button.setMinimumHeight(40)
+        buttons_layout.addWidget(export_button)
+        
+        import_button = QPushButton("📥 Importer tous les Prompts")
+        # Icône retirée
+        import_button.clicked.connect(self.import_all_prompts)
+        import_button.setMinimumHeight(40)
+        buttons_layout.addWidget(import_button)
+        
+        import_export_layout.addLayout(buttons_layout)
+        
         # Hotkey section
-        hotkey_group = QGroupBox("Raccourcis clavier")
+        hotkey_group = QGroupBox("⌨️ Raccourcis clavier")
         hotkey_layout = QVBoxLayout(hotkey_group)
         
         # Main Hotkey info
@@ -190,7 +498,7 @@ class MainWindow(QMainWindow):
         hotkey_layout.addWidget(change_screenshot_hotkey_button)
         
         # Microphone section
-        microphone_group = QGroupBox("Microphone pour la reconnaissance vocale")
+        microphone_group = QGroupBox("🎤 Microphone pour la reconnaissance vocale")
         microphone_layout = QVBoxLayout(microphone_group)
         
         # Microphone selection
@@ -203,218 +511,53 @@ class MainWindow(QMainWindow):
         microphone_layout.addWidget(self.microphone_combo)
 
         # Refresh microphone list button
-        refresh_mic_button = QPushButton("Actualiser la liste")
+        refresh_mic_button = QPushButton("🔄 Actualiser la liste")
         refresh_mic_button.clicked.connect(self.populate_microphone_combo)
         microphone_layout.addWidget(refresh_mic_button)
         
+        # Theme section
+        theme_group = QGroupBox("🎨 Thème de l'application")
+        theme_layout = QVBoxLayout(theme_group)
+        
+        # Theme selection
+        theme_label = QLabel("Sélectionnez un thème:")
+        theme_layout.addWidget(theme_label)
+        
+        self.theme_combo = QComboBox()
+        # Importer les noms de thèmes depuis ThemeManager
+        from src.ui.theme_manager import ThemeManager
+        theme_names = ThemeManager.get_theme_names()
+        
+        # Ajouter les thèmes disponibles
+        for theme_key, theme_display in theme_names.items():
+            self.theme_combo.addItem(theme_display, theme_key)
+        
+        # Sélectionner le thème actuel
+        current_theme = self.settings.get_theme()
+        for i in range(self.theme_combo.count()):
+            if self.theme_combo.itemData(i) == current_theme:
+                self.theme_combo.setCurrentIndex(i)
+                break
+                
+        theme_layout.addWidget(self.theme_combo)
+        
+        # Save theme button
+        save_theme_button = QPushButton("✨ Appliquer le thème")
+        save_theme_button.clicked.connect(self.save_theme_selection)
+        theme_layout.addWidget(save_theme_button)
+        
         # Add groups to layout
-        general_layout.addWidget(api_key_group)
-        general_layout.addWidget(hotkey_group)
-        general_layout.addWidget(microphone_group)
-        general_layout.addStretch()
+        settings_layout.addWidget(import_export_group)
+        settings_layout.addWidget(hotkey_group)
+        settings_layout.addWidget(microphone_group)
+        settings_layout.addWidget(theme_group)
+        settings_layout.addStretch()
         
         # Set the content widget in the scroll area
-        scroll_area.setWidget(general_tab)
+        scroll_area.setWidget(settings_tab)
         
         # Add tab to tab widget
-        self.tab_widget.addTab(scroll_area, "Général")
-    
-    def create_prompts_tab(self):
-        """Create the prompts settings tab"""
-        prompts_tab = QWidget()
-        layout = QVBoxLayout(prompts_tab)
-        
-        # Prompt selection
-        prompt_selection_layout = QHBoxLayout()
-        prompt_selection_layout.addWidget(QLabel("Sélectionner un prompt:"))
-        
-        self.prompt_combo = QComboBox()
-        self.populate_prompt_combo()
-        prompt_selection_layout.addWidget(self.prompt_combo)
-        
-        # Boutons d'ajout et de suppression
-        add_prompt_button = QPushButton("Ajouter")
-        add_prompt_button.setIcon(self.style().standardIcon(QStyle.SP_FileDialogNewFolder))
-        add_prompt_button.clicked.connect(self.add_prompt)
-        prompt_selection_layout.addWidget(add_prompt_button)
-        
-        delete_prompt_button = QPushButton("Supprimer")
-        delete_prompt_button.setIcon(self.style().standardIcon(QStyle.SP_TrashIcon))
-        delete_prompt_button.clicked.connect(self.delete_prompt)
-        prompt_selection_layout.addWidget(delete_prompt_button)
-        
-        layout.addLayout(prompt_selection_layout)
-
-        # Import/Export buttons
-        import_export_layout = QHBoxLayout()
-        export_button = QPushButton("Exporter les Prompts")
-        export_button.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
-        export_button.clicked.connect(self.export_all_prompts) # Nouvelle méthode globale
-        import_export_layout.addWidget(export_button)
-
-        import_button = QPushButton("Importer les Prompts")
-        import_button.setIcon(self.style().standardIcon(QStyle.SP_DialogApplyButton))
-        import_button.clicked.connect(self.import_all_prompts) # Nouvelle méthode globale
-        import_export_layout.addWidget(import_button)
-        layout.addLayout(import_export_layout)
-        
-        # Prompt editing
-        prompt_group = QGroupBox("Éditer le prompt")
-        prompt_layout = QFormLayout(prompt_group)
-        
-        self.prompt_name_input = QLineEdit()
-        prompt_layout.addRow("Nom affiché:", self.prompt_name_input)
-        
-        self.prompt_text_input = QTextEdit()
-        prompt_layout.addRow("Prompt:", self.prompt_text_input)
-        
-        self.prompt_status_input = QLineEdit()
-        prompt_layout.addRow("Message de statut:", self.prompt_status_input)
-        
-        self.prompt_insert_directly = QCheckBox("Insérer directement le résultat (sans afficher la fenêtre de réponse)")
-        self.prompt_insert_directly.setChecked(False)
-        prompt_layout.addRow("", self.prompt_insert_directly)
-        
-        self.prompt_position_input = QSpinBox()
-        self.prompt_position_input.setMinimum(1)
-        self.prompt_position_input.setMaximum(999)
-        self.prompt_position_input.setValue(999)
-        prompt_layout.addRow("Position dans le menu:", self.prompt_position_input)
-        
-        layout.addWidget(prompt_group)
-        
-        # Buttons
-        buttons_layout = QHBoxLayout()
-        
-        save_prompt_button = QPushButton("Enregistrer les modifications")
-        save_prompt_button.clicked.connect(self.save_prompt)
-        buttons_layout.addWidget(save_prompt_button)
-        
-        reset_prompt_button = QPushButton("Réinitialiser ce prompt")
-        reset_prompt_button.clicked.connect(self.reset_prompt)
-        buttons_layout.addWidget(reset_prompt_button)
-        
-        layout.addLayout(buttons_layout)
-        
-        # Connect prompt selection change
-        self.prompt_combo.currentIndexChanged.connect(self.load_prompt)
-        
-        # Add stretch to push everything to the top
-        layout.addStretch()
-        
-        # Add the tab
-        self.tab_widget.addTab(prompts_tab, "Prompts")
-        
-        # Load the first prompt
-        if self.prompt_combo.count() > 0:
-            self.load_prompt(0)
-    
-    def create_voice_prompts_tab(self):
-        """Create the voice prompts settings tab"""
-        voice_prompts_tab = QWidget()
-        layout = QVBoxLayout(voice_prompts_tab)
-        
-        # Prompt selection
-        prompt_selection_layout = QHBoxLayout()
-        prompt_selection_layout.addWidget(QLabel("Sélectionner un prompt vocal:"))
-        
-        self.voice_prompt_combo = QComboBox()
-        self.populate_voice_prompt_combo()
-        prompt_selection_layout.addWidget(self.voice_prompt_combo)
-        
-        # Boutons d'ajout et de suppression
-        add_prompt_button = QPushButton("Ajouter")
-        add_prompt_button.setIcon(self.style().standardIcon(QStyle.SP_FileDialogNewFolder))
-        add_prompt_button.clicked.connect(self.add_voice_prompt)
-        prompt_selection_layout.addWidget(add_prompt_button)
-        
-        delete_prompt_button = QPushButton("Supprimer")
-        delete_prompt_button.setIcon(self.style().standardIcon(QStyle.SP_TrashIcon))
-        delete_prompt_button.clicked.connect(self.delete_voice_prompt)
-        prompt_selection_layout.addWidget(delete_prompt_button)
-        
-        layout.addLayout(prompt_selection_layout)
-
-        # Import/Export buttons (shared with text prompts for a single file export)
-        # On peut choisir de les dupliquer ici pour la visibilité ou de les laisser uniquement dans l'onglet des prompts textuels.
-        # Pour cet exemple, je les ajoute aussi ici pour la commodité de l'utilisateur.
-        import_export_voice_layout = QHBoxLayout()
-        export_voice_button = QPushButton("Exporter les Prompts (Tous)")
-        export_voice_button.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
-        export_voice_button.clicked.connect(self.export_all_prompts) # Même méthode globale
-        import_export_voice_layout.addWidget(export_voice_button)
-
-        import_voice_button = QPushButton("Importer les Prompts (Tous)")
-        import_voice_button.setIcon(self.style().standardIcon(QStyle.SP_DialogApplyButton))
-        import_voice_button.clicked.connect(self.import_all_prompts) # Même méthode globale
-        import_export_voice_layout.addWidget(import_voice_button)
-        layout.addLayout(import_export_voice_layout)
-        
-        # Prompt editing
-        prompt_group = QGroupBox("Éditer le prompt vocal")
-        prompt_layout = QFormLayout(prompt_group)
-        
-        self.voice_prompt_name_input = QLineEdit()
-        prompt_layout.addRow("Nom affiché:", self.voice_prompt_name_input)
-        
-        self.voice_prompt_text_input = QTextEdit()
-        prompt_layout.addRow("Prompt:", self.voice_prompt_text_input)
-        
-        self.voice_prompt_status_input = QLineEdit()
-        prompt_layout.addRow("Message de statut:", self.voice_prompt_status_input)
-        
-        self.voice_prompt_insert_directly = QCheckBox("Insérer directement le résultat (sans afficher la fenêtre de réponse)")
-        self.voice_prompt_insert_directly.setChecked(True)
-        prompt_layout.addRow("", self.voice_prompt_insert_directly)
-        
-        self.voice_prompt_include_selected_text = QCheckBox("Inclure le texte sélectionné dans la requête vocale")
-        self.voice_prompt_include_selected_text.setChecked(False)
-        prompt_layout.addRow("", self.voice_prompt_include_selected_text)
-        
-        prompt_layout.addRow("Ordre des éléments:", QLabel("Choisissez l'ordre des éléments dans le prompt:"))
-        
-        self.voice_prompt_order_combo = QComboBox()
-        self.voice_prompt_order_combo.addItem("Prompt → Transcription → Texte sélectionné", "prompt_transcription_selected")
-        self.voice_prompt_order_combo.addItem("Prompt → Texte sélectionné → Transcription", "prompt_selected_transcription")
-        self.voice_prompt_order_combo.addItem("Texte sélectionné → Prompt → Transcription", "selected_prompt_transcription")
-        self.voice_prompt_order_combo.addItem("Transcription → Prompt → Texte sélectionné", "transcription_prompt_selected")
-        self.voice_prompt_order_combo.addItem("Transcription → Texte sélectionné → Prompt", "transcription_selected_prompt")
-        self.voice_prompt_order_combo.addItem("Texte sélectionné → Transcription → Prompt", "selected_transcription_prompt")
-        prompt_layout.addRow("", self.voice_prompt_order_combo)
-        
-        self.voice_prompt_position_input = QSpinBox()
-        self.voice_prompt_position_input.setMinimum(1)
-        self.voice_prompt_position_input.setMaximum(999)
-        self.voice_prompt_position_input.setValue(999)
-        prompt_layout.addRow("Position dans le menu:", self.voice_prompt_position_input)
-        
-        layout.addWidget(prompt_group)
-        
-        # Buttons
-        buttons_layout = QHBoxLayout()
-        
-        save_prompt_button = QPushButton("Enregistrer les modifications")
-        save_prompt_button.clicked.connect(self.save_voice_prompt)
-        buttons_layout.addWidget(save_prompt_button)
-        
-        reset_prompt_button = QPushButton("Réinitialiser ce prompt")
-        reset_prompt_button.clicked.connect(self.reset_voice_prompt)
-        buttons_layout.addWidget(reset_prompt_button)
-        
-        layout.addLayout(buttons_layout)
-        
-        # Connect prompt selection change
-        self.voice_prompt_combo.currentIndexChanged.connect(self.load_voice_prompt)
-        
-        # Add stretch to push everything to the top
-        layout.addStretch()
-        
-        # Add the tab
-        self.tab_widget.addTab(voice_prompts_tab, "Prompts Vocaux")
-        
-        # Load the first prompt
-        if self.voice_prompt_combo.count() > 0:
-            self.load_voice_prompt(0)
+        self.tab_widget.addTab(scroll_area, "⚙️ Réglages")
     
     def create_about_tab(self):
         """Create the about tab"""
@@ -466,7 +609,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(description_text)
         
         # Add the tab
-        self.tab_widget.addTab(about_tab, "À propos")
+        self.tab_widget.addTab(about_tab, "ℹ️ À propos")
     
     def create_bottom_buttons(self):
         """Create the bottom buttons"""
@@ -511,7 +654,16 @@ class MainWindow(QMainWindow):
             self.prompt_text_input.setText(prompt_data["prompt"])
             self.prompt_status_input.setText(prompt_data["status"])
             self.prompt_insert_directly.setChecked(prompt_data.get("insert_directly", False))
-            self.prompt_position_input.setValue(prompt_data.get("position", 999))
+            
+            # Mise à jour de la position
+            position = prompt_data.get("position", 999)
+            self.prompt_position_input.setValue(position)
+            
+            # Synchroniser le slider (max 20)
+            if position <= 20:
+                self.prompt_position_slider.setValue(position)
+            else:
+                self.prompt_position_slider.setValue(20)
     
 
 
@@ -978,14 +1130,24 @@ class MainWindow(QMainWindow):
             self.voice_prompt_text_input.setText(prompt_data["prompt"])
             self.voice_prompt_status_input.setText(prompt_data["status"])
             self.voice_prompt_insert_directly.setChecked(prompt_data.get("insert_directly", True))
-            self.voice_prompt_position_input.setValue(prompt_data.get("position", 999))
             self.voice_prompt_include_selected_text.setChecked(prompt_data.get("include_selected_text", False))
             
-            # Sélectionner l'ordre des éléments
-            prompt_order = prompt_data.get("prompt_order", "prompt_transcription_selected")
-            index = self.voice_prompt_order_combo.findData(prompt_order)
-            if index >= 0:
-                self.voice_prompt_order_combo.setCurrentIndex(index)
+            # Mise à jour de la position
+            position = prompt_data.get("position", 999)
+            self.voice_prompt_position_input.setValue(position)
+            
+            # Synchroniser le slider (max 20)
+            if position <= 20:
+                self.voice_prompt_position_slider.setValue(position)
+            else:
+                self.voice_prompt_position_slider.setValue(20)
+            
+            # Charge l'ordre des éléments
+            order = prompt_data.get("order", "prompt_transcription_selected")
+            for i in range(self.voice_prompt_order_combo.count()):
+                if self.voice_prompt_order_combo.itemData(i) == order:
+                    self.voice_prompt_order_combo.setCurrentIndex(i)
+                    break
     
     def save_voice_prompt(self):
         """Save the current voice prompt"""
@@ -1133,6 +1295,29 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.warning(self, "Réinitialisation impossible", 
                               f"Le prompt vocal '{name}' n'a pas de valeur par défaut.")
+
+    def save_theme_selection(self):
+        """Save the selected theme"""
+        selected_index = self.theme_combo.currentIndex()
+        theme = self.theme_combo.itemData(selected_index)
+        
+        # Update settings
+        self.settings.set_theme(theme)
+        
+        # Demander à l'utilisateur s'il souhaite redémarrer l'application
+        reply = QMessageBox.question(
+            self,
+            "Thème enregistré",
+            f"Le thème '{theme}' a été enregistré avec succès.\n\n"
+            "Pour que le nouveau thème soit appliqué, l'application doit être redémarrée.\n\n"
+            "Voulez-vous redémarrer l'application maintenant ?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        
+        if reply == QMessageBox.Yes:
+            # Redémarrer l'application
+            self.restart_application()
 
     def export_all_prompts(self):
         """Export all text and voice prompts to a JSON file."""

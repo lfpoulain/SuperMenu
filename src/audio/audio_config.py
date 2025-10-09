@@ -61,8 +61,9 @@ FFMPEG_CONTAINER_FORMAT = 'mp4'  # Format conteneur
 STREAM_STOP_DELAY = 0.5  # Délai d'attente après l'arrêt du flux audio (en secondes)
 
 # Paramètres pour les opérations de texte
-CLIPBOARD_PASTE_DELAY = 0.1  # Délai d'attente avant/après le collage du texte (en secondes)
-CLIPBOARD_COPY_DELAY = 0.1  # Délai d'attente pour la copie du texte (en secondes)
+CLIPBOARD_PASTE_DELAY = 0.3  # Délai d'attente après le collage du texte (en secondes)
+CLIPBOARD_COPY_DELAY = 0.2  # Délai d'attente après la copie du texte (en secondes)
+CLIPBOARD_RESTORE_DELAY = 0.2  # Délai supplémentaire avant de restaurer le clipboard original (en secondes)
 
 # Paramètres pour la reconnaissance vocale
 VOICE_RECOGNITION_DIALOG_WIDTH = 300  # Largeur de la boîte de dialogue de reconnaissance vocale

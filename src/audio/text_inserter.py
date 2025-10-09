@@ -5,12 +5,10 @@
 Module pour insérer du texte à la position du curseur dans SuperMenu.
 """
 import time
-import win32con
-import win32clipboard
 from pynput.keyboard import Controller, Key
 from utils.logger import log
 from utils.clipboard_manager import ClipboardManager
-from audio.audio_config import CLIPBOARD_PASTE_DELAY, CLIPBOARD_COPY_DELAY
+from audio.audio_config import CLIPBOARD_PASTE_DELAY, CLIPBOARD_COPY_DELAY, CLIPBOARD_RESTORE_DELAY
 
 class TextInserter:
     """Classe pour insérer du texte à la position actuelle du curseur."""
@@ -39,16 +37,21 @@ class TextInserter:
                 log("Échec de la copie dans le presse-papiers")
                 return
             
+            # Attendre que le presse-papiers soit prêt
+            time.sleep(CLIPBOARD_COPY_DELAY)
+            
             # Simuler Ctrl+V pour coller le texte
-            time.sleep(CLIPBOARD_COPY_DELAY)  # Petit délai pour s'assurer que le presse-papiers est prêt
             self.keyboard.press(Key.ctrl)
             self.keyboard.press('v')
             self.keyboard.release('v')
             self.keyboard.release(Key.ctrl)
             
-            # Attendre un peu pour s'assurer que le collage est terminé
+            # Attendre que le collage soit terminé
             time.sleep(CLIPBOARD_PASTE_DELAY)
             log(f"Texte inséré: {text[:50]}{'...' if len(text) > 50 else ''}")
+            
+            # Délai supplémentaire avant de restaurer le clipboard pour éviter les interférences
+            time.sleep(CLIPBOARD_RESTORE_DELAY)
         finally:
             # Restaurer le contenu original du presse-papiers
             if original_clipboard:
