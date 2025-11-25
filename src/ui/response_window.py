@@ -10,11 +10,9 @@ import win32com.client
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QPushButton, QTextEdit,
-    QApplication, QCheckBox
+    QApplication
 )
 from PySide6.QtCore import Qt, QTimer, QPoint
-from src.ui.thinking_window import ThinkingWindow
-from src.utils.thinking_parser import extract_thinking_content, has_thinking_content
 
 class ResponseWindow(QWidget):
     """Window to display API responses"""
@@ -61,13 +59,6 @@ class ResponseWindow(QWidget):
         
         # Variable pour stocker la position d'ouverture
         self.trigger_position = None
-        
-        # Fenêtre de thinking
-        self.thinking_window = ThinkingWindow()
-        
-        # Stocker le contenu thinking et principal séparément
-        self.thinking_content = None
-        self.main_content = None
     
     def create_title_bar(self):
         """Create the title bar"""
@@ -105,14 +96,6 @@ class ResponseWindow(QWidget):
         self.write_button.clicked.connect(self.write_response)
         button_layout.addWidget(self.write_button)
         
-        button_layout.addStretch()
-        
-        # Checkbox pour afficher le thinking
-        self.show_thinking_checkbox = QCheckBox("🧠 Afficher Thinking")
-        self.show_thinking_checkbox.setEnabled(False)
-        self.show_thinking_checkbox.stateChanged.connect(self.toggle_thinking_window)
-        button_layout.addWidget(self.show_thinking_checkbox)
-        
         self.content_layout.addWidget(button_bar)
     
     def set_status(self, status):
@@ -123,30 +106,14 @@ class ResponseWindow(QWidget):
     
     def set_response(self, response):
         """Set the response text"""
-        # Extraire le contenu thinking et le contenu principal
-        self.thinking_content, self.main_content = extract_thinking_content(response)
-        
-        # Afficher le contenu principal dans la fenêtre de réponse
-        self.response_text.setText(self.main_content)
-        self.response_text.setPlainText(self.main_content)  # Assure l'affichage en texte brut
+        self.response_text.setText(response)
+        self.response_text.setPlainText(response)  # Assure l'affichage en texte brut
         self.title_label.setText("✨ SuperMenu - Réponse")
         self.status_label.setText("✅ Terminé")
         self.status_label.setProperty("status", "success")
         self.retry_button.setEnabled(True)
         self.copy_button.setEnabled(True)
         self.write_button.setEnabled(True)
-        
-        # Activer la checkbox si du thinking est détecté (mais ne pas l'afficher automatiquement)
-        if self.thinking_content:
-            self.show_thinking_checkbox.setEnabled(True)
-            self.status_label.setText("✅ Terminé (Thinking détecté)")
-            # Ne pas cocher automatiquement la checkbox - l'utilisateur décide
-        else:
-            self.show_thinking_checkbox.setEnabled(False)
-            self.show_thinking_checkbox.setChecked(False)
-            # Cacher la fenêtre thinking si elle était ouverte
-            if self.thinking_window and self.thinking_window.isVisible():
-                self.thinking_window.hide()
     
     def set_loading(self, is_loading):
         """Set the loading state"""
@@ -244,34 +211,3 @@ class ResponseWindow(QWidget):
             position: QPoint représentant la position du curseur ou de la fenêtre de dialogue
         """
         self.trigger_position = position
-        # Transmettre également à la fenêtre thinking
-        if self.thinking_window:
-            self.thinking_window.set_trigger_position(position)
-    
-    def toggle_thinking_window(self, state):
-        """Toggle the thinking window visibility"""
-        if state == Qt.CheckState.Checked.value:
-            # Afficher la fenêtre thinking avec le contenu
-            if self.thinking_content:
-                self.thinking_window.set_thinking_content(self.thinking_content)
-                self.thinking_window.show()
-            else:
-                self.thinking_window.set_thinking_content(None)
-                self.thinking_window.show()
-        else:
-            # Cacher la fenêtre thinking
-            self.thinking_window.hide()
-    
-    def closeEvent(self, event):
-        """Handle close event"""
-        # Fermer également la fenêtre thinking
-        if self.thinking_window:
-            self.thinking_window.hide()
-        super().closeEvent(event)
-    
-    def hideEvent(self, event):
-        """Handle hide event"""
-        # Cacher également la fenêtre thinking
-        if self.thinking_window and self.thinking_window.isVisible():
-            self.thinking_window.hide()
-        super().hideEvent(event)

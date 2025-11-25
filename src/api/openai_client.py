@@ -183,9 +183,15 @@ class OpenAIClient(QObject):
                                 }
                             ]
                         }
-                    ],
-                    "max_tokens": 2048
+                    ]
                 }
+                
+                # Paramètres spécifiques à GPT-5
+                if "gpt-5" in self.model:
+                    data["reasoning_effort"] = "none"
+                    data["max_completion_tokens"] = 2048
+                else:
+                    data["max_tokens"] = 2048
                 
                 # Nettoyer l'image temporaire après utilisation
                 self._cleanup_image(content)
@@ -195,9 +201,15 @@ class OpenAIClient(QObject):
                 
                 data = {
                     "model": self.model,
-                    "messages": [{"role": "user", "content": full_prompt}],
-                    "max_tokens": 2048  # Limiter la taille de la réponse
+                    "messages": [{"role": "user", "content": full_prompt}]
                 }
+                
+                # Paramètres spécifiques à GPT-5
+                if "gpt-5" in self.model:
+                    data["reasoning_effort"] = "none"
+                    data["max_completion_tokens"] = 2048
+                else:
+                    data["max_tokens"] = 2048
             
             # Envoyer la requête avec retry logic
             response = self._make_request_with_retry(headers, data, timeout=60)
@@ -291,9 +303,15 @@ class OpenAIClient(QObject):
                                 }
                             ]
                         }
-                    ],
-                    "max_tokens": 2048
+                    ]
                 }
+                
+                # Paramètres spécifiques à GPT-5
+                if "gpt-5" in self.model:
+                    data["reasoning_effort"] = "none"
+                    data["max_completion_tokens"] = 2048
+                else:
+                    data["max_tokens"] = 2048
                 
                 # Nettoyer l'image temporaire après utilisation
                 self._cleanup_image(content)
@@ -303,9 +321,15 @@ class OpenAIClient(QObject):
                 
                 data = {
                     "model": self.model,
-                    "messages": [{"role": "user", "content": full_prompt}],
-                    "max_tokens": 2048  # Limiter la taille de la réponse
+                    "messages": [{"role": "user", "content": full_prompt}]
                 }
+                
+                # Paramètres spécifiques à GPT-5
+                if "gpt-5" in self.model:
+                    data["reasoning_effort"] = "none"
+                    data["max_completion_tokens"] = 2048
+                else:
+                    data["max_tokens"] = 2048
             
             # Envoyer la requête avec retry logic
             response = self._make_request_with_retry(headers, data, timeout=60)

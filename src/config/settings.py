@@ -129,7 +129,7 @@ class Settings:
         self.default_hotkey = "Ctrl+²"
         self.default_screenshot_hotkey = "Ctrl+Shift+²"
         self.default_voice_hotkey = "Ctrl+Alt+²"
-        self.default_model = "gpt-4o-mini"
+        self.default_model = "gpt-5.1"
         self.default_custom_endpoint = ""
         self.default_custom_model = ""
         self.default_use_custom_endpoint = False

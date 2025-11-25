@@ -95,7 +95,7 @@ class MainWindow(QMainWindow):
         # Model selection
         model_label = QLabel("Modèle:")
         self.model_combo = QComboBox()
-        self.model_combo.addItems(["gpt-4o-mini", "gpt-4.1-nano", "gpt-5-mini", "gpt-5-nano", "gpt-5"])
+        self.model_combo.addItems(["gpt-5.1", "gpt-4.1-mini"])
         self.model_combo.setCurrentText(self.settings.get_model())
         
         openai_layout.addWidget(api_key_label)
@@ -608,6 +608,11 @@ class MainWindow(QMainWindow):
         """)
         layout.addWidget(description_text)
         
+        # Button to open settings folder
+        open_settings_folder_button = QPushButton("📂 Ouvrir le dossier des paramètres")
+        open_settings_folder_button.clicked.connect(self.open_settings_folder)
+        layout.addWidget(open_settings_folder_button)
+        
         # Add the tab
         self.tab_widget.addTab(about_tab, "ℹ️ À propos")
     
@@ -629,6 +634,14 @@ class MainWindow(QMainWindow):
         buttons_layout.addWidget(close_button)
         
         self.main_layout.addLayout(buttons_layout)
+    
+    def open_settings_folder(self):
+        """Open the folder containing the settings file"""
+        try:
+            settings_path = os.path.expanduser("~")
+            os.startfile(settings_path)
+        except Exception as e:
+            print(f"Erreur lors de l'ouverture du dossier: {e}")
     
     def populate_prompt_combo(self):
         """Populate the prompt combo box"""
