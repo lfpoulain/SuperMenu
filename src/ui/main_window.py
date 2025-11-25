@@ -571,38 +571,33 @@ class MainWindow(QMainWindow):
         description_text.setHtml("""
         <div style="font-family: 'Segoe UI', Arial, sans-serif;">
             <h1 style="text-align: center; color: #4CAF50; margin-bottom: 5px;">🚀 SuperMenu</h1>
-            <p style="text-align: center; font-size: 14px; color: #aaa; margin-top: 0;">Version 2.0.0</p>
+            <p style="text-align: center; font-size: 14px; color: #aaa; margin-top: 0;">Version 2.1</p>
             
             <p style="font-size: 13px; line-height: 1.6; color: #ddd;">
                 SuperMenu est une application puissante conçue pour simplifier et améliorer votre interaction avec les modèles d'IA. 
                 Elle offre un accès rapide et personnalisable à une variété de fonctionnalités directement depuis votre bureau.
             </p>
             
-            <h3 style="color: #64B5F6; margin-top: 20px; margin-bottom: 10px;">✨ Fonctionnalités principales :</h3>
-            <ul style="line-height: 1.8; font-size: 13px; color: #ddd;">
+            <ul style="line-height: 1.8; font-size: 13px; color: #ddd; margin-top: 20px;">
                 <li><strong style="color: #fff;">Prompts personnalisés</strong> : Accès rapide à vos prompts textuels via un menu contextuel</li>
                 <li><strong style="color: #fff;">Interaction vocale</strong> : Dictez vos prompts et recevez des réponses instantanées</li>
                 <li><strong style="color: #fff;">Analyse d'images</strong> : Capture d'écran et analyse avec l'IA</li>
                 <li><strong style="color: #fff;">Multi-endpoints</strong> : Support OpenAI et endpoints personnalisés (Ollama, etc.)</li>
-                <li><strong style="color: #fff;">Sélection dynamique</strong> : Récupération automatique des modèles disponibles</li>
                 <li><strong style="color: #fff;">Thèmes personnalisables</strong> : Adaptez l'apparence à vos préférences</li>
                 <li><strong style="color: #fff;">Import/Export</strong> : Sauvegardez et partagez vos configurations</li>
                 <li><strong style="color: #fff;">Raccourcis clavier</strong> : Configurez vos propres raccourcis pour un accès ultra-rapide</li>
             </ul>
             
-            <h3 style="color: #FFB74D; margin-top: 20px; margin-bottom: 10px;">🆕 Nouveautés v2.0 :</h3>
-            <ul style="line-height: 1.8; font-size: 13px; color: #ddd;">
-                <li><strong style="color: #fff;">Récupération dynamique des modèles</strong> : Plus besoin de saisir manuellement le nom du modèle</li>
-                <li><strong style="color: #fff;">Changement d'endpoint sans redémarrage</strong> : Basculez instantanément entre OpenAI et votre serveur local</li>
-                <li><strong style="color: #fff;">Support des modèles avec slashes</strong> : Compatible avec tous les formats de noms (ex: google/gemma, qwen/qwen3)</li>
-                <li><strong style="color: #fff;">Interface améliorée</strong> : ComboBox éditable avec bouton de rafraîchissement</li>
-            </ul>
+            <hr style="margin: 25px 0; border: none; border-top: 1px solid #555;">
             
-            <hr style="margin: 20px 0; border: none; border-top: 1px solid #555;">
+            <p style="text-align: center; font-size: 13px; color: #ddd; margin-top: 15px;">
+                <strong style="color: #ccc;">Développé par LFPoulain avec ❤️</strong>
+            </p>
             
-            <p style="text-align: center; font-size: 12px; color: #aaa; margin-top: 15px;">
-                <strong style="color: #ccc;">Développé avec ❤️ pour améliorer votre productivité</strong><br>
-                <span style="font-size: 11px; color: #999;">Utilise PySide6, OpenAI API, et supporte les endpoints compatibles OpenAI</span>
+            <p style="text-align: center; margin-top: 10px;">
+                <a href="https://github.com/lfpoulain/supermenu" style="color: #64B5F6; text-decoration: none; font-size: 12px;">
+                    github.com/lfpoulain/supermenu
+                </a>
             </p>
         </div>
         """)
