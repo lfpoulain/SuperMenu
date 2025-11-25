@@ -12,10 +12,13 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QTextEdit,
     QApplication
 )
-from PySide6.QtCore import Qt, QTimer, QPoint
+from PySide6.QtCore import Qt, QTimer, QPoint, Signal
 
 class ResponseWindow(QWidget):
     """Window to display API responses"""
+    
+    # Signal émis quand l'utilisateur clique sur Réessayer
+    retry_requested = Signal()
     
     def __init__(self):
         super().__init__()
@@ -59,6 +62,10 @@ class ResponseWindow(QWidget):
         
         # Variable pour stocker la position d'ouverture
         self.trigger_position = None
+        
+        # Variables pour stocker la dernière requête (pour retry)
+        self.last_prompt = None
+        self.last_content = None
     
     def create_title_bar(self):
         """Create the title bar"""
@@ -171,10 +178,33 @@ class ResponseWindow(QWidget):
             logging.error(f"Erreur lors du collage: {e}")
     
     def retry_request(self):
-        """Retry the API request - to be implemented by the caller"""
-        # Cette méthode sera connectée par le gestionnaire de contexte
-        self.status_label.setText("🔄 Réessai...")
-        self.status_label.setProperty("status", "info")
+        """Retry the API request"""
+        if self.last_prompt is not None:
+            self.status_label.setText("🔄 Réessai...")
+            self.status_label.setProperty("status", "info")
+            self.set_loading(True)
+            self.retry_requested.emit()
+        else:
+            self.status_label.setText("⚠️ Aucune requête à réessayer")
+            self.status_label.setProperty("status", "warning")
+    
+    def store_request(self, prompt, content):
+        """Stocke les informations de la requête pour permettre un retry
+        
+        Args:
+            prompt: Le prompt utilisé
+            content: Le contenu (texte ou chemin d'image)
+        """
+        self.last_prompt = prompt
+        self.last_content = content
+    
+    def get_last_request(self):
+        """Retourne les informations de la dernière requête
+        
+        Returns:
+            tuple: (prompt, content) ou (None, None) si pas de requête stockée
+        """
+        return self.last_prompt, self.last_content
 
     def showEvent(self, event):
         """Handle show event"""

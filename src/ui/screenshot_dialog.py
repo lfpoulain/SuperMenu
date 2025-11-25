@@ -7,7 +7,9 @@ from PySide6.QtCore import Qt, QRect, QPoint, Signal, QSize
 from PySide6.QtGui import QCursor, QGuiApplication, QScreen, QPixmap
 import sys
 import os
+import logging
 from PIL import ImageGrab, Image
+from utils.logger import log
 import io
 import tempfile
 
@@ -154,23 +156,23 @@ class ScreenshotDialog(QDialog):
         if self.rubberband.isVisible():
             # Capturer la zone sélectionnée
             rect = self.rubberband.geometry()
-            print(f"Zone sélectionnée: {rect.x()}, {rect.y()}, {rect.width()}, {rect.height()}")
+            log(f"Zone sélectionnée: {rect.x()}, {rect.y()}, {rect.width()}, {rect.height()}", logging.DEBUG)
             
             if rect.width() > 10 and rect.height() > 10:  # Ignorer les sélections trop petites
                 self.capture_screenshot(rect)
-                print(f"Capture effectuée, chemin: {self.screenshot_path}")
+                log(f"Capture effectuée, chemin: {self.screenshot_path}", logging.DEBUG)
             else:
-                print("Sélection trop petite, ignorée")
+                log("Sélection trop petite, ignorée", logging.DEBUG)
             
             # Fermer l'overlay
             self.screen_overlay.close()
             
             # Si nous avons une capture d'écran, accepter le dialogue
             if self.screenshot_path and os.path.exists(self.screenshot_path):
-                print("Capture réussie, acceptation du dialogue")
+                log("Capture réussie, acceptation du dialogue", logging.DEBUG)
                 self.accept()
             else:
-                print("Pas de capture valide, réaffichage du dialogue")
+                log("Pas de capture valide, réaffichage du dialogue", logging.DEBUG)
                 self.show()  # Réafficher la boîte de dialogue de capture
     
     def overlay_key_press(self, event):

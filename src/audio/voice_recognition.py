@@ -243,7 +243,8 @@ class VoiceRecognition(QObject):
         # Connecter le signal de fermeture (une seule fois)
         try:
             self._close_indicator_signal.disconnect()
-        except:
+        except (TypeError, RuntimeError):
+            # Le signal n'était pas connecté - c'est normal lors du premier appel
             pass
         self._close_indicator_signal.connect(self._close_indicator_impl)
         

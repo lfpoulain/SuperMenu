@@ -41,6 +41,9 @@ class ContextMenuManager(QObject):
         self.api_client.request_started.connect(self.on_request_started)
         self.api_client.request_finished.connect(self.on_request_finished)
         self.api_client.request_error.connect(self.on_request_error)
+        
+        # Connecter le signal de retry
+        self.response_window.retry_requested.connect(self.on_retry_requested)
     
     def _create_temp_api_client(self):
         """
@@ -63,6 +66,11 @@ class ContextMenuManager(QObject):
         # Créer le menu
         menu = QMenu()
         menu.setAttribute(Qt.WA_DeleteOnClose)  # S'assurer que le menu est supprimé après fermeture
+        menu.setWindowFlags(menu.windowFlags() | Qt.Popup | Qt.FramelessWindowHint)
+        menu.setAttribute(Qt.WA_TranslucentBackground)
+        
+        # Fermer le menu si on clique en dehors ou si on perd le focus
+        menu.aboutToHide.connect(menu.close)
         
         # Tenter de récupérer le texte sélectionné sans bloquer
         selected_text = self._try_get_selected_text()
@@ -108,6 +116,11 @@ class ContextMenuManager(QObject):
         # Créer le menu
         menu = QMenu()
         menu.setAttribute(Qt.WA_DeleteOnClose)  # S'assurer que le menu est supprimé après fermeture
+        menu.setWindowFlags(menu.windowFlags() | Qt.Popup | Qt.FramelessWindowHint)
+        menu.setAttribute(Qt.WA_TranslucentBackground)
+        
+        # Fermer le menu si on clique en dehors ou si on perd le focus
+        menu.aboutToHide.connect(menu.close)
         
         # Ajouter l'option de reconnaissance vocale
         voice_action = menu.addAction("Écrire à la voix")
@@ -250,6 +263,10 @@ class ContextMenuManager(QObject):
             self.response_window.set_trigger_position(QCursor.pos())
             self.response_window.show()
         
+        # Stocker la requête pour permettre un retry
+        if not insert_directly:
+            self.response_window.store_request(prompt_data["prompt"], selected_text)
+        
         # Lancer la requête API en arrière-plan
         self.api_client.send_request(prompt_data["prompt"], selected_text, insert_directly)
     
@@ -266,6 +283,9 @@ class ContextMenuManager(QObject):
                 self.response_window.set_trigger_position(QCursor.pos())
                 self.response_window.show()
                 
+                # Stocker la requête pour permettre un retry
+                self.response_window.store_request(custom_prompt, "")
+                
                 # Lancer la requête API en arrière-plan avec un texte vide
                 self.api_client.send_request(custom_prompt, "")
             return
@@ -279,6 +299,9 @@ class ContextMenuManager(QObject):
             # Définir la position de déclenchement à la position actuelle du curseur
             self.response_window.set_trigger_position(QCursor.pos())
             self.response_window.show()
+            
+            # Stocker la requête pour permettre un retry
+            self.response_window.store_request(custom_prompt, selected_text)
             
             # Lancer la requête API en arrière-plan
             self.api_client.send_request(custom_prompt, selected_text)
@@ -316,6 +339,9 @@ class ContextMenuManager(QObject):
                     # Définir la position de déclenchement à la position du curseur
                     self.response_window.set_trigger_position(cursor_pos)
                     self.response_window.show()
+                    
+                    # Stocker la requête pour permettre un retry
+                    self.response_window.store_request(prompt, screenshot_path)
                     
                     # Lancer la requête API en arrière-plan
                     self.api_client.send_request(prompt, screenshot_path)
@@ -505,6 +531,9 @@ class ContextMenuManager(QObject):
                         self.response_window.set_trigger_position(QCursor.pos())
                         self.response_window.show()
                         
+                        # Stocker la requête pour permettre un retry
+                        self.response_window.store_request(full_prompt, "")
+                        
                         # Lancer la requête API en arrière-plan
                         self.api_client.send_request(full_prompt, "")
             
@@ -560,6 +589,9 @@ class ContextMenuManager(QObject):
                     # Définir la position de déclenchement à la position actuelle du curseur
                     self.response_window.set_trigger_position(QCursor.pos())
                     self.response_window.show()
+                    
+                    # Stocker la requête pour permettre un retry
+                    self.response_window.store_request(full_prompt, "")
                     
                     # Lancer la requête API en arrière-plan
                     self.api_client.send_request(full_prompt, "")
@@ -619,6 +651,13 @@ class ContextMenuManager(QObject):
         """Handle request error signal"""
         self.response_window.set_response(f"Erreur: {error}")
         self.response_window.set_loading(False)
+    
+    def on_retry_requested(self):
+        """Handle retry request from response window"""
+        prompt, content = self.response_window.get_last_request()
+        if prompt is not None:
+            log("Retry de la dernière requête...", logging.INFO)
+            self.api_client.send_request(prompt, content if content else "")
 
     def _handle_settings_action(self):
         """Gérer l'action de paramètres"""
@@ -629,23 +668,32 @@ class ContextMenuManager(QObject):
 
     def update_client_config(self):
         """Met à jour la configuration du client API avec les paramètres actuels."""
+        # Déconnecter les anciens signaux pour éviter les fuites mémoire
         if self.api_client:
-            # Recréer le client avec les nouveaux paramètres
-            # Le modèle sera automatiquement déterminé selon le type d'endpoint
-            self.api_client = OpenAIClient(
-                settings=self.settings,
-                api_key=self.settings.get_api_key()
-            )
+            try:
+                self.api_client.request_started.disconnect(self.on_request_started)
+                self.api_client.request_finished.disconnect(self.on_request_finished)
+                self.api_client.request_error.disconnect(self.on_request_error)
+            except (TypeError, RuntimeError) as e:
+                # Les signaux peuvent ne pas être connectés
+                log(f"Note: Déconnexion des signaux: {e}", logging.DEBUG)
+        
+        # Recréer le client avec les nouveaux paramètres
+        # Le modèle sera automatiquement déterminé selon le type d'endpoint
+        self.api_client = OpenAIClient(
+            settings=self.settings,
+            api_key=self.settings.get_api_key()
+        )
+        
+        # Reconnecter les signaux
+        self.api_client.request_started.connect(self.on_request_started)
+        self.api_client.request_finished.connect(self.on_request_finished)
+        self.api_client.request_error.connect(self.on_request_error)
             
-            # Reconnecter les signaux
-            self.api_client.request_started.connect(self.on_request_started)
-            self.api_client.request_finished.connect(self.on_request_finished)
-            self.api_client.request_error.connect(self.on_request_error)
-                
-            endpoint_info = self.settings.get_custom_endpoint() if self.settings.get_use_custom_endpoint() else "OpenAI"
-            model_info = self.settings.get_custom_model() if self.settings.get_use_custom_endpoint() else self.settings.get_model()
-            
-            log(
-                f"ContextMenuManager: Configuration du client API mise à jour. Endpoint: {endpoint_info}, Modèle: {model_info}",
-                logging.INFO,
-            )
+        endpoint_info = self.settings.get_custom_endpoint() if self.settings.get_use_custom_endpoint() else "OpenAI"
+        model_info = self.settings.get_custom_model() if self.settings.get_use_custom_endpoint() else self.settings.get_model()
+        
+        log(
+            f"ContextMenuManager: Configuration du client API mise à jour. Endpoint: {endpoint_info}, Modèle: {model_info}",
+            logging.INFO,
+        )

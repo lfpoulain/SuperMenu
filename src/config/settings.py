@@ -8,6 +8,23 @@ import keyring
 from PySide6.QtCore import QSettings
 from utils.logger import log
 
+# Constantes pour les modèles OpenAI
+AVAILABLE_MODELS = ["gpt-5.1", "gpt-4.1-mini"]
+GPT5_MODELS_PREFIX = "gpt-5"  # Préfixe pour les modèles nécessitant max_completion_tokens
+
+
+def is_gpt5_model(model_name: str) -> bool:
+    """Vérifie si le modèle est un modèle GPT-5 nécessitant des paramètres spécifiques.
+    
+    Args:
+        model_name: Nom du modèle à vérifier
+        
+    Returns:
+        True si c'est un modèle GPT-5, False sinon
+    """
+    return GPT5_MODELS_PREFIX in model_name.lower() if model_name else False
+
+
 class Settings:
     """Manage application settings"""
     
@@ -278,7 +295,7 @@ class Settings:
         if theme in self.available_themes:
             self.settings.setValue("theme", theme)
         else:
-            print("Le thème spécifié n'est pas disponible.")
+            log("Le thème spécifié n'est pas disponible.", logging.WARNING)
     
     def get_prompts(self):
         """Get all prompts"""
@@ -299,7 +316,7 @@ class Settings:
             
             return prompts
         except json.JSONDecodeError:
-            print("Erreur de décodage JSON pour les prompts")
+            log("Erreur de décodage JSON pour les prompts", logging.ERROR)
             return {}
     
     def get_prompt(self, prompt_id):
@@ -341,7 +358,7 @@ class Settings:
             
             return prompts
         except json.JSONDecodeError:
-            print("Erreur de décodage JSON pour les prompts vocaux")
+            log("Erreur de décodage JSON pour les prompts vocaux", logging.ERROR)
             return {}
     
     def get_voice_prompt(self, prompt_id):

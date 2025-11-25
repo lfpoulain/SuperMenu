@@ -10,6 +10,12 @@ import time
 import logging
 from PySide6.QtCore import QObject, Signal, QTimer, Slot
 from utils.logger import log
+from src.config.settings import is_gpt5_model
+
+# Constante pour le timeout des requêtes API
+DEFAULT_API_TIMEOUT = 60
+DEFAULT_MAX_TOKENS = 2048
+
 
 class OpenAIClient(QObject):
     """Client for OpenAI API interactions"""
@@ -152,82 +158,29 @@ class OpenAIClient(QObject):
     
     def _process_request_thread(self, prompt, content, insert_directly=False):
         """Traite la requête dans un thread séparé"""
+        image_path = None
         try:
             # Préparer les en-têtes et les données de la requête
-            headers = {
-                "Content-Type": "application/json"
-            }
-            
-            # Ajouter l'authentification seulement si on utilise OpenAI ou si une clé API est fournie
-            if not self.use_custom_endpoint or (self.use_custom_endpoint and self.api_key):
-                headers["Authorization"] = f"Bearer {self.api_key}"
-            
-            # Vérifier si le contenu est un chemin de fichier image
-            if isinstance(content, str) and os.path.isfile(content) and content.lower().endswith(('.png', '.jpg', '.jpeg')):
-                # C'est une image, préparer le message avec l'image
-                with open(content, "rb") as image_file:
-                    base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-                
-                data = {
-                    "model": self.model,  # Utiliser le modèle configuré (doit supporter les images)
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/jpeg;base64,{base64_image}"
-                                    }
-                                }
-                            ]
-                        }
-                    ]
-                }
-                
-                # Paramètres spécifiques à GPT-5
-                if "gpt-5" in self.model:
-                    data["reasoning_effort"] = "none"
-                    data["max_completion_tokens"] = 2048
-                else:
-                    data["max_tokens"] = 2048
-                
-                # Nettoyer l'image temporaire après utilisation
-                self._cleanup_image(content)
-            else:
-                # C'est du texte, préparer le message avec le texte
-                full_prompt = f"{prompt}\n\n{content}"
-                
-                data = {
-                    "model": self.model,
-                    "messages": [{"role": "user", "content": full_prompt}]
-                }
-                
-                # Paramètres spécifiques à GPT-5
-                if "gpt-5" in self.model:
-                    data["reasoning_effort"] = "none"
-                    data["max_completion_tokens"] = 2048
-                else:
-                    data["max_tokens"] = 2048
+            headers = self._build_headers()
+            data, image_path = self._build_request_data(prompt, content)
             
             # Envoyer la requête avec retry logic
-            response = self._make_request_with_retry(headers, data, timeout=60)
+            response = self._make_request_with_retry(headers, data, timeout=DEFAULT_API_TIMEOUT)
             
             # Vérifier si la requête a réussi
             if response.status_code == 200:
                 # Analyser la réponse
                 response_data = response.json()
-                content = response_data["choices"][0]["message"]["content"]
+                response_content = response_data["choices"][0]["message"]["content"]
                 
                 if insert_directly:
                     # Insérer directement le résultat
                     from utils.text_inserter import TextInserter
                     inserter = TextInserter()
-                    inserter.insert_text(content)
+                    inserter.insert_text(response_content)
                 else:
                     # Envoyer le contenu à la fenêtre de réponse via signal interne thread-safe
-                    self._internal_finished.emit(content)
+                    self._internal_finished.emit(response_content)
             else:
                 # Gérer l'erreur via signal interne thread-safe
                 error_message = f"Erreur {response.status_code}: {response.text}"
@@ -236,6 +189,11 @@ class OpenAIClient(QObject):
         except Exception as e:
             # Gérer l'exception via signal interne thread-safe
             self._internal_error.emit(f"Erreur: {str(e)}")
+        
+        finally:
+            # Nettoyer l'image temporaire APRÈS la requête (succès ou échec)
+            if image_path:
+                self._cleanup_image(image_path)
     
     @Slot(str)
     def _emit_finished(self, content):
@@ -258,9 +216,80 @@ class OpenAIClient(QObject):
         try:
             if image_path and os.path.exists(image_path) and "supermenu_screenshot_" in image_path:
                 os.remove(image_path)
-                print(f"Image temporaire supprimée après traitement API: {image_path}")
+                log(f"Image temporaire supprimée après traitement API: {image_path}", logging.DEBUG)
         except Exception as e:
-            print(f"Erreur lors de la suppression de l'image après traitement API: {e}")
+            log(f"Erreur lors de la suppression de l'image après traitement API: {e}", logging.WARNING)
+    
+    def _build_request_data(self, prompt, content):
+        """Construit les données de requête API.
+        
+        Args:
+            prompt: Le prompt à envoyer
+            content: Le contenu (texte ou chemin d'image)
+            
+        Returns:
+            tuple: (data dict, image_path si image, None sinon)
+        """
+        image_path = None
+        
+        # Vérifier si le contenu est un chemin de fichier image
+        if isinstance(content, str) and os.path.isfile(content) and content.lower().endswith(('.png', '.jpg', '.jpeg')):
+            # C'est une image, préparer le message avec l'image
+            with open(content, "rb") as image_file:
+                base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+            
+            image_path = content  # Garder le chemin pour nettoyage ultérieur
+            
+            data = {
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        else:
+            # C'est du texte, préparer le message avec le texte
+            full_prompt = f"{prompt}\n\n{content}" if content else prompt
+            
+            data = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": full_prompt}]
+            }
+        
+        # Paramètres spécifiques selon le type de modèle
+        if is_gpt5_model(self.model):
+            data["reasoning_effort"] = "none"
+            data["max_completion_tokens"] = DEFAULT_MAX_TOKENS
+        else:
+            data["max_tokens"] = DEFAULT_MAX_TOKENS
+        
+        return data, image_path
+    
+    def _build_headers(self):
+        """Construit les en-têtes de requête.
+        
+        Returns:
+            dict: En-têtes HTTP
+        """
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        # Ajouter l'authentification seulement si on utilise OpenAI ou si une clé API est fournie
+        if not self.use_custom_endpoint or (self.use_custom_endpoint and self.api_key):
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        
+        return headers
     
     def process_request(self, prompt, content):
         """Méthode obsolète pour la compatibilité - utiliser send_request à la place"""
@@ -272,74 +301,21 @@ class OpenAIClient(QObject):
         if not self.use_custom_endpoint and not self.api_key:
             raise Exception("Clé API non configurée. Veuillez configurer votre clé API dans les paramètres.")
         
+        image_path = None
         try:
             # Préparer les en-têtes et les données de la requête
-            headers = {
-                "Content-Type": "application/json"
-            }
-            
-            # Ajouter l'authentification seulement si on utilise OpenAI ou si une clé API est fournie
-            if not self.use_custom_endpoint or (self.use_custom_endpoint and self.api_key):
-                headers["Authorization"] = f"Bearer {self.api_key}"
-            
-            # Vérifier si le contenu est un chemin de fichier image
-            if isinstance(content, str) and os.path.isfile(content) and content.lower().endswith(('.png', '.jpg', '.jpeg')):
-                # C'est une image, préparer le message avec l'image
-                with open(content, "rb") as image_file:
-                    base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-                
-                data = {
-                    "model": self.model,  # Utiliser le modèle configuré (doit supporter les images)
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/jpeg;base64,{base64_image}"
-                                    }
-                                }
-                            ]
-                        }
-                    ]
-                }
-                
-                # Paramètres spécifiques à GPT-5
-                if "gpt-5" in self.model:
-                    data["reasoning_effort"] = "none"
-                    data["max_completion_tokens"] = 2048
-                else:
-                    data["max_tokens"] = 2048
-                
-                # Nettoyer l'image temporaire après utilisation
-                self._cleanup_image(content)
-            else:
-                # C'est du texte, préparer le message avec le texte
-                full_prompt = f"{prompt}\n\n{content}"
-                
-                data = {
-                    "model": self.model,
-                    "messages": [{"role": "user", "content": full_prompt}]
-                }
-                
-                # Paramètres spécifiques à GPT-5
-                if "gpt-5" in self.model:
-                    data["reasoning_effort"] = "none"
-                    data["max_completion_tokens"] = 2048
-                else:
-                    data["max_tokens"] = 2048
+            headers = self._build_headers()
+            data, image_path = self._build_request_data(prompt, content)
             
             # Envoyer la requête avec retry logic
-            response = self._make_request_with_retry(headers, data, timeout=60)
+            response = self._make_request_with_retry(headers, data, timeout=DEFAULT_API_TIMEOUT)
             
             # Vérifier si la requête a réussi
             if response.status_code == 200:
                 # Analyser la réponse
                 response_data = response.json()
-                content = response_data["choices"][0]["message"]["content"]
-                return content
+                response_content = response_data["choices"][0]["message"]["content"]
+                return response_content
             else:
                 # Gérer l'erreur
                 error_message = f"Erreur {response.status_code}: {response.text}"
@@ -348,6 +324,11 @@ class OpenAIClient(QObject):
         except Exception as e:
             # Propager l'exception
             raise Exception(f"Erreur lors de la requête API: {str(e)}")
+        
+        finally:
+            # Nettoyer l'image temporaire APRÈS la requête (succès ou échec)
+            if image_path:
+                self._cleanup_image(image_path)
     
     @staticmethod
     def fetch_available_models(endpoint_url, api_key=None, timeout=10):

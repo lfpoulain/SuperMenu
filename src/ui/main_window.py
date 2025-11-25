@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QIcon, QAction, QKeySequence
 
-from src.config.settings import Settings
+from src.config.settings import Settings, AVAILABLE_MODELS
 from src.utils.hotkey_manager import HotkeyManager
 from src.ui.screenshot_dialog import ScreenshotDialog
 from src.utils.validators import Validators
@@ -95,7 +95,7 @@ class MainWindow(QMainWindow):
         # Model selection
         model_label = QLabel("Modèle:")
         self.model_combo = QComboBox()
-        self.model_combo.addItems(["gpt-5.1", "gpt-4.1-mini"])
+        self.model_combo.addItems(AVAILABLE_MODELS)
         self.model_combo.setCurrentText(self.settings.get_model())
         
         openai_layout.addWidget(api_key_label)
@@ -641,7 +641,9 @@ class MainWindow(QMainWindow):
             settings_path = os.path.expanduser("~")
             os.startfile(settings_path)
         except Exception as e:
-            print(f"Erreur lors de l'ouverture du dossier: {e}")
+            import logging
+            from utils.logger import log
+            log(f"Erreur lors de l'ouverture du dossier: {e}", logging.ERROR)
     
     def populate_prompt_combo(self):
         """Populate the prompt combo box"""

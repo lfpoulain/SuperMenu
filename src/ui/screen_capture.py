@@ -6,11 +6,13 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap, QGuiApplication
 import os
 import tempfile
+import logging
 from PIL import ImageGrab
+from utils.logger import log
 
 def capture_screen():
     """Fonction pour capturer une zone de l'écran et retourner le chemin de l'image"""
-    print("Démarrage de la capture d'écran simplifiée...")
+    log("Démarrage de la capture d'écran simplifiée...", logging.DEBUG)
     
     # Masquer uniquement les fenêtres de dialogue, pas les fenêtres principales
     for widget in QApplication.topLevelWidgets():
@@ -39,14 +41,14 @@ def capture_screen():
             
             # Enregistrer l'image
             screenshot.save(screenshot_path, "PNG")
-            print(f"Image capturée et enregistrée: {screenshot_path}")
+            log(f"Image capturée et enregistrée: {screenshot_path}", logging.DEBUG)
             
             # Réafficher les fenêtres de dialogue de l'application
             for widget in QApplication.topLevelWidgets():
                 if isinstance(widget, QDialog):
                     widget.show()
         except Exception as e:
-            print(f"Erreur lors de la capture d'écran: {e}")
+            log(f"Erreur lors de la capture d'écran: {e}", logging.ERROR)
             screenshot_path = None
             
             # Réafficher les fenêtres de dialogue de l'application en cas d'erreur
