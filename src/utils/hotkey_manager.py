@@ -341,6 +341,13 @@ class HotkeyManager(QObject):
         # Diviser le raccourci en touches individuelles
         hotkey_parts = configured_hotkey.split("+")
         hotkey_parts = [part.strip().lower() for part in hotkey_parts if part.strip()]
+
+        # Normaliser certaines touches selon le layout / la lib keyboard
+        # Exemple fréquent en AZERTY: la touche "&" est reportée comme "1".
+        alias_map = {
+            "&": "1",
+        }
+        hotkey_parts = [alias_map.get(part, part) for part in hotkey_parts]
         
         if not hotkey_parts:
             return

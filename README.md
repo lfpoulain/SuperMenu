@@ -1,104 +1,117 @@
-# SuperMenu
+# SuperMenu 🚀
 
-SuperMenu est une application Windows (Python + PySide6) qui affiche un menu contextuel piloté par raccourci clavier pour exécuter rapidement des actions IA sur :
+![Platform](https://img.shields.io/badge/platform-Windows-blue)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)
+![Status](https://img.shields.io/badge/status-Active-success)
 
-- du texte sélectionné
-- de la dictée (reconnaissance vocale)
-- une capture d'écran
+**SuperMenu** est ton assistant IA personnel pour Windows. Accessible instantanément via un raccourci clavier, il s'intègre à n'importe quelle application pour traiter du texte, de la voix ou des images.
 
-Liens :
+> 💡 **Idée clé** : Ne perds plus de temps à copier-coller vers ChatGPT. SuperMenu amène l'IA directement là où tu travailles.
 
-- Dépôt : https://github.com/lfpoulain/SuperMenu
-- Releases : https://github.com/lfpoulain/SuperMenu/releases
+---
 
-## Fonctionnalités
+## ✨ Fonctionnalités Principales
 
-- Menu contextuel sur texte sélectionné (prompts configurables)
-- Fermeture automatique des menus contextuels (clic extérieur / changement de fenêtre)
-- Prompts vocaux (dictée + prompt + option d'inclure le texte sélectionné)
-- Capture d'écran + envoi à l'IA (avec prompt)
-- Insertion directe dans l'application active (optionnelle)
-- Choix du modèle :
-  - OpenAI (`gpt-5.2`, `gpt-5.1`,`gpt-4.1-mini`)
-  - Endpoint compatible OpenAI (ex : Ollama) + modèle libre
-- Raccourcis configurables (menu, voix, capture)
-- Thèmes (via `ThemeManager`) : sombre, clair, automatique
-- Stockage sécurisé de la clé API via `keyring` (la clé n'est pas écrite dans les fichiers de configuration)
+### 📝 Texte & Productivité
+- **Menu Contextuel Universel** : Sélectionne du texte n'importe où et lance SuperMenu (`Ctrl+²`).
+- **Actions Rapides** : Corriger, Reformuler, Résumer, Traduire, Expliquer...
+- **Insertion Directe** : Remplace automatiquement le texte sélectionné par la réponse de l'IA (idéal pour les corrections).
+- **Prompts Personnalisables** : Crée tes propres actions adaptées à tes besoins.
 
-## Installation (recommandée)
+### 🎙️ Voix & Dictée
+- **Commandes Vocales** : Parle à l'IA (`Ctrl+Alt+²`).
+- **Transcription Intelligente** : Dictée simple ou instructions complexes.
+- **Contexte Mixte** : Combine ta voix avec le texte sélectionné à l'écran.
 
-1. Télécharge l'installateur depuis la page des releases (canal nightly) :
-   - https://github.com/lfpoulain/SuperMenu/releases/tag/nightly
-2. Lance `SuperMenu_Setup.exe`.
-3. Lance SuperMenu depuis le menu Démarrer.
+### 📸 Vision & Capture
+- **Analyse d'Écran** : Capture une zone ou l'écran entier (`Ctrl+Alt+&`).
+- **Vision IA** : Demande à l'IA d'analyser, décrire ou extraire des infos de l'image.
+- **Modes de Capture** : Plein écran, Zone sélective ou "Demander à chaque fois".
 
-## Mise à jour
+### ⚙️ Flexibilité & Sécurité
+- **Multi-Modèles** : Compatible OpenAI (`gpt-5.2`,`gpt-5.1`, `gpt-4.1`, etc.) et **Endpoints Locaux** (Ollama, LM Studio).
+- **Interface Moderne** : Thèmes Sombre/Clair/Auto (basé sur le système).
+- **Sécurisé** : Ta clé API est stockée dans le trousseau sécurisé de Windows (Windows Credential Locker), pas en clair.
+- **Mises à jour Faciles** : Système de mise à jour intégré via GitHub Releases.
 
-Deux options :
+---
 
-- **Depuis l'application** : onglet "À propos" -> "Vérifier les mises à jour" (télécharge et lance l'installateur).
-- **Manuellement** : retélécharger `SuperMenu_Setup.exe` (nightly) et le relancer par-dessus l'installation existante.
+## 🚀 Installation
 
-## Désinstallation
+### Recommandée (Utilisateurs)
+1. Télécharge la dernière version de l'installateur (`SuperMenu_Setup.exe`) depuis les [Releases](https://github.com/lfpoulain/SuperMenu/releases).
+2. Lance l'exécutable et suis les instructions.
+3. SuperMenu se lance automatiquement et se loge dans la barre des tâches (systray).
 
-Lors de la désinstallation, SuperMenu est fermé automatiquement si nécessaire.
-Une question te propose de supprimer aussi les données utilisateur (logs et configuration).
+### Mise à jour
+- **Automatique** : Via l'onglet "À propos" > "Vérifier les mises à jour".
+- **Manuelle** : Télécharge et réinstalle la dernière version par-dessus l'existante.
 
-## Configuration & logs
+---
 
-- **Configuration** : `%USERPROFILE%\SuperMenu.ini`
-- **Logs** : `%LOCALAPPDATA%\SuperMenu\logs\supermenu.log`
+## 🛠️ Configuration Rapide
 
-## Utilisation rapide
+Au premier lancement (ou via l'icône dans la barre des tâches) :
 
-### Raccourcis clavier par défaut
+1. **API Key** : Rentre ta clé OpenAI (ou configure un endpoint local).
+2. **Raccourcis** : Vérifie ou modifie les raccourcis par défaut.
+   - **Menu** : `Ctrl+²` (le carré, en haut à gauche du clavier AZERTY).
+   - **Voix** : `Ctrl+Alt+²`.
+   - **Capture** : `Ctrl+Alt+&`.
 
-Ils sont configurables dans l'onglet "Réglages".
+---
 
-- **Ctrl+²** : menu contextuel sur texte sélectionné
-- **Ctrl+Alt+²** : prompt vocal
-- **Ctrl+Shift+²** : capture d'écran
+## 🧑‍💻 Développement
 
-### Menu contextuel
+Envie de contribuer ou de modifier le code ?
 
-1. Sélectionne du texte
-2. Appuie sur le raccourci
-3. Choisis l'action
-
-Le menu se ferme automatiquement si tu cliques en dehors ou si tu changes de fenêtre.
-
-## Développement
-
-Prérequis :
-
+### Prérequis
 - Windows 10/11
-- Python 3.10+ recommandé
+- Python 3.10+
+- [FFmpeg](https://ffmpeg.org/) (inclus dans les builds, mais requis pour le dev audio)
 
-Installation :
+### Installation Dev
 
 ```bash
+# Cloner le dépôt
+git clone https://github.com/lfpoulain/SuperMenu.git
+cd SuperMenu
+
+# Créer l'environnement virtuel
 python -m venv venv
 venv\Scripts\activate
+
+# Installer les dépendances
 pip install -r requirements.txt
+
+# Lancer l'application
 python run.py
 ```
 
-Build local (PyInstaller) :
+### Build (Création de l'exe)
 
 ```bash
+# Générer l'exécutable avec PyInstaller
 pip install pyinstaller
 pyinstaller --noconfirm --clean SuperMenu.spec
 ```
 
-Build local (Inno Setup) :
+---
 
-- Compile `setup_supermenu.iss` avec Inno Setup (`iscc`).
+## 📚 Documentation
 
-## Documentation
+Pour aller plus loin, consulte les guides dans le dossier `docs/` :
+- [📖 Guide d'Utilisation Complet](docs/GUIDE_UTILISATION.md)
+- [🏗️ Architecture Technique](docs/ARCHITECTURE.md)
 
-- `docs/GUIDE_UTILISATION.md`
-- `docs/ARCHITECTURE.md`
+---
 
-## Licence
+## 📄 Licence
 
-2025 LFPoulain - Tous droits réservés
+© 2025 LFPoulain. Tous droits réservés.
+Distribué sous licence **Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)**.
+
+> Vous êtes autorisé à partager et adapter le matériel, à condition de créditer l'auteur.
+> **L'utilisation commerciale est strictement interdite.**
+> Voir le fichier [LICENSE](LICENSE) pour plus de détails.

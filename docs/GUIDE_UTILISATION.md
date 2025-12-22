@@ -74,7 +74,7 @@ Lors du premier lancement de SuperMenu, ou en accédant aux paramètres via l'ic
 
 3.  **Raccourcis Clavier** :
     *   **Raccourci Principal** : Pour afficher le menu contextuel après avoir sélectionné du texte (par défaut : `Ctrl+²`).
-    *   **Raccourci Capture d'Écran** : Pour lancer l'outil de capture d'écran (par défaut : `Ctrl+Shift+²`).
+    *   **Raccourci Capture d'Écran** : Pour lancer l'outil de capture d'écran (par défaut : `Ctrl+Alt+&`).
 
 ### Configuration de l'API
 
@@ -88,7 +88,7 @@ Lors du premier lancement de SuperMenu, ou en accédant aux paramètres via l'ic
 
 Par défaut, SuperMenu utilise les raccourcis suivants :
 - **Ctrl+²** : Menu contextuel pour le texte sélectionné
-- **Ctrl+Shift+²** : Capture d'écran
+- **Ctrl+Alt+&** : Capture d'écran
 - **Ctrl+Alt+²** : Reconnaissance vocale
 
 Vous pouvez les modifier dans l'onglet "Réglages" des paramètres.
@@ -113,7 +113,7 @@ Si vous cliquez en dehors du menu ou si vous changez de fenêtre sans sélection
 
 ### Capture d'écran
 
-1. Appuyez sur **Ctrl+Shift+²** (ou votre raccourci personnalisé)
+1. Appuyez sur **Ctrl+Alt+&** (ou votre raccourci personnalisé)
 2. Selon le réglage choisi, SuperMenu capture :
    - plein écran
    - ou une zone sélectionnée à la souris
@@ -177,7 +177,7 @@ Pour les tâches fréquentes comme la correction orthographique, l'option "Insé
 
 Vous pouvez créer des prompts spécifiques pour l'analyse d'images :
 
-1. Capturez l'écran avec **Ctrl+Shift+²**
+1. Capturez l'écran avec **Ctrl+Alt+&**
 2. Saisissez votre prompt personnalisé (ex : "Décris cette image")
 3. La réponse s'affiche et peut être copiée ou écrite
 

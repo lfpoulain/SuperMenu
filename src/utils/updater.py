@@ -2,6 +2,39 @@ import re
 from typing import Optional, Tuple
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+
+def _build_session() -> requests.Session:
+    session = requests.Session()
+
+    retry = Retry(
+        total=5,
+        connect=5,
+        read=5,
+        status=5,
+        backoff_factor=0.6,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=("GET",),
+        raise_on_status=False,
+    )
+
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+    session.headers.update(
+        {
+            "User-Agent": "SuperMenu-Updater",
+            "Accept": "application/vnd.github+json",
+        }
+    )
+
+    return session
+
+
+_SESSION = _build_session()
 
 
 def _parse_version(value: str) -> Tuple[int, ...]:
@@ -67,7 +100,7 @@ def get_installed_app_version(app_id_guid: str) -> Optional[str]:
 
 def get_github_release_by_tag(owner: str, repo: str, tag: str, timeout_s: int = 15) -> dict:
     url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
-    resp = requests.get(url, timeout=timeout_s)
+    resp = _SESSION.get(url, timeout=(5, timeout_s))
     resp.raise_for_status()
     return resp.json()
 
@@ -95,7 +128,7 @@ def find_asset_download_url(release: dict, asset_name: str) -> Optional[str]:
 
 
 def download_to_file(url: str, dest_path: str, timeout_s: int = 60) -> None:
-    with requests.get(url, stream=True, timeout=timeout_s) as r:
+    with _SESSION.get(url, stream=True, timeout=(10, timeout_s)) as r:
         r.raise_for_status()
         with open(dest_path, "wb") as f:
             for chunk in r.iter_content(chunk_size=1024 * 256):

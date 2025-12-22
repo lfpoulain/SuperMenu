@@ -92,7 +92,7 @@ Le menu est fermé si :
 
 ### Capture d'écran
 
-1. L'utilisateur appuie sur le raccourci de capture (par défaut: Ctrl+Shift+²)
+1. L'utilisateur appuie sur le raccourci de capture (par défaut: Ctrl+Alt+&)
 2. `ContextMenuManager` détermine le mode de capture via `Settings` :
    - `fullscreen`
    - `region`

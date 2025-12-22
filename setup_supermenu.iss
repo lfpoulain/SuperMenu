@@ -19,6 +19,7 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
+LicenseFile=LICENSE
 OutputDir=.
 OutputBaseFilename=SuperMenu_Setup
 Compression=lzma

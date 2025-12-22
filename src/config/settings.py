@@ -144,7 +144,7 @@ class Settings:
         }
         
         self.default_hotkey = "Ctrl+²"
-        self.default_screenshot_hotkey = "Ctrl+Shift+²"
+        self.default_screenshot_hotkey = "Ctrl+Alt+&"
         self.default_voice_hotkey = "Ctrl+Alt+²"
         self.default_screenshot_capture_mode = "fullscreen"
         self.default_model = "gpt-5.1"
