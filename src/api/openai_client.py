@@ -1,0 +1,368 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import requests
+import json
+import threading
+import os
+import base64
+import time
+import logging
+import tempfile
+from PySide6.QtCore import QObject, Signal, QTimer, Slot
+from src.utils.logger import log
+from src.config.settings import is_gpt5_model
+
+# Constante pour le timeout des requêtes API
+DEFAULT_API_TIMEOUT = 60
+DEFAULT_MAX_TOKENS = 2048
+
+
+class OpenAIClient(QObject):
+    """Client for OpenAI API interactions"""
+    
+    # Signals publics
+    request_started = Signal()
+    request_finished = Signal(str)
+    request_error = Signal(str)
+    
+    # Signaux internes pour communication inter-threads (thread-safe)
+    _internal_finished = Signal(str)
+    _internal_error = Signal(str)
+    
+    def __init__(self, settings, api_key=None, model=None, max_retries=3, retry_delay=1.0):
+        super().__init__()
+        self.api_key = api_key
+        self.settings = settings
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+        
+        # Déterminer le modèle à utiliser
+        self.use_custom_endpoint = settings.get_use_custom_endpoint()
+        self.custom_endpoint = settings.get_custom_endpoint() if self.use_custom_endpoint else None
+        
+        # Si on utilise un endpoint personnalisé et qu'on a un custom_model dans les settings, l'utiliser
+        if self.use_custom_endpoint:
+            custom_model = settings.get_custom_model()
+            self.model = model if model else (custom_model if custom_model else "llama2")
+            log(f"OpenAIClient: Utilisation du modèle personnalisé '{self.model}' avec endpoint {self.custom_endpoint}", logging.INFO)
+        else:
+            # Sinon utiliser le modèle OpenAI
+            self.model = model if model else settings.get_model()
+            log(f"OpenAIClient: Utilisation du modèle OpenAI '{self.model}'", logging.INFO)
+        
+        # Connecter les signaux internes aux méthodes d'émission
+        self._internal_finished.connect(self._emit_finished)
+        self._internal_error.connect(self._emit_error)
+        
+        # Configurer l'URL de l'API
+        if self.use_custom_endpoint and self.custom_endpoint:
+            self.api_url = self.custom_endpoint
+            if not self.api_url.endswith('/'):
+                self.api_url += '/'
+            self.api_url += 'v1/chat/completions'
+        else:
+            # Utiliser OpenAI par défaut
+            self.api_url = "https://api.openai.com/v1/chat/completions"
+    
+    def set_api_key(self, api_key):
+        """Set the API key"""
+        self.api_key = api_key
+    
+    def set_model(self, model):
+        """Set the model to use"""
+        self.model = model
+    
+    def send_request(self, prompt, content, insert_directly=False):
+        """Envoie une requête à l'API OpenAI en arrière-plan"""
+        # Vérifier si une clé API est requise
+        if not self.use_custom_endpoint and not self.api_key:
+            self.request_error.emit("Clé API non configurée. Veuillez configurer votre clé API dans les paramètres.")
+            return
+        
+        # Émettre le signal que la requête a commencé
+        self.request_started.emit()
+        
+        # Lancer la requête dans un thread séparé
+        threading.Thread(
+            target=self._process_request_thread,
+            args=(prompt, content, insert_directly),
+            daemon=True
+        ).start()
+    
+    def _make_request_with_retry(self, headers, data, timeout=60):
+        """Effectue une requête avec retry logic.
+        
+        Args:
+            headers (dict): En-têtes de la requête
+            data (dict): Données JSON à envoyer
+            timeout (int): Timeout en secondes
+            
+        Returns:
+            requests.Response: Réponse de l'API
+            
+        Raises:
+            Exception: Si toutes les tentatives échouent
+        """
+        last_exception = None
+        
+        for attempt in range(self.max_retries):
+            try:
+                response = requests.post(
+                    self.api_url,
+                    headers=headers,
+                    data=json.dumps(data),
+                    timeout=timeout
+                )
+                
+                # Si succès, retourner immédiatement
+                if response.status_code == 200:
+                    return response
+                
+                # Si erreur 429 (rate limit) ou 503 (service unavailable), réessayer
+                if response.status_code in [429, 503, 502, 504]:
+                    if attempt < self.max_retries - 1:
+                        wait_time = self.retry_delay * (2 ** attempt)  # Backoff exponentiel
+                        log(f"API error {response.status_code}, retrying in {wait_time}s (attempt {attempt + 1}/{self.max_retries})...", logging.WARNING)
+                        time.sleep(wait_time)
+                        continue
+                
+                # Pour d'autres erreurs, retourner la réponse pour traitement
+                return response
+                
+            except requests.exceptions.Timeout as e:
+                last_exception = e
+                if attempt < self.max_retries - 1:
+                    wait_time = self.retry_delay * (2 ** attempt)
+                    log(f"Request timeout, retrying in {wait_time}s (attempt {attempt + 1}/{self.max_retries})...", logging.WARNING)
+                    time.sleep(wait_time)
+                else:
+                    raise Exception(f"Request timed out after {self.max_retries} attempts") from e
+            
+            except requests.exceptions.ConnectionError as e:
+                last_exception = e
+                if attempt < self.max_retries - 1:
+                    wait_time = self.retry_delay * (2 ** attempt)
+                    log(f"Connection error, retrying in {wait_time}s (attempt {attempt + 1}/{self.max_retries})...", logging.WARNING)
+                    time.sleep(wait_time)
+                else:
+                    raise Exception(f"Connection failed after {self.max_retries} attempts") from e
+            
+            except Exception as e:
+                # Pour les autres exceptions, ne pas réessayer
+                raise
+        
+        # Si on arrive ici, toutes les tentatives ont échoué
+        if last_exception:
+            raise last_exception
+        raise Exception("All retry attempts failed")
+    
+    def _process_request_thread(self, prompt, content, insert_directly=False):
+        """Traite la requête dans un thread séparé"""
+        image_path = None
+        try:
+            # Préparer les en-têtes et les données de la requête
+            headers = self._build_headers()
+            data, image_path = self._build_request_data(prompt, content)
+            
+            # Envoyer la requête avec retry logic
+            response = self._make_request_with_retry(headers, data, timeout=DEFAULT_API_TIMEOUT)
+            
+            # Vérifier si la requête a réussi
+            if response.status_code == 200:
+                # Analyser la réponse
+                response_data = response.json()
+                response_content = response_data["choices"][0]["message"]["content"]
+                
+                if insert_directly:
+                    # Insérer directement le résultat
+                    from src.utils.text_inserter import TextInserter
+                    inserter = TextInserter()
+                    inserter.insert_text(response_content)
+                else:
+                    # Envoyer le contenu à la fenêtre de réponse via signal interne thread-safe
+                    self._internal_finished.emit(response_content)
+            else:
+                # Gérer l'erreur via signal interne thread-safe
+                error_message = f"Erreur {response.status_code}: {response.text}"
+                self._internal_error.emit(error_message)
+        
+        except Exception as e:
+            # Gérer l'exception via signal interne thread-safe
+            self._internal_error.emit(f"Erreur: {str(e)}")
+        
+        finally:
+            # Nettoyer l'image temporaire APRÈS la requête (succès ou échec)
+            if insert_directly and image_path:
+                self._cleanup_image(image_path)
+    
+    @Slot(str)
+    def _emit_finished(self, content):
+        """Émet le signal finished dans le thread Qt principal"""
+        try:
+            self.request_finished.emit(content)
+        except Exception as e:
+            log(f"Error emitting finished signal: {e}", logging.ERROR)
+    
+    @Slot(str)
+    def _emit_error(self, error_message):
+        """Émet le signal error dans le thread Qt principal"""
+        try:
+            self.request_error.emit(error_message)
+        except Exception as e:
+            log(f"Error emitting error signal: {e}", logging.ERROR)
+    
+    def _cleanup_image(self, image_path):
+        """Nettoyer l'image temporaire après utilisation"""
+        try:
+            if not image_path or not os.path.exists(image_path):
+                return
+
+            basename = os.path.basename(image_path)
+            if "supermenu_screenshot_" not in basename:
+                return
+
+            temp_dir = os.path.abspath(tempfile.gettempdir())
+            image_dir = os.path.abspath(os.path.dirname(image_path))
+            if image_dir != temp_dir:
+                return
+            
+            os.remove(image_path)
+            log(f"Image temporaire supprimée après traitement API: {image_path}", logging.DEBUG)
+        except Exception as e:
+            log(f"Erreur lors de la suppression de l'image après traitement API: {e}", logging.WARNING)
+
+    def _build_request_data(self, prompt, content):
+        """Construit les données de requête API.
+        
+        Args:
+            prompt: Le prompt à envoyer
+            content: Le contenu (texte, data URL d'image, ou chemin d'image)
+            
+        Returns:
+            tuple: (data dict, image_path si image, None sinon)
+        """
+        image_path = None
+
+        if isinstance(content, str) and content.startswith("data:image/") and ";base64," in content:
+            data = {
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": content}},
+                        ],
+                    }
+                ],
+            }
+        elif isinstance(content, str) and os.path.isfile(content) and content.lower().endswith((".png", ".jpg", ".jpeg")):
+            with open(content, "rb") as image_file:
+                base64_image = base64.b64encode(image_file.read()).decode("utf-8")
+
+            image_path = content
+            ext = os.path.splitext(content)[1].lower()
+            mime = "image/png" if ext == ".png" else "image/jpeg"
+
+            data = {
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{base64_image}"}},
+                        ],
+                    }
+                ],
+            }
+        else:
+            full_prompt = f"{prompt}\n\n{content}" if content else prompt
+            data = {"model": self.model, "messages": [{"role": "user", "content": full_prompt}]}
+
+        if is_gpt5_model(self.model):
+            data["reasoning_effort"] = "none"
+            data["max_completion_tokens"] = DEFAULT_MAX_TOKENS
+        else:
+            data["max_tokens"] = DEFAULT_MAX_TOKENS
+
+        return data, image_path
+
+    def _build_headers(self):
+        """Construit les en-têtes de requête.
+        
+        Returns:
+            dict: En-têtes HTTP
+        """
+        headers = {"Content-Type": "application/json"}
+
+        if not self.use_custom_endpoint or (self.use_custom_endpoint and self.api_key):
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        return headers
+
+    def process_request(self, prompt, content):
+        """Méthode obsolète pour la compatibilité - utiliser send_request à la place"""
+        self.send_request(prompt, content)
+
+    def send_request_sync(self, prompt, content):
+        """Envoie une requête à l'API OpenAI de manière synchrone et renvoie la réponse"""
+        if not self.use_custom_endpoint and not self.api_key:
+            raise Exception("Clé API non configurée. Veuillez configurer votre clé API dans les paramètres.")
+
+        image_path = None
+        try:
+            headers = self._build_headers()
+            data, image_path = self._build_request_data(prompt, content)
+
+            response = self._make_request_with_retry(headers, data, timeout=DEFAULT_API_TIMEOUT)
+
+            if response.status_code == 200:
+                response_data = response.json()
+                return response_data["choices"][0]["message"]["content"]
+
+            raise Exception(f"Erreur {response.status_code}: {response.text}")
+        except Exception as e:
+            raise Exception(f"Erreur lors de la requête API: {str(e)}")
+        finally:
+            if image_path:
+                self._cleanup_image(image_path)
+
+    @staticmethod
+    def fetch_available_models(endpoint_url, api_key=None, timeout=10):
+        """Récupère la liste des modèles disponibles depuis un endpoint compatible OpenAI."""
+        try:
+            models_url = endpoint_url
+            if not models_url.endswith('/'):
+                models_url += '/'
+            models_url += 'v1/models'
+
+            headers = {"Content-Type": "application/json"}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+
+            response = requests.get(models_url, headers=headers, timeout=timeout)
+
+            if response.status_code == 200:
+                data = response.json()
+
+                models = []
+                if "data" in data and isinstance(data["data"], list):
+                    for model_info in data["data"]:
+                        if isinstance(model_info, dict) and "id" in model_info:
+                            models.append(model_info["id"])
+
+                if models:
+                    log(f"Modèles récupérés avec succès: {models}", logging.INFO)
+                    return True, models
+                return False, "Aucun modèle trouvé dans la réponse de l'API"
+
+            return False, f"Erreur {response.status_code}: {response.text}"
+
+        except requests.exceptions.Timeout:
+            return False, "Timeout lors de la connexion au serveur"
+        except requests.exceptions.ConnectionError:
+            return False, "Impossible de se connecter au serveur"
+        except Exception as e:
+            return False, f"Erreur: {str(e)}"

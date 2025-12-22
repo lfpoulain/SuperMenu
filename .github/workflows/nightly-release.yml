@@ -1,0 +1,76 @@
+name: Build & Publish Nightly
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    env:
+      APP_VERSION: 1.0.${{ github.run_number }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
+
+      - name: Build SuperMenu.exe (PyInstaller)
+        shell: powershell
+        run: |
+          pyinstaller --noconfirm --clean SuperMenu.spec
+          if (!(Test-Path "dist\SuperMenu.exe")) { throw "dist\SuperMenu.exe not found" }
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: |
+          choco install innosetup --no-progress -y
+
+      - name: Build installer (Inno Setup)
+        shell: powershell
+        run: |
+          iscc setup_supermenu.iss /DMyAppVersion=${{ env.APP_VERSION }}
+          if (!(Test-Path "SuperMenu_Setup.exe")) { throw "SuperMenu_Setup.exe not found" }
+
+      - name: Publish/Update Nightly Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: nightly
+          name: Nightly
+          prerelease: true
+          allowUpdates: true
+          replacesArtifacts: true
+          artifacts: |
+            dist/SuperMenu.exe
+            SuperMenu_Setup.exe
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            Build automatique depuis `main`.
+
+            Version: ${{ env.APP_VERSION }}
+            Commit: ${{ github.sha }}
