@@ -120,19 +120,24 @@ class Validators:
         hotkey = hotkey.strip()
         
         # Diviser par +
-        parts = [p.strip().lower() for p in hotkey.split('+')]
+        parts = [p.strip().lower() for p in hotkey.split('+') if p.strip()]
         
         if len(parts) == 0:
             return False, "Le raccourci est vide"
+
+        if any(p in ("win", "windows", "meta", "cmd") for p in parts):
+            return False, "La touche Win n'est pas autorisée"
+
+        if len(parts) < 2:
+            return False, "Le raccourci doit contenir Ctrl, Alt ou Shift"
         
         # Vérifier les modificateurs valides
-        valid_modifiers = {'ctrl', 'alt', 'shift', 'win', 'cmd'}
+        valid_modifiers = {'ctrl', 'control', 'alt', 'shift'}
         
         # Si plusieurs touches, vérifier qu'au moins une est un modificateur
-        if len(parts) > 1:
-            has_modifier = any(p in valid_modifiers for p in parts[:-1])
-            if not has_modifier:
-                log(f"Warning: Hotkey '{hotkey}' has no standard modifiers", logging.WARNING)
+        has_modifier = any(p in valid_modifiers for p in parts[:-1])
+        if not has_modifier:
+            return False, "Le raccourci doit contenir Ctrl, Alt ou Shift"
         
         # Vérifier qu'il n'y a pas de touches dupliquées
         if len(parts) != len(set(parts)):

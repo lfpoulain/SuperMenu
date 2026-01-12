@@ -1,18 +1,235 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import sys
-import keyboard
-import time
+import ctypes
+import ctypes.wintypes
 import logging
-import threading
-from PySide6.QtCore import QObject, Signal, QTimer, Qt, Slot
-from PySide6.QtWidgets import QMessageBox, QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QApplication
+import sys
+import weakref
+from PySide6.QtCore import QAbstractNativeEventFilter, QCoreApplication, QObject, Signal, Qt
+from PySide6.QtGui import QKeyEvent
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout
 from src.utils.logger import log
+
+_WM_HOTKEY = 0x0312
+_MOD_ALT = 0x0001
+_MOD_CONTROL = 0x0002
+_MOD_SHIFT = 0x0004
+_MOD_NOREPEAT = 0x4000
+
+_VK_BACK = 0x08
+_VK_TAB = 0x09
+_VK_RETURN = 0x0D
+_VK_ESCAPE = 0x1B
+_VK_SPACE = 0x20
+_VK_PRIOR = 0x21
+_VK_NEXT = 0x22
+_VK_END = 0x23
+_VK_HOME = 0x24
+_VK_LEFT = 0x25
+_VK_UP = 0x26
+_VK_RIGHT = 0x27
+_VK_DOWN = 0x28
+_VK_INSERT = 0x2D
+_VK_DELETE = 0x2E
+
+_USER32 = ctypes.WinDLL("user32", use_last_error=True) if sys.platform.startswith("win") else None
+
+if _USER32 is not None:
+    _USER32.RegisterHotKey.argtypes = [ctypes.wintypes.HWND, ctypes.c_int, ctypes.wintypes.UINT, ctypes.wintypes.UINT]
+    _USER32.RegisterHotKey.restype = ctypes.wintypes.BOOL
+    _USER32.UnregisterHotKey.argtypes = [ctypes.wintypes.HWND, ctypes.c_int]
+    _USER32.UnregisterHotKey.restype = ctypes.wintypes.BOOL
+    _USER32.VkKeyScanW.argtypes = [ctypes.c_wchar]
+    _USER32.VkKeyScanW.restype = ctypes.c_short
+
+
+class _Win32HotkeyEventFilter(QAbstractNativeEventFilter):
+    def __init__(self, registry):
+        super().__init__()
+        self._registry = registry
+
+    def nativeEventFilter(self, eventType, message):
+        try:
+            try:
+                if isinstance(eventType, (bytes, bytearray)):
+                    event_type = bytes(eventType).decode(errors="ignore")
+                else:
+                    event_type = bytes(eventType).decode(errors="ignore")
+            except Exception:
+                event_type = str(eventType)
+
+            if event_type not in ("windows_generic_MSG", "windows_dispatcher_MSG"):
+                return False, 0
+
+            msg = ctypes.wintypes.MSG.from_address(int(message))
+            if int(msg.message) != _WM_HOTKEY:
+                return False, 0
+
+            log(f"WM_HOTKEY received (id={int(msg.wParam)})", logging.INFO)
+            self._registry.dispatch(int(msg.wParam))
+            return True, 0
+        except Exception:
+            return False, 0
+
+
+class _Win32HotkeyRegistry:
+    def __init__(self):
+        self._installed = False
+        self._filter = None
+        self._next_id = 1
+        self._callbacks = {}
+
+    def ensure_installed(self):
+        if self._installed:
+            return True
+
+        app = QCoreApplication.instance()
+        if app is None:
+            return False
+
+        self._filter = _Win32HotkeyEventFilter(self)
+        app.installNativeEventFilter(self._filter)
+        self._installed = True
+        return True
+
+    def register(self, modifiers, vk, callback):
+        if _USER32 is None:
+            return None, "Windows hotkeys are not available on this platform"
+
+        if not self.ensure_installed():
+            return None, "QCoreApplication is not initialized"
+
+        hotkey_id = self._next_id
+        self._next_id += 1
+
+        ok = bool(_USER32.RegisterHotKey(None, hotkey_id, int(modifiers) | _MOD_NOREPEAT, int(vk)))
+        if not ok:
+            err = ctypes.get_last_error()
+            if int(err) == 1409:
+                return None, "Ce raccourci est déjà utilisé par une autre application (win32 error 1409)"
+            if int(err) == 87:
+                return None, "Raccourci invalide (win32 error 87)"
+            return None, f"RegisterHotKey failed (win32 error {err})"
+
+        self._callbacks[int(hotkey_id)] = callback
+        return hotkey_id, ""
+
+    def unregister(self, hotkey_id):
+        if _USER32 is None:
+            return
+
+        if hotkey_id is None:
+            return
+
+        self._callbacks.pop(int(hotkey_id), None)
+        try:
+            _USER32.UnregisterHotKey(None, int(hotkey_id))
+        except Exception:
+            pass
+
+    def dispatch(self, hotkey_id):
+        callback = self._callbacks.get(int(hotkey_id))
+        if callback is None:
+            log(f"WM_HOTKEY received for unknown id={int(hotkey_id)}", logging.WARNING)
+            return
+        try:
+            callback()
+        except Exception as e:
+            log(f"Error while handling WM_HOTKEY: {e}", logging.ERROR)
+
+
+_REGISTRY = _Win32HotkeyRegistry()
+
+
+def _parse_hotkey_to_win32(hotkey):
+    if not hotkey or not isinstance(hotkey, str):
+        return None, None, "Le raccourci ne peut pas être vide"
+
+    hotkey = hotkey.strip()
+    parts = [p.strip() for p in hotkey.split("+") if p.strip()]
+    if len(parts) < 2:
+        return None, None, "Le raccourci doit contenir Ctrl, Alt ou Shift"
+
+    modifiers = 0
+    seen = set()
+    key_token = parts[-1]
+
+    key_token_l = key_token.lower()
+    if key_token_l in ("ctrl", "control", "alt", "shift", "win", "windows", "meta", "cmd"):
+        return None, None, "Le raccourci doit contenir une touche (autre qu'un modificateur)"
+
+    for p in parts[:-1]:
+        pl = p.lower()
+        if pl == "control":
+            pl = "ctrl"
+        if pl in seen:
+            return None, None, "Le raccourci contient des touches dupliquées"
+        seen.add(pl)
+
+        if pl == "ctrl":
+            modifiers |= _MOD_CONTROL
+        elif pl == "alt":
+            modifiers |= _MOD_ALT
+        elif pl == "shift":
+            modifiers |= _MOD_SHIFT
+        elif pl in ("win", "windows", "meta", "cmd"):
+            return None, None, "La touche Win n'est pas autorisée"
+        else:
+            return None, None, f"Modificateur inconnu: {p}"
+
+    if modifiers == 0:
+        return None, None, "Le raccourci doit contenir Ctrl, Alt ou Shift"
+
+    key_l = key_token.lower()
+    vk_map = {
+        "backspace": _VK_BACK,
+        "tab": _VK_TAB,
+        "enter": _VK_RETURN,
+        "return": _VK_RETURN,
+        "esc": _VK_ESCAPE,
+        "escape": _VK_ESCAPE,
+        "space": _VK_SPACE,
+        "pageup": _VK_PRIOR,
+        "pagedown": _VK_NEXT,
+        "end": _VK_END,
+        "home": _VK_HOME,
+        "left": _VK_LEFT,
+        "up": _VK_UP,
+        "right": _VK_RIGHT,
+        "down": _VK_DOWN,
+        "insert": _VK_INSERT,
+        "delete": _VK_DELETE,
+        "del": _VK_DELETE,
+    }
+
+    if key_l in vk_map:
+        return modifiers, vk_map[key_l], ""
+
+    if len(key_token) == 1:
+        if _USER32 is None:
+            return None, None, "Windows hotkeys are not available on this platform"
+
+        vk_and_shift = int(_USER32.VkKeyScanW(key_token))
+        if vk_and_shift == -1:
+            return None, None, f"Touche non supportée: {key_token}"
+
+        vk = vk_and_shift & 0xFF
+        shift_state = (vk_and_shift >> 8) & 0xFF
+        if shift_state & 0x01:
+            modifiers |= _MOD_SHIFT
+        if shift_state & 0x02:
+            modifiers |= _MOD_CONTROL
+        if shift_state & 0x04:
+            modifiers |= _MOD_ALT
+        return modifiers, vk, ""
+
+    return None, None, f"Touche non supportée: {key_token}"
+
 
 class HotkeyRecorderDialog(QDialog):
     """Dialogue pour enregistrer un nouveau raccourci clavier"""
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Définir un nouveau raccourci")
@@ -46,65 +263,89 @@ class HotkeyRecorderDialog(QDialog):
         
         # Variables pour stocker le raccourci
         self.recorded_hotkey = ""
-        self.key_recorder = None
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+ 
+    def showEvent(self, event):
         try:
-            self.key_recorder = keyboard.hook(self._on_key_press)
-        except Exception as e:
-            log(f"Error setting up keyboard hook in recorder dialog: {e}", logging.ERROR)
-    
-    def _on_key_press(self, event):
-        """Gérer l'événement de pression de touche"""
-        # Ne traiter que les événements de type "down" (touche enfoncée)
-        if event.event_type != 'down':
-            return
-        
-        # Réinitialiser le style et la propriété
-        self.current_hotkey_label.setProperty("state", "normal")
-        self.current_hotkey_label.setStyleSheet("font-weight: bold; font-size: 16px; padding: 10px; border-radius: 5px;")
-        
-        # Collecter les modificateurs actuellement pressés
-        modifiers = []
-        # Vérifier Ctrl (les noms corrects dans keyboard sont 'ctrl', pas 'left ctrl' ou 'right ctrl')
-        if keyboard.is_pressed('ctrl'):
-            modifiers.append('Ctrl')
-        # Vérifier Alt (keyboard utilise 'alt' pour les deux côtés)
-        if keyboard.is_pressed('alt'):
-            modifiers.append('Alt')
-        # Vérifier Shift
-        if keyboard.is_pressed('shift'):
-            modifiers.append('Shift')
-            
-        # Ajouter la touche principale
-        key_name = event.name
-        
-        # Ignorer si c'est juste un modificateur seul
-        if key_name.lower() in ['ctrl', 'alt', 'shift', 'windows', 'win']:
-            # Afficher les modificateurs en attente
-            if modifiers:
-                self.current_hotkey_label.setText('+'.join(modifiers) + '+...')
-            return
-        
-        # Construire le raccourci complet
-        if len(modifiers) == 0:
-            # Raccourci sans modificateur
-            hotkey = key_name
-            
-            # Avertissement pour les touches simples qui pourraient interférer avec la saisie normale
-            if len(key_name) == 1 and key_name.isalnum():
-                self.current_hotkey_label.setText(f"⚠️ Attention: La touche '{key_name}' pourrait interférer avec la saisie normale")
-                self.current_hotkey_label.setProperty("state", "warning")
-                self.current_hotkey_label.setProperty("status", "warning")
+            self.grabKeyboard()
+        except Exception:
+            pass
+        super().showEvent(event)
+ 
+    def keyPressEvent(self, event: QKeyEvent):
+        try:
+            if event.isAutoRepeat():
+                return
+ 
+            self.current_hotkey_label.setProperty("state", "normal")
+            self.current_hotkey_label.setStyleSheet("font-weight: bold; font-size: 16px; padding: 10px; border-radius: 5px;")
+ 
+            mods = event.modifiers()
+            if mods & Qt.KeyboardModifier.MetaModifier:
+                self.current_hotkey_label.setText("⚠️ La touche Win n'est pas autorisée")
+                self.ok_button.setEnabled(False)
+                return
+ 
+            parts = []
+            if mods & Qt.KeyboardModifier.ControlModifier:
+                parts.append("Ctrl")
+            if mods & Qt.KeyboardModifier.AltModifier:
+                parts.append("Alt")
+            if mods & Qt.KeyboardModifier.ShiftModifier:
+                parts.append("Shift")
+ 
+            key = event.key()
+            if key in (Qt.Key.Key_Control, Qt.Key.Key_Shift, Qt.Key.Key_Alt, Qt.Key.Key_Meta):
+                if parts:
+                    self.current_hotkey_label.setText("+".join(parts) + "+...")
+                return
+ 
+            if not parts:
+                self.current_hotkey_label.setText("⚠️ Utilise Ctrl, Alt ou Shift")
+                self.ok_button.setEnabled(False)
+                return
+ 
+            key_text = (event.text() or "").strip()
+            if key_text == "+":
+                self.current_hotkey_label.setText("⚠️ La touche '+' n'est pas supportée")
+                self.ok_button.setEnabled(False)
+                return
+ 
+            if key_text and len(key_text) == 1 and key_text.isprintable():
+                key_part = key_text
             else:
-                self.current_hotkey_label.setText(f"✅ {hotkey}")
-                self.current_hotkey_label.setProperty("state", "success")
-        else:
-            # Raccourci avec modificateurs
-            hotkey = '+'.join(modifiers) + '+' + key_name
+                key_map = {
+                    Qt.Key.Key_Space: "Space",
+                    Qt.Key.Key_Tab: "Tab",
+                    Qt.Key.Key_Backspace: "Backspace",
+                    Qt.Key.Key_Return: "Enter",
+                    Qt.Key.Key_Enter: "Enter",
+                    Qt.Key.Key_Escape: "Esc",
+                    Qt.Key.Key_Delete: "Delete",
+                    Qt.Key.Key_Insert: "Insert",
+                    Qt.Key.Key_Home: "Home",
+                    Qt.Key.Key_End: "End",
+                    Qt.Key.Key_PageUp: "PageUp",
+                    Qt.Key.Key_PageDown: "PageDown",
+                    Qt.Key.Key_Left: "Left",
+                    Qt.Key.Key_Right: "Right",
+                    Qt.Key.Key_Up: "Up",
+                    Qt.Key.Key_Down: "Down",
+                }
+                key_part = key_map.get(Qt.Key(key))
+ 
+            if not key_part:
+                self.current_hotkey_label.setText("⚠️ Touche non supportée")
+                self.ok_button.setEnabled(False)
+                return
+ 
+            hotkey = "+".join(parts + [key_part])
             self.current_hotkey_label.setText(f"✅ {hotkey}")
             self.current_hotkey_label.setProperty("state", "success")
-            
-        self.recorded_hotkey = hotkey
-        self.ok_button.setEnabled(True)
+            self.recorded_hotkey = hotkey
+            self.ok_button.setEnabled(True)
+        except Exception:
+            self.ok_button.setEnabled(False)
     
     def get_hotkey(self):
         """Retourne le raccourci enregistré"""
@@ -112,11 +353,10 @@ class HotkeyRecorderDialog(QDialog):
     
     def closeEvent(self, event):
         """Nettoyer les hooks clavier à la fermeture"""
-        if self.key_recorder is not None:
-            try:
-                keyboard.unhook(self.key_recorder)
-            except Exception as e:
-                log(f"Error unhooking keyboard in recorder dialog: {e}", logging.ERROR)
+        try:
+            self.releaseKeyboard()
+        except Exception:
+            pass
         super().closeEvent(event)
 
 class HotkeyManager(QObject):
@@ -126,12 +366,7 @@ class HotkeyManager(QObject):
     hotkey_triggered = Signal()
     voice_hotkey_triggered = Signal()
     screenshot_hotkey_triggered = Signal()
-    
-    # Signaux internes pour communication inter-threads (thread-safe)
-    _internal_hotkey_signal = Signal()
-    _internal_voice_signal = Signal()
-    _internal_screenshot_signal = Signal()
-    
+
     def __init__(self, settings, voice_hotkey=False, screenshot_hotkey=False):
         super().__init__()
         self.settings = settings
@@ -139,294 +374,105 @@ class HotkeyManager(QObject):
         self.registered = False
         self.voice_hotkey = voice_hotkey
         self.screenshot_hotkey = screenshot_hotkey
-        self.key_listener_hook = None
-        
-        # Variables d'état pour le suivi des touches
-        self.current_keys = set()
-        self.last_hotkey_time = 0
-        self._lock = threading.Lock()  # Thread safety pour current_keys
-        self._is_processing_trigger = False  # Éviter les déclenchements simultanés
-        self._hook_error_count = 0  # Compteur d'erreurs pour récupération automatique
-        self._max_errors = 5  # Nombre maximum d'erreurs avant tentative de récupération
+        self._hotkey_id = None
+        self._last_register_error = ""
 
-        # Timer pour nettoyer les touches coincées
-        # Note: Ces timers sont créés dans le thread Qt et ne doivent JAMAIS être
-        # démarrés/arrêtés depuis le thread keyboard.hook()
-        self.cleanup_timer = QTimer(self)
-        self.cleanup_timer.setInterval(10000)  # 10 secondes (plus long pour éviter trop d'appels)
-        self.cleanup_timer.timeout.connect(self._reset_stuck_keys)
-        self.cleanup_timer.start()
-        
-        # Timer de vérification de la santé du hook
-        self.health_check_timer = QTimer(self)
-        self.health_check_timer.setInterval(30000)  # Vérifier toutes les 30 secondes
-        self.health_check_timer.timeout.connect(self._check_hook_health)
-        self.health_check_timer.start()
-        
-        # Connecter les signaux internes aux méthodes d'émission
-        # Ces connexions sont thread-safe car les signaux Qt le sont
-        self._internal_hotkey_signal.connect(self._emit_hotkey_signal)
-        self._internal_voice_signal.connect(self._emit_voice_signal)
-        self._internal_screenshot_signal.connect(self._emit_screenshot_signal)
-        
-        # Register the hotkey
-        self.register_hotkey()
-    
-    def register_hotkey(self):
-        """Register the global hotkey"""
-        # Unregister any existing hotkey
-        self.unregister_hotkey()
-        
-        # Get the hotkey from settings
-        if self.voice_hotkey:
-            self.hotkey = self.settings.get_voice_hotkey()
-        elif self.screenshot_hotkey:
-            self.hotkey = self.settings.get_screenshot_hotkey()
-        else:
-            self.hotkey = self.settings.get_hotkey()
-        
-        # Validation du raccourci
-        if not self.hotkey or not isinstance(self.hotkey, str) or self.hotkey.strip() == "":
-            log("No valid hotkey configured", logging.WARNING)
-            return False
-
-        try:
-            # Register the hotkey
-            log(f"Registering hotkey: {self.hotkey}", logging.INFO)
-
-            # Hook pour capturer toutes les touches - ne jamais dé-enregistrer ce hook une fois créé
-            # sauf lors de la fermeture de l'application pour éviter les problèmes de synchronisation
-            if self.key_listener_hook is None:
-                self.key_listener_hook = keyboard.hook(self._on_any_key_safe)
-                log("Keyboard hook created successfully", logging.INFO)
-            self.registered = True
-            self._hook_error_count = 0  # Réinitialiser le compteur d'erreurs
-            # S'assurer que le timer est actif après (ré)enregistrement
-            if not self.cleanup_timer.isActive():
-                self.cleanup_timer.start()
-            if not self.health_check_timer.isActive():
-                self.health_check_timer.start()
-            return True
-
-        except Exception as e:
-            log(f"Error registering hotkey: {e}", logging.ERROR)
-            self._hook_error_count += 1
-            return False
-    
-    def unregister_hotkey(self):
-        """Unregister the global hotkey"""
-        # Arrêter le timer de nettoyage lorsqu'on se désinscrit
-        if self.cleanup_timer.isActive():
-            self.cleanup_timer.stop()
-        # Ne jamais désinstaller le hook pendant l'exécution normale
-        # On le garde actif pour éviter les problèmes de synchronisation
-        # Le hook sera désinstallé uniquement lors de la fermeture de l'application
-        if self.registered:
-            self.registered = False
-            # Réinitialiser les touches actuelles pour éviter les états incohérents
-            with self._lock:
-                self.current_keys.clear()
-            log("Hotkey unregistered (hook kept active)")
-
-    def close(self):
-        """Stopper le timer et nettoyer les raccourcis."""
-        # Arrêter les timers
-        if self.cleanup_timer.isActive():
-            self.cleanup_timer.stop()
-        if self.health_check_timer.isActive():
-            self.health_check_timer.stop()
-        # Désinstaller réellement le hook lors de la fermeture
-        if self.key_listener_hook:
+        app = QCoreApplication.instance()
+        if app is not None:
             try:
-                keyboard.unhook(self.key_listener_hook)
-                self.key_listener_hook = None
-                log("Keyboard hook removed on close", logging.INFO)
-            except Exception as e:
-                log(f"Error removing keyboard hook on close: {e}", logging.ERROR)
-        self.registered = False
-        with self._lock:
-            self.current_keys.clear()
+                app.aboutToQuit.connect(self.close)
+            except Exception:
+                pass
 
-    
-    def _on_any_key_safe(self, event):
-        """Safe wrapper for key event handling with error recovery"""
-        try:
-            self._on_any_key(event)
-            # Réinitialiser le compteur d'erreurs en cas de succès
-            if self._hook_error_count > 0:
-                self._hook_error_count = max(0, self._hook_error_count - 1)
-        except Exception as e:
-            self._hook_error_count += 1
-            log(f"Error in keyboard hook (count: {self._hook_error_count}/{self._max_errors}): {e}", logging.ERROR)
-            # Si trop d'erreurs, tenter une récupération
-            if self._hook_error_count >= self._max_errors:
-                log("Too many hook errors, attempting recovery", logging.WARNING)
-                self._attempt_recovery()
-    
-    def _on_any_key(self, event):
-        """Handle key events to detect hotkey combinations"""
-        # Ne rien faire si pas enregistré
-        if not self.registered:
+        self.register_hotkey()
+
+    def _get_configured_hotkey(self):
+        if self.voice_hotkey:
+            return self.settings.get_voice_hotkey()
+        if self.screenshot_hotkey:
+            return self.settings.get_screenshot_hotkey()
+        return self.settings.get_hotkey()
+
+    def _set_configured_hotkey(self, hotkey):
+        if self.voice_hotkey:
+            self.settings.set_voice_hotkey(hotkey)
             return
-        
-        # Redémarrer le timer de nettoyage depuis le thread Qt principal
-        # Ne PAS appeler start() directement depuis le thread Windows
-
-        # Obtenir le nom de la touche
-        key_name = event.name.lower()
-        
-        # Ignorer certaines touches spéciales
-        if key_name in ['left ctrl', 'right ctrl']:
-            key_name = 'ctrl'
-        elif key_name in ['left alt', 'right alt']:
-            key_name = 'alt'
-        elif key_name in ['left shift', 'right shift']:
-            key_name = 'shift'
-        
-        # Gérer les événements de touche avec thread safety
-        with self._lock:
-            if event.event_type == keyboard.KEY_DOWN:
-                # Ajouter la touche à l'ensemble des touches enfoncées
-                if key_name not in self.current_keys:
-                    self.current_keys.add(key_name)
-                    self._check_hotkey()
-            elif event.event_type == keyboard.KEY_UP:
-                # Retirer la touche de l'ensemble des touches enfoncées
-                if key_name in self.current_keys:
-                    self.current_keys.discard(key_name)
-
-    @Slot()
-    def _reset_stuck_keys(self):
-        """Réinitialise les touches si aucune activité n'est détectée."""
-        with self._lock:
-            if self.current_keys:
-                log(f"Resetting stuck keys: {self.current_keys}", logging.DEBUG)
-                self.current_keys.clear()
-                
-    def _check_hotkey(self):
-        """Check if the current keys match the hotkey (must be called with lock held)"""
-        # Ne rien vérifier si un déclenchement est en cours
-        if self._is_processing_trigger:
+        if self.screenshot_hotkey:
+            self.settings.set_screenshot_hotkey(hotkey)
             return
-        
-        # Obtenir le raccourci configuré
-        try:
-            if self.voice_hotkey:
-                configured_hotkey = self.settings.get_voice_hotkey()
-            elif self.screenshot_hotkey:
-                configured_hotkey = self.settings.get_screenshot_hotkey()
-            else:
-                configured_hotkey = self.settings.get_hotkey()
-            
-            if not configured_hotkey:
+        self.settings.set_hotkey(hotkey)
+
+    def register_hotkey(self):
+        self.unregister_hotkey()
+
+        self.hotkey = self._get_configured_hotkey()
+        self._last_register_error = ""
+
+        modifiers, vk, err = _parse_hotkey_to_win32(self.hotkey)
+        if err:
+            self._last_register_error = err
+            log(f"No valid hotkey configured: {err}", logging.WARNING)
+            return False
+
+        inst_ref = weakref.ref(self)
+
+        def _cb():
+            inst = inst_ref()
+            if inst is None:
                 return
-            
-            configured_hotkey = configured_hotkey.lower()
-        except Exception as e:
-            log(f"Error getting configured hotkey: {e}", logging.ERROR)
-            return
-        
-        # Vérifier s'il s'agit d'un raccourci sans modificateur (une seule touche)
-        if "+" not in configured_hotkey:
-            # Pour les raccourcis à touche unique, vérifier si la touche est enfoncée
-            if configured_hotkey in self.current_keys and len(self.current_keys) == 1:
-                # Éviter les déclenchements multiples en vérifiant le temps écoulé
-                current_time = time.time()
-                if current_time - self.last_hotkey_time > 0.5:  # 500ms de délai
-                    self.last_hotkey_time = current_time
-                    self._hotkey_triggered()
-            return
-        
-        # Pour les raccourcis avec modificateurs
-        # Diviser le raccourci en touches individuelles
-        hotkey_parts = configured_hotkey.split("+")
-        hotkey_parts = [part.strip().lower() for part in hotkey_parts if part.strip()]
+            inst._on_hotkey_triggered()
 
-        # Normaliser certaines touches selon le layout / la lib keyboard
-        # Exemple fréquent en AZERTY: la touche "&" est reportée comme "1".
-        alias_map = {
-            "&": "1",
-        }
-        hotkey_parts = [alias_map.get(part, part) for part in hotkey_parts]
-        
-        if not hotkey_parts:
-            return
-        
-        # Vérifier si toutes les touches du raccourci sont enfoncées
-        if all(part in self.current_keys for part in hotkey_parts) and len(self.current_keys) == len(hotkey_parts):
-            # Éviter les déclenchements multiples en vérifiant le temps écoulé
-            current_time = time.time()
-            if current_time - self.last_hotkey_time > 0.5:  # 500ms de délai
-                self.last_hotkey_time = current_time
-                self._hotkey_triggered()
-    
-    def _hotkey_triggered(self):
-        """Handle hotkey trigger (must be called with lock held)"""
-        # Marquer qu'un déclenchement est en cours
-        self._is_processing_trigger = True
-        
+        hotkey_id, reg_err = _REGISTRY.register(modifiers, vk, _cb)
+        if reg_err:
+            self._last_register_error = reg_err
+            log(f"Error registering hotkey '{self.hotkey}': {reg_err}", logging.ERROR)
+            return False
+
+        self._hotkey_id = hotkey_id
+        self.registered = True
+        log(f"Registering hotkey: {self.hotkey}", logging.INFO)
+        return True
+
+    def unregister_hotkey(self):
+        if self._hotkey_id is not None:
+            _REGISTRY.unregister(self._hotkey_id)
+            self._hotkey_id = None
+        self.registered = False
+
+    def _on_hotkey_triggered(self):
         try:
-            # Émettre le signal INTERNE depuis le thread Windows
-            # Les signaux Qt sont thread-safe et seront automatiquement émis dans le thread Qt
             if self.voice_hotkey:
-                log("Voice hotkey triggered", logging.INFO)
-                self._internal_voice_signal.emit()
+                self.voice_hotkey_triggered.emit()
             elif self.screenshot_hotkey:
-                log("Screenshot hotkey triggered", logging.INFO)
-                self._internal_screenshot_signal.emit()
+                self.screenshot_hotkey_triggered.emit()
             else:
-                log("Hotkey triggered", logging.INFO)
-                self._internal_hotkey_signal.emit()
+                self.hotkey_triggered.emit()
         except Exception as e:
             log(f"Error emitting hotkey signal: {e}", logging.ERROR)
-        finally:
-            # Nettoyer les touches suivies pour éviter les états incohérents
-            # Ne PAS ré-enregistrer le hook - il reste actif en permanence
-            self.current_keys.clear()
-            self._is_processing_trigger = False
-    
-    @Slot()
-    def _emit_hotkey_signal(self):
-        """Émet le signal hotkey dans le thread principal Qt"""
-        try:
-            self.hotkey_triggered.emit()
-        except Exception as e:
-            log(f"Error in _emit_hotkey_signal: {e}", logging.ERROR)
-    
-    @Slot()
-    def _emit_voice_signal(self):
-        """Émet le signal voice hotkey dans le thread principal Qt"""
-        try:
-            self.voice_hotkey_triggered.emit()
-        except Exception as e:
-            log(f"Error in _emit_voice_signal: {e}", logging.ERROR)
-    
-    @Slot()
-    def _emit_screenshot_signal(self):
-        """Émet le signal screenshot hotkey dans le thread principal Qt"""
-        try:
-            self.screenshot_hotkey_triggered.emit()
-        except Exception as e:
-            log(f"Error in _emit_screenshot_signal: {e}", logging.ERROR)
+
+    def close(self):
+        self.unregister_hotkey()
     
     def show_hotkey_recorder(self):
         """Show a dialog to record a new hotkey"""
+        old_hotkey = self._get_configured_hotkey()
         dialog = HotkeyRecorderDialog()
         result = dialog.exec()
-        
-        if result == QDialog.Accepted and dialog.recorded_hotkey:
-            # Save the new hotkey
-            if self.voice_hotkey:
-                self.settings.set_voice_hotkey(dialog.recorded_hotkey)
-            elif self.screenshot_hotkey:
-                self.settings.set_screenshot_hotkey(dialog.recorded_hotkey)
-            else:
-                self.settings.set_hotkey(dialog.recorded_hotkey)
-            
-            # Re-register with the new hotkey
-            self.register_hotkey()
+
+        if result != QDialog.Accepted or not dialog.recorded_hotkey:
+            return False
+
+        self._set_configured_hotkey(dialog.recorded_hotkey)
+        if self.register_hotkey():
             return True
-        
+
+        self._set_configured_hotkey(old_hotkey)
+        self.register_hotkey()
+        QMessageBox.warning(
+            None,
+            "Erreur",
+            f"Impossible d'enregistrer le raccourci '{dialog.recorded_hotkey}'.\n\n{self._last_register_error}",
+        )
         return False
     
     def get_new_hotkey(self):
@@ -438,47 +484,9 @@ class HotkeyManager(QObject):
             return dialog.recorded_hotkey
         
         return None
-    
-    def _check_hook_health(self):
-        """Vérifier périodiquement la santé du hook et tenter une récupération si nécessaire"""
-        if self._hook_error_count >= self._max_errors:
-            log("Hook health check: too many errors detected, attempting recovery", logging.WARNING)
-            self._attempt_recovery()
-        elif self.registered and self.key_listener_hook is None:
-            log("Hook health check: hook is None but registered=True, attempting recovery", logging.WARNING)
-            self._attempt_recovery()
-    
-    def _attempt_recovery(self):
-        """Tenter de récupérer le hook en cas de problème"""
-        try:
-            log("Attempting to recover keyboard hook...", logging.INFO)
-            # Nettoyer l'état actuel
-            with self._lock:
-                self.current_keys.clear()
-            self._is_processing_trigger = False
-            
-            # Désinstaller le hook existant si présent
-            if self.key_listener_hook:
-                try:
-                    keyboard.unhook(self.key_listener_hook)
-                except:
-                    pass
-                self.key_listener_hook = None
-            
-            # Réinitialiser le compteur d'erreurs
-            self._hook_error_count = 0
-            
-            # Réenregistrer le hook
-            if self.registered:
-                self.registered = False
-                self.register_hotkey()
-                log("Keyboard hook recovery successful", logging.INFO)
-        except Exception as e:
-            log(f"Failed to recover keyboard hook: {e}", logging.ERROR)
-    
+
     def __del__(self):
-        """Clean up when the object is deleted"""
         try:
             self.close()
-        except:
-            pass  # Ignorer les erreurs dans __del__
+        except Exception:
+            pass
