@@ -49,6 +49,22 @@ En distribution, l'application est packagée en `SuperMenu.exe` (PyInstaller) et
 - **logger.py** : Système de journalisation
 - **loading_indicator.py** : Indicateur de chargement non bloquant
 
+#### Hotkeys (Windows)
+
+Le module `src/utils/hotkey_manager.py` implémente les raccourcis globaux via l'API Win32 :
+
+- Enregistrement/désenregistrement des hotkeys avec `RegisterHotKey` / `UnregisterHotKey`
+- Réception des événements via `WM_HOTKEY`
+- Intégration Qt via un `QAbstractNativeEventFilter` installé sur l'application (`QCoreApplication.installNativeEventFilter`)
+
+Contraintes :
+
+- Les modificateurs autorisés sont `Ctrl`, `Alt`, `Shift`
+- La touche `Win` n'est pas autorisée
+- Les raccourcis à une seule touche ne sont pas supportés
+
+Le dialogue d'enregistrement d'un raccourci (`HotkeyRecorderDialog`) capture les touches via les événements Qt (pas de hook clavier global).
+
 ### 4. Configuration (src/config/)
 
 - **settings.py** : Gestion des paramètres de l'application (via QSettings)

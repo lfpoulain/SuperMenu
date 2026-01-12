@@ -75,6 +75,8 @@ Lors du premier lancement de SuperMenu, ou en accédant aux paramètres via l'ic
 3.  **Raccourcis Clavier** :
     *   **Raccourci Principal** : Pour afficher le menu contextuel après avoir sélectionné du texte (par défaut : `Ctrl+²`).
     *   **Raccourci Capture d'Écran** : Pour lancer l'outil de capture d'écran (par défaut : `Ctrl+Alt+&`).
+    *   **Raccourci Vocal** : Pour lancer la reconnaissance vocale (par défaut : `Ctrl+Alt+²`).
+    *   Règles : les raccourcis doivent contenir au moins un modificateur (`Ctrl`, `Alt` ou `Shift`). La touche `Win` n'est pas autorisée et les raccourcis à une seule touche ne sont pas supportés.
 
 ### Configuration de l'API
 
@@ -92,6 +94,11 @@ Par défaut, SuperMenu utilise les raccourcis suivants :
 - **Ctrl+Alt+²** : Reconnaissance vocale
 
 Vous pouvez les modifier dans l'onglet "Réglages" des paramètres.
+
+Notes importantes :
+- Les raccourcis sont enregistrés au niveau Windows (raccourcis globaux).
+- Si un raccourci est déjà utilisé par une autre application, SuperMenu ne pourra pas l'enregistrer.
+- Certaines touches dépendent de la disposition clavier (ex : `²`, `&` en AZERTY). Si vous changez de layout, ajustez le raccourci.
 
 ## Utilisation quotidienne
 
@@ -203,6 +210,8 @@ SuperMenu fonctionne avec pratiquement toutes les applications Windows :
 2. Assurez-vous que le raccourci clavier est correctement configuré
 3. Vérifiez qu'aucune autre application n'utilise le même raccourci
 4. Redémarrez SuperMenu
+
+Astuce : si vous venez de modifier un raccourci, choisissez une combinaison différente (certaines applications réservent des raccourcis globaux). En cas de conflit, un message d'erreur apparaît et le raccourci précédent est restauré.
 
 Si besoin, consultez les logs : `%LOCALAPPDATA%\SuperMenu\logs\supermenu.log`.
 
