@@ -5,6 +5,7 @@ import sys
 import os
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtGui import QIcon
 
 from src.ui.main_window import MainWindow
@@ -34,6 +35,12 @@ class SuperMenu:
         # Create application
         self.app = QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(False)  # Keep app running when windows are closed
+
+        self._instance_server = None
+        self._should_exit = False
+        if not self._ensure_single_instance():
+            self._should_exit = True
+            return
         
         # Load settings
         self.settings = Settings()
@@ -101,11 +108,53 @@ class SuperMenu:
     
     def run(self):
         """Run the application"""
+        if self._should_exit:
+            return 0
         # Show system tray icon
         self.main_window.setup_tray_icon()
+
+        # Show main window on startup
+        self.main_window.show_main_window()
         
         # Run the application
         return self.app.exec()
+
+    def _ensure_single_instance(self):
+        server_name = "SuperMenuSingleInstance"
+
+        socket = QLocalSocket()
+        socket.connectToServer(server_name)
+        if socket.waitForConnected(200):
+            try:
+                socket.write(b"show")
+                socket.flush()
+                socket.waitForBytesWritten(200)
+            finally:
+                socket.disconnectFromServer()
+            return False
+
+        self._instance_server = QLocalServer()
+        if not self._instance_server.listen(server_name):
+            QLocalServer.removeServer(server_name)
+            if not self._instance_server.listen(server_name):
+                return True
+
+        self._instance_server.newConnection.connect(self._on_instance_connection)
+        return True
+
+    def _on_instance_connection(self):
+        if self.main_window is None:
+            return
+        socket = self._instance_server.nextPendingConnection()
+        if socket is None:
+            return
+        try:
+            if socket.waitForReadyRead(200):
+                data = bytes(socket.readAll()).decode(errors="ignore").strip().lower()
+                if data == "show":
+                    self.main_window.show_main_window()
+        finally:
+            socket.disconnectFromServer()
 
 if __name__ == "__main__":
     app = SuperMenu()

@@ -11,7 +11,11 @@ import logging
 import tempfile
 from PySide6.QtCore import QObject, Signal, QTimer, Slot
 from src.utils.logger import log
-from src.config.settings import is_gpt5_model
+from src.config.settings import (
+    is_gpt5_model,
+    normalize_reasoning_effort,
+    supports_reasoning,
+)
 
 # Constante pour le timeout des requêtes API
 DEFAULT_API_TIMEOUT = 60
@@ -282,8 +286,10 @@ class OpenAIClient(QObject):
             data = {"model": self.model, "messages": [{"role": "user", "content": full_prompt}]}
 
         if is_gpt5_model(self.model):
-            data["reasoning_effort"] = "none"
             data["max_completion_tokens"] = DEFAULT_MAX_TOKENS
+            if not self.use_custom_endpoint and supports_reasoning(self.model):
+                effort = normalize_reasoning_effort(self.model, self.settings.get_reasoning_effort())
+                data["reasoning_effort"] = effort
         else:
             data["max_tokens"] = DEFAULT_MAX_TOKENS
 

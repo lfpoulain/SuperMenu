@@ -6,6 +6,7 @@ Fenêtre de réponse modernisée avec pyqtdarktheme
 """
 
 import logging
+import re
 import win32com.client
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, 
@@ -66,6 +67,11 @@ class ResponseWindow(QWidget):
         # Variables pour stocker la dernière requête (pour retry)
         self.last_prompt = None
         self.last_content = None
+
+        # Stockage des réponses avec/sans raisonnement
+        self.raw_response = None
+        self.masked_response = None
+        self.think_visible = False
     
     def create_title_bar(self):
         """Create the title bar"""
@@ -97,6 +103,12 @@ class ResponseWindow(QWidget):
         self.copy_button = QPushButton("📋 Copier")
         self.copy_button.clicked.connect(self.copy_response)
         button_layout.addWidget(self.copy_button)
+
+        # Toggle reasoning visibility
+        self.think_toggle_button = QPushButton("👁 Voir le raisonnement")
+        self.think_toggle_button.clicked.connect(self.toggle_thinking_visibility)
+        self.think_toggle_button.setVisible(False)
+        button_layout.addWidget(self.think_toggle_button)
         
         # Write button
         self.write_button = QPushButton("✍️ Écrire")
@@ -113,14 +125,75 @@ class ResponseWindow(QWidget):
     
     def set_response(self, response):
         """Set the response text"""
-        self.response_text.setText(response)
-        self.response_text.setPlainText(response)  # Assure l'affichage en texte brut
+        self.raw_response = response
+        self.think_visible = False
+
+        masked_response, has_thinking = self._mask_thinking(response)
+        self.masked_response = masked_response
+
+        display_text = response
+        if has_thinking:
+            display_text = masked_response if masked_response else response
+            self.think_toggle_button.setVisible(True)
+            self.think_toggle_button.setEnabled(True)
+            self.think_toggle_button.setText("👁 Voir le raisonnement")
+        else:
+            self.think_toggle_button.setVisible(False)
+            self.think_toggle_button.setEnabled(False)
+
+        self.response_text.setText(display_text)
+        self.response_text.setPlainText(display_text)  # Assure l'affichage en texte brut
         self.title_label.setText("✨ SuperMenu - Réponse")
         self.status_label.setText("✅ Terminé")
         self.status_label.setProperty("status", "success")
         self.retry_button.setEnabled(True)
         self.copy_button.setEnabled(True)
         self.write_button.setEnabled(True)
+
+    def _mask_thinking(self, response):
+        """Masque le contenu <think>...</think> si présent."""
+        if not response:
+            return response, False
+
+        bracket_pattern = re.compile(r"\[think\](.*?)\[/think\]", re.IGNORECASE | re.DOTALL)
+        if bracket_pattern.search(response):
+            masked = bracket_pattern.sub("", response)
+            masked = re.sub(r"\n{3,}", "\n\n", masked).strip()
+            return masked, True
+
+        if re.search(r"\[/?think\]", response, re.IGNORECASE):
+            masked = re.sub(r"\[/?think\]", "", response, flags=re.IGNORECASE)
+            masked = re.sub(r"\n{3,}", "\n\n", masked).strip()
+            return masked, True
+
+        pattern = re.compile(r"<think\b[^>]*>(.*?)</think>", re.IGNORECASE | re.DOTALL)
+        if pattern.search(response):
+            masked = pattern.sub("", response)
+            masked = re.sub(r"\n{3,}", "\n\n", masked).strip()
+            return masked, True
+
+        if re.search(r"</?think\b[^>]*>", response, re.IGNORECASE):
+            masked = re.sub(r"</?think\b[^>]*>", "", response, flags=re.IGNORECASE)
+            masked = re.sub(r"\n{3,}", "\n\n", masked).strip()
+            return masked, True
+
+        return response, False
+
+    def toggle_thinking_visibility(self):
+        """Afficher ou masquer le raisonnement."""
+        if not self.raw_response or self.masked_response is None:
+            return
+
+        self.think_visible = not self.think_visible
+        if self.think_visible:
+            self.response_text.setText(self.raw_response)
+            self.response_text.setPlainText(self.raw_response)
+            self.think_toggle_button.setText("🙈 Masquer le raisonnement")
+        else:
+            display_text = self.masked_response if self.masked_response else self.raw_response
+            self.response_text.setText(display_text)
+            self.response_text.setPlainText(display_text)
+            self.think_toggle_button.setText("👁 Voir le raisonnement")
     
     def set_loading(self, is_loading):
         """Set the loading state"""

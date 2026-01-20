@@ -16,7 +16,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, Signal, QTimer, QThread
 from PySide6.QtGui import QIcon, QAction, QKeySequence
 
-from src.config.settings import Settings, AVAILABLE_MODELS
+from src.config.settings import (
+    Settings,
+    AVAILABLE_MODELS,
+    get_reasoning_efforts_for_model,
+    normalize_reasoning_effort,
+)
 from src.utils.hotkey_manager import HotkeyManager
 from src.ui.screenshot_dialog import ScreenshotDialog
 from src.utils.validators import Validators
@@ -432,10 +437,16 @@ class MainWindow(QMainWindow):
         self.model_combo.addItems(AVAILABLE_MODELS)
         self.model_combo.setCurrentText(self.settings.get_model())
 
+        reasoning_label = QLabel("Raisonnement:")
+        self.reasoning_effort_combo = QComboBox()
+        self.reasoning_effort_combo.setToolTip("Disponible pour GPT-5.2 et GPT-5-Mini")
+
         openai_layout.addWidget(api_key_label)
         openai_layout.addWidget(self.api_key_input)
         openai_layout.addWidget(model_label)
         openai_layout.addWidget(self.model_combo)
+        openai_layout.addWidget(reasoning_label)
+        openai_layout.addWidget(self.reasoning_effort_combo)
 
         self.custom_group = QGroupBox("Endpoint personnalisé (Ollama, etc.)")
         custom_layout = QVBoxLayout(self.custom_group)
@@ -479,6 +490,8 @@ class MainWindow(QMainWindow):
         models_layout.addWidget(save_api_key_button)
 
         self.toggle_custom_endpoint()
+        self.model_combo.currentTextChanged.connect(self.update_reasoning_effort_ui)
+        self.update_reasoning_effort_ui()
         
         # Import/Export section
         import_export_group = QGroupBox("📦 Import/Export des Prompts")
@@ -1195,6 +1208,7 @@ class MainWindow(QMainWindow):
             # Reload the API configuration
             self.api_key_input.setText(self.settings.get_api_key())
             self.model_combo.setCurrentText(self.settings.get_model())
+            self.update_reasoning_effort_ui()
             
             # Reload custom endpoint configuration
             self.use_custom_endpoint_checkbox.setChecked(self.settings.get_use_custom_endpoint())
@@ -1273,7 +1287,16 @@ class MainWindow(QMainWindow):
     def tray_icon_activated(self, reason):
         """Handle tray icon activation"""
         if reason == QSystemTrayIcon.DoubleClick:
+            self.show_main_window()
+
+    def show_main_window(self):
+        """Show and focus the main window (used at startup and tray activation)."""
+        if self.isMinimized():
+            self.showNormal()
+        else:
             self.show()
+        self.raise_()
+        self.activateWindow()
     
     def quit_application(self):
         """Quit the application"""
@@ -1877,6 +1900,25 @@ class MainWindow(QMainWindow):
         # Afficher/masquer les sections appropriées
         self.openai_group.setVisible(not use_custom)
         self.custom_group.setVisible(use_custom)
+
+    def update_reasoning_effort_ui(self):
+        """Mettre à jour la liste des efforts de raisonnement selon le modèle choisi."""
+        model = self.model_combo.currentText() if self.model_combo else ""
+        allowed = get_reasoning_efforts_for_model(model)
+
+        self.reasoning_effort_combo.blockSignals(True)
+        self.reasoning_effort_combo.clear()
+        if allowed:
+            self.reasoning_effort_combo.addItems(allowed)
+            saved_effort = self.settings.get_reasoning_effort()
+            normalized = normalize_reasoning_effort(model, saved_effort)
+            self.reasoning_effort_combo.setCurrentText(normalized)
+            self.reasoning_effort_combo.setEnabled(True)
+        else:
+            self.reasoning_effort_combo.addItem("none")
+            self.reasoning_effort_combo.setCurrentIndex(0)
+            self.reasoning_effort_combo.setEnabled(False)
+        self.reasoning_effort_combo.blockSignals(False)
     
     def refresh_custom_models(self):
         """Récupérer la liste des modèles disponibles depuis l'endpoint personnalisé"""
@@ -1934,6 +1976,7 @@ class MainWindow(QMainWindow):
         """Save the API key and configuration"""
         api_key = self.api_key_input.text().strip()
         model = self.model_combo.currentText()
+        reasoning_effort = self.reasoning_effort_combo.currentText().strip()
         use_custom = self.use_custom_endpoint_checkbox.isChecked()
         custom_endpoint = self.custom_endpoint_input.text().strip()
         custom_model = self.custom_model_combo.currentText().strip()
@@ -1961,6 +2004,7 @@ class MainWindow(QMainWindow):
         # Save settings
         self.settings.set_api_key(api_key)
         self.settings.set_model(model)
+        self.settings.set_reasoning_effort(normalize_reasoning_effort(model, reasoning_effort))
         self.settings.set_use_custom_endpoint(use_custom)
         self.settings.set_custom_endpoint(custom_endpoint)
         self.settings.set_custom_model(custom_model)

@@ -9,8 +9,11 @@ from PySide6.QtCore import QSettings
 from src.utils.logger import log
 
 # Constantes pour les modèles OpenAI
-AVAILABLE_MODELS = ["gpt-5.2", "gpt-5.1", "gpt-4.1-mini"]
+AVAILABLE_MODELS = ["gpt-5.2", "gpt-5-mini", "gpt-4.1-mini"]
 GPT5_MODELS_PREFIX = "gpt-5"  # Préfixe pour les modèles nécessitant max_completion_tokens
+REASONING_EFFORTS = ["none", "low", "medium", "high"]
+REASONING_MODELS = {"gpt-5.2", "gpt-5-mini"}
+REASONING_MODELS_NO_NONE = {"gpt-5-mini"}
 
 
 def is_gpt5_model(model_name: str) -> bool:
@@ -23,6 +26,32 @@ def is_gpt5_model(model_name: str) -> bool:
         True si c'est un modèle GPT-5, False sinon
     """
     return GPT5_MODELS_PREFIX in model_name.lower() if model_name else False
+
+
+def supports_reasoning(model_name: str) -> bool:
+    """Vérifie si le modèle supporte le paramètre reasoning_effort."""
+    if not model_name:
+        return False
+    return model_name.lower() in REASONING_MODELS
+
+
+def get_reasoning_efforts_for_model(model_name: str):
+    """Retourne la liste des efforts de raisonnement autorisés pour un modèle."""
+    if not supports_reasoning(model_name):
+        return []
+    if model_name.lower() in REASONING_MODELS_NO_NONE:
+        return [effort for effort in REASONING_EFFORTS if effort != "none"]
+    return list(REASONING_EFFORTS)
+
+
+def normalize_reasoning_effort(model_name: str, effort: str) -> str:
+    """Normalise l'effort de raisonnement selon le modèle."""
+    if not supports_reasoning(model_name):
+        return "none"
+    allowed = get_reasoning_efforts_for_model(model_name)
+    if effort in allowed:
+        return effort
+    return "low" if "low" in allowed else allowed[0]
 
 
 class Settings:
@@ -147,7 +176,8 @@ class Settings:
         self.default_screenshot_hotkey = "Ctrl+Alt+&"
         self.default_voice_hotkey = "Ctrl+Alt+²"
         self.default_screenshot_capture_mode = "fullscreen"
-        self.default_model = "gpt-5.1"
+        self.default_model = "gpt-5.2"
+        self.default_reasoning_effort = "none"
         self.default_custom_endpoint = ""
         self.default_custom_model = ""
         self.default_use_custom_endpoint = False
@@ -181,6 +211,9 @@ class Settings:
         
         if not self.settings.contains("model"):
             self.settings.setValue("model", self.default_model)  # Default model
+
+        if not self.settings.contains("reasoning_effort"):
+            self.settings.setValue("reasoning_effort", self.default_reasoning_effort)
             
         if not self.settings.contains("custom_endpoint"):
             self.settings.setValue("custom_endpoint", self.default_custom_endpoint)
@@ -215,7 +248,7 @@ class Settings:
     def get_model(self):
         """Get the OpenAI model"""
         model = self.settings.value("model")
-        if not model:
+        if not model or model not in AVAILABLE_MODELS:
             model = self.default_model
             self.set_model(model)
         return model
@@ -223,6 +256,20 @@ class Settings:
     def set_model(self, model):
         """Set the OpenAI model"""
         self.settings.setValue("model", model)
+
+    def get_reasoning_effort(self):
+        """Get the reasoning effort"""
+        effort = self.settings.value("reasoning_effort", self.default_reasoning_effort)
+        if effort not in REASONING_EFFORTS:
+            effort = self.default_reasoning_effort
+            self.set_reasoning_effort(effort)
+        return effort
+
+    def set_reasoning_effort(self, effort):
+        """Set the reasoning effort"""
+        if effort not in REASONING_EFFORTS:
+            effort = self.default_reasoning_effort
+        self.settings.setValue("reasoning_effort", effort)
     
     def get_custom_endpoint(self):
         """Get the custom endpoint URL"""
@@ -572,6 +619,7 @@ class Settings:
         self.set_prompts(self.default_prompts)
         self.set_voice_prompts(self.default_voice_prompts)
         self.set_model(self.default_model)
+        self.set_reasoning_effort(self.default_reasoning_effort)
         self.set_custom_endpoint(self.default_custom_endpoint)
         self.set_custom_model(self.default_custom_model)
         self.set_use_custom_endpoint(self.default_use_custom_endpoint)
