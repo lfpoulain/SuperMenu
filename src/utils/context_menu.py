@@ -264,6 +264,11 @@ class ContextMenuManager(QObject):
             self._last_lbutton_down = False
             self._menu_opened_at = None
 
+    def show_custom_mode(self):
+        """Ouvrir directement le mode personnalisé depuis un raccourci."""
+        selected_text = self._try_get_selected_text()
+        self._handle_godmode_action(selected_text)
+
     def _choose_screenshot_mode_menu(self):
         if self._is_menu_open:
             return None
@@ -512,7 +517,7 @@ class ContextMenuManager(QObject):
             self.response_window.set_status(prompt_data["status"])
             # Définir la position de déclenchement à la position actuelle du curseur
             self.response_window.set_trigger_position(QCursor.pos())
-            self.response_window.show()
+            self.response_window.present()
         
         # Stocker la requête pour permettre un retry
         if not insert_directly:
@@ -532,7 +537,7 @@ class ContextMenuManager(QObject):
                 self.response_window.set_status("Traitement en cours...")
                 # Définir la position de déclenchement à la position actuelle du curseur
                 self.response_window.set_trigger_position(QCursor.pos())
-                self.response_window.show()
+                self.response_window.present()
                 
                 # Stocker la requête pour permettre un retry
                 self.response_window.store_request(custom_prompt, "")
@@ -549,7 +554,7 @@ class ContextMenuManager(QObject):
             self.response_window.set_status("Traitement en cours...")
             # Définir la position de déclenchement à la position actuelle du curseur
             self.response_window.set_trigger_position(QCursor.pos())
-            self.response_window.show()
+            self.response_window.present()
             
             # Stocker la requête pour permettre un retry
             self.response_window.store_request(custom_prompt, selected_text)
@@ -612,7 +617,7 @@ class ContextMenuManager(QObject):
                     self.response_window.set_status("Traitement de la capture d'écran...")
                     # Définir la position de déclenchement à la position du curseur
                     self.response_window.set_trigger_position(cursor_pos)
-                    self.response_window.show()
+                    self.response_window.present()
                     
                     # Stocker la requête pour permettre un retry
                     self.response_window.store_request(prompt, content)
@@ -831,7 +836,7 @@ class ContextMenuManager(QObject):
                         self.response_window.set_status(status)
                         # Définir la position de déclenchement à la position actuelle du curseur
                         self.response_window.set_trigger_position(QCursor.pos())
-                        self.response_window.show()
+                        self.response_window.present()
                         
                         # Stocker la requête pour permettre un retry
                         self.response_window.store_request(full_prompt, "")
@@ -890,7 +895,7 @@ class ContextMenuManager(QObject):
                     self.response_window.set_status("Traitement du prompt personnalisé...")
                     # Définir la position de déclenchement à la position actuelle du curseur
                     self.response_window.set_trigger_position(QCursor.pos())
-                    self.response_window.show()
+                    self.response_window.present()
                     
                     # Stocker la requête pour permettre un retry
                     self.response_window.store_request(full_prompt, "")

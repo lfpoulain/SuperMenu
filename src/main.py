@@ -3,8 +3,9 @@
 
 import sys
 import os
+import logging
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtCore import QCoreApplication, Qt, QTimer
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtGui import QIcon
 
@@ -38,6 +39,7 @@ class SuperMenu:
 
         self._instance_server = None
         self._should_exit = False
+        self._startup_tray_attempts = 0
         if not self._ensure_single_instance():
             self._should_exit = True
             return
@@ -55,6 +57,10 @@ class SuperMenu:
         # Initialize voice hotkey manager
         self.voice_hotkey_manager = HotkeyManager(self.settings, voice_hotkey=True)
         self.voice_hotkey_manager.voice_hotkey_triggered.connect(self.show_voice_menu)
+
+        # Initialize custom mode hotkey manager
+        self.custom_hotkey_manager = HotkeyManager(self.settings, custom_hotkey=True)
+        self.custom_hotkey_manager.custom_hotkey_triggered.connect(self.show_custom_mode)
         
         # Initialize screenshot hotkey manager
         self.screenshot_hotkey_manager = HotkeyManager(self.settings, screenshot_hotkey=True)
@@ -66,7 +72,8 @@ class SuperMenu:
             context_menu_manager=self.context_menu_manager,
             hotkey_manager=self.hotkey_manager,
             voice_hotkey_manager=self.voice_hotkey_manager,
-            screenshot_hotkey_manager=self.screenshot_hotkey_manager
+            screenshot_hotkey_manager=self.screenshot_hotkey_manager,
+            custom_hotkey_manager=self.custom_hotkey_manager
         )
         
         # Apply theme
@@ -101,6 +108,16 @@ class SuperMenu:
         except Exception as e:
             import logging
             logging.error(f"Erreur lors de l'affichage du menu vocal: {e}")
+
+    def show_custom_mode(self):
+        """Show the custom mode workflow directly from its dedicated hotkey"""
+        try:
+            self.context_menu_manager.show_custom_mode()
+        except KeyboardInterrupt:
+            return
+        except Exception as e:
+            import logging
+            logging.error(f"Erreur lors de l'affichage du mode personnalisé: {e}")
     
     def take_screenshot(self):
         """Take a screenshot"""
@@ -110,14 +127,34 @@ class SuperMenu:
         """Run the application"""
         if self._should_exit:
             return 0
-        # Show system tray icon
-        self.main_window.setup_tray_icon()
 
-        # Show main window on startup
-        self.main_window.show_main_window()
+        # Attendre que Qt et le shell Windows soient prêts avant d'afficher la zone de notification.
+        QTimer.singleShot(250, self._finish_startup)
         
         # Run the application
         return self.app.exec()
+
+    def _finish_startup(self):
+        if self._should_exit or self.main_window is None:
+            return
+
+        self._startup_tray_attempts += 1
+        if not self.main_window.tray_icon:
+            if self.main_window.setup_tray_icon():
+                # Démarrer réduit dans la zone de notification
+                self.main_window.hide()
+                return
+
+            if self._startup_tray_attempts < 40:
+                QTimer.singleShot(500, self._finish_startup)
+                return
+
+            logging.warning("Zone de notification indisponible au démarrage; affichage de la fenêtre principale.")
+            self.main_window.show_main_window()
+            return
+
+        # Démarrer réduit dans la zone de notification
+        self.main_window.hide()
 
     def _ensure_single_instance(self):
         server_name = "SuperMenuSingleInstance"

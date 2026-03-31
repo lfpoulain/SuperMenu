@@ -150,6 +150,16 @@ class ResponseWindow(QWidget):
         self.copy_button.setEnabled(True)
         self.write_button.setEnabled(True)
 
+    def present(self):
+        """Afficher la fenêtre de réponse de manière fiable."""
+        if self.isMinimized():
+            self.showNormal()
+        else:
+            self.show()
+        self.raise_()
+        self.activateWindow()
+        QApplication.processEvents()
+
     def _mask_thinking(self, response):
         """Masque le contenu <think>...</think> si présent."""
         if not response:

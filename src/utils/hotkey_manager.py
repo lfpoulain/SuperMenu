@@ -366,14 +366,16 @@ class HotkeyManager(QObject):
     hotkey_triggered = Signal()
     voice_hotkey_triggered = Signal()
     screenshot_hotkey_triggered = Signal()
+    custom_hotkey_triggered = Signal()
 
-    def __init__(self, settings, voice_hotkey=False, screenshot_hotkey=False):
+    def __init__(self, settings, voice_hotkey=False, screenshot_hotkey=False, custom_hotkey=False):
         super().__init__()
         self.settings = settings
         self.hotkey = ""
         self.registered = False
         self.voice_hotkey = voice_hotkey
         self.screenshot_hotkey = screenshot_hotkey
+        self.custom_hotkey = custom_hotkey
         self._hotkey_id = None
         self._last_register_error = ""
 
@@ -391,6 +393,8 @@ class HotkeyManager(QObject):
             return self.settings.get_voice_hotkey()
         if self.screenshot_hotkey:
             return self.settings.get_screenshot_hotkey()
+        if self.custom_hotkey:
+            return self.settings.get_custom_hotkey()
         return self.settings.get_hotkey()
 
     def _set_configured_hotkey(self, hotkey):
@@ -399,6 +403,9 @@ class HotkeyManager(QObject):
             return
         if self.screenshot_hotkey:
             self.settings.set_screenshot_hotkey(hotkey)
+            return
+        if self.custom_hotkey:
+            self.settings.set_custom_hotkey(hotkey)
             return
         self.settings.set_hotkey(hotkey)
 
@@ -445,6 +452,8 @@ class HotkeyManager(QObject):
                 self.voice_hotkey_triggered.emit()
             elif self.screenshot_hotkey:
                 self.screenshot_hotkey_triggered.emit()
+            elif self.custom_hotkey:
+                self.custom_hotkey_triggered.emit()
             else:
                 self.hotkey_triggered.emit()
         except Exception as e:

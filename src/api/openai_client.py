@@ -9,6 +9,7 @@ import base64
 import time
 import logging
 import tempfile
+from urllib.parse import urlparse
 from PySide6.QtCore import QObject, Signal, QTimer, Slot
 from src.utils.logger import log
 from src.config.settings import (
@@ -44,12 +45,21 @@ class OpenAIClient(QObject):
         # Déterminer le modèle à utiliser
         self.use_custom_endpoint = settings.get_use_custom_endpoint()
         self.custom_endpoint = settings.get_custom_endpoint() if self.use_custom_endpoint else None
+        self.custom_endpoint_type = settings.get_custom_endpoint_type() if self.use_custom_endpoint else None
+        self.use_ollama_api = self.use_custom_endpoint and self.custom_endpoint_type == "ollama"
+        self.use_lmstudio_api = self.use_custom_endpoint and self.custom_endpoint_type == "lmstudio"
         
         # Si on utilise un endpoint personnalisé et qu'on a un custom_model dans les settings, l'utiliser
         if self.use_custom_endpoint:
             custom_model = settings.get_custom_model()
             self.model = model if model else (custom_model if custom_model else "llama2")
-            log(f"OpenAIClient: Utilisation du modèle personnalisé '{self.model}' avec endpoint {self.custom_endpoint}", logging.INFO)
+            if self.use_ollama_api:
+                endpoint_kind = "Ollama"
+            elif self.use_lmstudio_api:
+                endpoint_kind = "LM Studio"
+            else:
+                endpoint_kind = "personnalisé"
+            log(f"OpenAIClient: Utilisation du modèle {endpoint_kind} '{self.model}' avec endpoint {self.custom_endpoint}", logging.INFO)
         else:
             # Sinon utiliser le modèle OpenAI
             self.model = model if model else settings.get_model()
@@ -61,13 +71,117 @@ class OpenAIClient(QObject):
         
         # Configurer l'URL de l'API
         if self.use_custom_endpoint and self.custom_endpoint:
-            self.api_url = self.custom_endpoint
-            if not self.api_url.endswith('/'):
-                self.api_url += '/'
-            self.api_url += 'v1/chat/completions'
+            if self.use_ollama_api:
+                self.api_url = self._build_custom_chat_url(self.custom_endpoint, ollama=True)
+            else:
+                self.api_url = self._build_custom_chat_url(self.custom_endpoint)
         else:
             # Utiliser OpenAI par défaut
             self.api_url = "https://api.openai.com/v1/chat/completions"
+
+    @staticmethod
+    def _build_custom_chat_url(endpoint_url, ollama=False):
+        """Construit l'URL de chat adaptée au type d'endpoint."""
+        base = (endpoint_url or "").rstrip("/")
+        if not base:
+            return base
+
+        if ollama:
+            if base.endswith("/api/chat"):
+                return base
+            if base.endswith("/api"):
+                return f"{base}/chat"
+            return f"{base}/api/chat"
+
+        if base.endswith("/v1/chat/completions"):
+            return base
+        if base.endswith("/v1"):
+            return f"{base}/chat/completions"
+        return f"{base}/v1/chat/completions"
+
+    def _build_ollama_think_value(self):
+        """Construit la valeur du paramètre think pour Ollama."""
+        effort = self.settings.get_reasoning_effort()
+        if effort == "none":
+            return False
+
+        model_name = (self.model or "").lower()
+        if "gpt-oss" in model_name and effort in ("low", "medium", "high"):
+            return effort
+
+        return True
+
+    @staticmethod
+    def _combine_thinking(content, thinking):
+        """Combine le raisonnement et la réponse pour l'affichage."""
+        parts = []
+        if thinking:
+            parts.append(f"<think>{thinking}</think>")
+        if content:
+            parts.append(content)
+
+        if not parts:
+            return content or thinking or ""
+
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _extract_reasoning_text(response_data):
+        """Extrait le texte de raisonnement depuis une réponse OpenAI-compatible."""
+        if not isinstance(response_data, dict):
+            return ""
+
+        candidates = [response_data]
+
+        choices = response_data.get("choices", [])
+        if choices and isinstance(choices[0], dict):
+            candidates.append(choices[0])
+            message = choices[0].get("message", {})
+            if isinstance(message, dict):
+                candidates.append(message)
+
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+
+            for key in ("reasoning_content", "reasoning", "thinking"):
+                value = item.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value
+                if isinstance(value, dict):
+                    for nested_key in ("text", "content", "summary", "reasoning_content", "value"):
+                        nested_value = value.get(nested_key)
+                        if isinstance(nested_value, str) and nested_value.strip():
+                            return nested_value
+
+        return ""
+
+    def _extract_response_text(self, response_data):
+        """Extrait le texte utile d'une réponse OpenAI ou Ollama."""
+        if self.use_ollama_api:
+            message = response_data.get("message", {}) if isinstance(response_data, dict) else {}
+            content = message.get("content", "") if isinstance(message, dict) else ""
+            thinking = message.get("thinking", "") if isinstance(message, dict) else ""
+            return self._combine_thinking(content, thinking)
+
+        if self.use_lmstudio_api:
+            choices = response_data.get("choices", []) if isinstance(response_data, dict) else []
+            if not choices:
+                return ""
+
+            message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
+            content = message.get("content", "") if isinstance(message, dict) else ""
+            reasoning = self._extract_reasoning_text(response_data)
+            return self._combine_thinking(content, reasoning)
+
+        choices = response_data.get("choices", []) if isinstance(response_data, dict) else []
+        if not choices:
+            return ""
+
+        message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
+        content = message.get("content", "") if isinstance(message, dict) else ""
+        thinking = message.get("thinking", "") if isinstance(message, dict) else ""
+        return self._combine_thinking(content, thinking)
     
     def set_api_key(self, api_key):
         """Set the API key"""
@@ -176,7 +290,7 @@ class OpenAIClient(QObject):
             if response.status_code == 200:
                 # Analyser la réponse
                 response_data = response.json()
-                response_content = response_data["choices"][0]["message"]["content"]
+                response_content = self._extract_response_text(response_data)
                 
                 if insert_directly:
                     # Insérer directement le résultat
@@ -285,6 +399,13 @@ class OpenAIClient(QObject):
             full_prompt = f"{prompt}\n\n{content}" if content else prompt
             data = {"model": self.model, "messages": [{"role": "user", "content": full_prompt}]}
 
+        if self.use_ollama_api:
+            data["think"] = self._build_ollama_think_value()
+        elif self.use_lmstudio_api:
+            effort = self.settings.get_reasoning_effort()
+            if effort != "none":
+                data["reasoning"] = {"effort": effort}
+
         if is_gpt5_model(self.model):
             data["max_completion_tokens"] = DEFAULT_MAX_TOKENS
             if not self.use_custom_endpoint and supports_reasoning(self.model):
@@ -326,7 +447,7 @@ class OpenAIClient(QObject):
 
             if response.status_code == 200:
                 response_data = response.json()
-                return response_data["choices"][0]["message"]["content"]
+                return self._extract_response_text(response_data)
 
             raise Exception(f"Erreur {response.status_code}: {response.text}")
         except Exception as e:
@@ -339,32 +460,51 @@ class OpenAIClient(QObject):
     def fetch_available_models(endpoint_url, api_key=None, timeout=10):
         """Récupère la liste des modèles disponibles depuis un endpoint compatible OpenAI."""
         try:
-            models_url = endpoint_url
-            if not models_url.endswith('/'):
-                models_url += '/'
-            models_url += 'v1/models'
-
             headers = {"Content-Type": "application/json"}
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
 
-            response = requests.get(models_url, headers=headers, timeout=timeout)
+            is_ollama = OpenAIClient._is_ollama_endpoint(endpoint_url)
+            candidates = []
+            base_url = endpoint_url.rstrip('/')
+            if is_ollama:
+                candidates.append(f"{base_url}/api/tags")
+            candidates.append(f"{base_url}/v1/models")
+            if not is_ollama:
+                candidates.append(f"{base_url}/api/tags")
 
-            if response.status_code == 200:
+            last_error = None
+            for models_url in candidates:
+                response = requests.get(models_url, headers=headers, timeout=timeout)
+
+                if response.status_code != 200:
+                    last_error = f"Erreur {response.status_code}: {response.text}"
+                    continue
+
                 data = response.json()
-
                 models = []
+
                 if "data" in data and isinstance(data["data"], list):
                     for model_info in data["data"]:
-                        if isinstance(model_info, dict) and "id" in model_info:
-                            models.append(model_info["id"])
+                        if isinstance(model_info, dict):
+                            model_id = model_info.get("id") or model_info.get("name")
+                            if model_id:
+                                models.append(model_id)
+
+                if not models and "models" in data and isinstance(data["models"], list):
+                    for model_info in data["models"]:
+                        if isinstance(model_info, dict):
+                            model_id = model_info.get("name") or model_info.get("id")
+                            if model_id:
+                                models.append(model_id)
 
                 if models:
                     log(f"Modèles récupérés avec succès: {models}", logging.INFO)
                     return True, models
-                return False, "Aucun modèle trouvé dans la réponse de l'API"
 
-            return False, f"Erreur {response.status_code}: {response.text}"
+                last_error = "Aucun modèle trouvé dans la réponse de l'API"
+
+            return False, last_error or "Aucun modèle trouvé dans la réponse de l'API"
 
         except requests.exceptions.Timeout:
             return False, "Timeout lors de la connexion au serveur"

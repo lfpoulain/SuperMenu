@@ -11,6 +11,25 @@ from src.utils.logger import log
 
 class Validators:
     """Classe contenant les validateurs pour différents types d'entrées."""
+
+    @staticmethod
+    def normalize_prompt_id(prompt_name):
+        """Convertit un nom de prompt en identifiant interne sûr.
+
+        Args:
+            prompt_name (str): Nom saisi par l'utilisateur.
+
+        Returns:
+            str: Identifiant normalisé utilisable comme clé de stockage.
+        """
+        if not prompt_name or not isinstance(prompt_name, str):
+            return ""
+
+        normalized = prompt_name.strip().lower()
+        normalized = re.sub(r"\s+", "_", normalized)
+        normalized = re.sub(r"[^a-zA-Z0-9_]+", "_", normalized)
+        normalized = re.sub(r"_+", "_", normalized).strip("_")
+        return normalized
     
     @staticmethod
     def validate_api_key(api_key):

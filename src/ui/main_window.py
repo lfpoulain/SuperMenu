@@ -84,7 +84,7 @@ class _UpdateDownloadWorker(QThread):
 class MainWindow(QMainWindow):
     """Main application window for settings and configuration"""
     
-    def __init__(self, settings, context_menu_manager=None, hotkey_manager=None, voice_hotkey_manager=None, screenshot_hotkey_manager=None):
+    def __init__(self, settings, context_menu_manager=None, hotkey_manager=None, voice_hotkey_manager=None, screenshot_hotkey_manager=None, custom_hotkey_manager=None):
         super().__init__()
         self.settings = settings
         self.context_menu_manager = context_menu_manager # Stocker la référence
@@ -97,6 +97,7 @@ class MainWindow(QMainWindow):
         self.hotkey_manager = hotkey_manager
         self.voice_hotkey_manager = voice_hotkey_manager
         self.screenshot_hotkey_manager = screenshot_hotkey_manager
+        self.custom_hotkey_manager = custom_hotkey_manager
         
         self._update_check_worker = None
         self._update_download_worker = None
@@ -419,7 +420,7 @@ class MainWindow(QMainWindow):
         models_widget = QWidget()
         models_layout = QVBoxLayout(models_widget)
 
-        self.use_custom_endpoint_checkbox = QCheckBox("Activer un endpoint personnalisé (ex: Ollama)")
+        self.use_custom_endpoint_checkbox = QCheckBox("Activer un endpoint personnalisé (ex: Ollama / LM Studio)")
         self.use_custom_endpoint_checkbox.setChecked(self.settings.get_use_custom_endpoint())
         self.use_custom_endpoint_checkbox.toggled.connect(self.toggle_custom_endpoint)
         models_layout.addWidget(self.use_custom_endpoint_checkbox)
@@ -439,7 +440,7 @@ class MainWindow(QMainWindow):
 
         reasoning_label = QLabel("Raisonnement:")
         self.reasoning_effort_combo = QComboBox()
-        self.reasoning_effort_combo.setToolTip("Disponible pour GPT-5.2 et GPT-5-Mini")
+        self.reasoning_effort_combo.setToolTip("Disponible pour les modèles GPT-5.4, GPT-5.2 et GPT-5-Mini")
 
         openai_layout.addWidget(api_key_label)
         openai_layout.addWidget(self.api_key_input)
@@ -456,6 +457,16 @@ class MainWindow(QMainWindow):
         self.custom_endpoint_input.setText(self.settings.get_custom_endpoint())
         self.custom_endpoint_input.setPlaceholderText("http://localhost:11434")
 
+        custom_endpoint_type_label = QLabel("Type d'endpoint :")
+        self.custom_endpoint_type_combo = QComboBox()
+        self.custom_endpoint_type_combo.addItem("Ollama", "ollama")
+        self.custom_endpoint_type_combo.addItem("LM Studio", "lmstudio")
+        current_custom_endpoint_type = self.settings.get_custom_endpoint_type()
+        for i in range(self.custom_endpoint_type_combo.count()):
+            if self.custom_endpoint_type_combo.itemData(i) == current_custom_endpoint_type:
+                self.custom_endpoint_type_combo.setCurrentIndex(i)
+                break
+
         custom_model_label = QLabel("Modèle:")
         custom_model_layout = QHBoxLayout()
         self.custom_model_combo = QComboBox()
@@ -470,6 +481,8 @@ class MainWindow(QMainWindow):
 
         custom_layout.addWidget(custom_endpoint_label)
         custom_layout.addWidget(self.custom_endpoint_input)
+        custom_layout.addWidget(custom_endpoint_type_label)
+        custom_layout.addWidget(self.custom_endpoint_type_combo)
         custom_layout.addWidget(custom_model_label)
         custom_layout.addLayout(custom_model_layout)
 
@@ -541,6 +554,15 @@ class MainWindow(QMainWindow):
         change_voice_hotkey_button = QPushButton("Modifier le raccourci vocal")
         change_voice_hotkey_button.clicked.connect(self.change_voice_hotkey)
         hotkey_layout.addWidget(change_voice_hotkey_button)
+
+        # Custom mode hotkey info
+        self.custom_hotkey_label = QLabel(f"Raccourci mode personnalisé : {self.settings.get_custom_hotkey()}")
+        hotkey_layout.addWidget(self.custom_hotkey_label)
+
+        # Change custom mode hotkey button
+        change_custom_hotkey_button = QPushButton("Modifier le raccourci mode personnalisé")
+        change_custom_hotkey_button.clicked.connect(self.change_custom_hotkey)
+        hotkey_layout.addWidget(change_custom_hotkey_button)
         
         # Screenshot Hotkey info
         self.screenshot_hotkey_label = QLabel(f"Raccourci capture d'écran : {self.settings.get_screenshot_hotkey()}")
@@ -1055,6 +1077,29 @@ class MainWindow(QMainWindow):
         else:
             # L'utilisateur a annulé, réenregistrer l'ancien raccourci
             self.voice_hotkey_manager.register_hotkey()
+
+    def change_custom_hotkey(self):
+        """Modifier le raccourci du mode personnalisé"""
+        if not self.custom_hotkey_manager:
+            QMessageBox.warning(self, "Erreur", "CustomHotkeyManager non initialisé.")
+            return
+
+        old_hotkey = self.settings.get_custom_hotkey()
+        self.custom_hotkey_manager.unregister_hotkey()
+
+        success = self.custom_hotkey_manager.show_hotkey_recorder()
+
+        if success:
+            self.custom_hotkey_label.setText(f"Raccourci mode personnalisé : {self.settings.get_custom_hotkey()}")
+            QMessageBox.information(
+                self,
+                "Raccourci modifié",
+                f"Le raccourci du mode personnalisé a été modifié avec succès en {self.settings.get_custom_hotkey()}.\n\n"
+                "Le nouveau raccourci est maintenant actif."
+            )
+        else:
+            self.custom_hotkey_manager._set_configured_hotkey(old_hotkey)
+            self.custom_hotkey_manager.register_hotkey()
     
     def change_screenshot_hotkey(self):
         """Modifier le raccourci de capture d'écran"""
@@ -1112,7 +1157,7 @@ class MainWindow(QMainWindow):
             return
             
         prompt_id = self.prompt_combo.currentData()
-        name = self.prompt_name_input.text()
+        name = self.prompt_name_input.text().strip()
         prompt = self.prompt_text_input.toPlainText()
         status = self.prompt_status_input.text()
         insert_directly = self.prompt_insert_directly.isChecked()
@@ -1225,7 +1270,11 @@ class MainWindow(QMainWindow):
             # Reload the hotkeys
             self.hotkey_label.setText(f"Raccourci principal : {self.settings.get_hotkey()}")
             self.voice_hotkey_label.setText(f"Raccourci vocal : {self.settings.get_voice_hotkey()}")
+            self.custom_hotkey_label.setText(f"Raccourci mode personnalisé : {self.settings.get_custom_hotkey()}")
             self.screenshot_hotkey_label.setText(f"Raccourci capture d'écran : {self.settings.get_screenshot_hotkey()}")
+
+            if self.custom_hotkey_manager:
+                self.custom_hotkey_manager.register_hotkey()
             
             # Load the first prompts
             if self.prompt_combo.count() > 0:
@@ -1241,6 +1290,9 @@ class MainWindow(QMainWindow):
     
     def setup_tray_icon(self):
         """Set up the system tray icon"""
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return False
+
         # Create the tray icon
         self.tray_icon = QSystemTrayIcon(self)
         
@@ -1283,6 +1335,7 @@ class MainWindow(QMainWindow):
         
         # Show the tray icon
         self.tray_icon.show()
+        return True
     
     def tray_icon_activated(self, reason):
         """Handle tray icon activation"""
@@ -1319,31 +1372,32 @@ class MainWindow(QMainWindow):
 
     def add_prompt(self):
         """Ajouter un nouveau prompt"""
-        # Demander un ID pour le nouveau prompt
-        prompt_id, ok = QInputDialog.getText(
+        # Demander le nom affiché du nouveau prompt
+        prompt_name, ok = QInputDialog.getText(
             self,
-            "Nouvel ID de prompt",
-            "Entrez un identifiant unique pour le nouveau prompt (lettres, chiffres et underscore uniquement):"
+            "Nouveau prompt",
+            "Entrez le nom du nouveau prompt :"
         )
         
-        if not ok or not prompt_id:
+        if not ok or not prompt_name:
             return
         
-        # Valider l'ID (lettres, chiffres et underscore uniquement)
-        import re
-        if not re.match(r'^[a-zA-Z0-9_]+$', prompt_id):
+        prompt_name = prompt_name.strip()
+        prompt_id = Validators.normalize_prompt_id(prompt_name)
+
+        if not prompt_id:
             QMessageBox.warning(
                 self,
-                "ID invalide",
-                "L'ID doit contenir uniquement des lettres, des chiffres et des underscores."
+                "Nom invalide",
+                "Le nom du prompt ne peut pas être vide."
             )
             return
         
         # Créer un nouveau prompt avec des valeurs par défaut
         new_prompt_id = self.settings.add_prompt(
             prompt_id,
-            f"Nouveau prompt ({prompt_id})",
-            "Entrez votre prompt ici...",
+            prompt_name,
+            "",
             "Traitement en cours...",
             False,
             999
@@ -1364,7 +1418,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "Prompt ajouté",
-            f"Le nouveau prompt '{new_prompt_id}' a été ajouté avec succès. Vous pouvez maintenant le personnaliser."
+            f"Le nouveau prompt '{prompt_name}' a été ajouté avec succès. Vous pouvez maintenant le personnaliser."
         )
     
     def delete_prompt(self):
@@ -1668,7 +1722,7 @@ class MainWindow(QMainWindow):
             return
             
         prompt_id = self.voice_prompt_combo.currentData()
-        name = self.voice_prompt_name_input.text()
+        name = self.voice_prompt_name_input.text().strip()
         prompt = self.voice_prompt_text_input.toPlainText()
         status = self.voice_prompt_status_input.text()
         insert_directly = self.voice_prompt_insert_directly.isChecked()
@@ -1716,7 +1770,7 @@ class MainWindow(QMainWindow):
         self.settings.add_voice_prompt(
             prompt_id,
             f"Nouveau prompt vocal ({prompt_id})",
-            "Entrez votre prompt vocal ici...",
+            "",
             "Traitement en cours...",
             True,
             999,
@@ -1979,6 +2033,7 @@ class MainWindow(QMainWindow):
         reasoning_effort = self.reasoning_effort_combo.currentText().strip()
         use_custom = self.use_custom_endpoint_checkbox.isChecked()
         custom_endpoint = self.custom_endpoint_input.text().strip()
+        custom_endpoint_type = self.custom_endpoint_type_combo.currentData() if self.custom_endpoint_type_combo else "ollama"
         custom_model = self.custom_model_combo.currentText().strip()
         
         # Validation
@@ -2007,7 +2062,16 @@ class MainWindow(QMainWindow):
         self.settings.set_reasoning_effort(normalize_reasoning_effort(model, reasoning_effort))
         self.settings.set_use_custom_endpoint(use_custom)
         self.settings.set_custom_endpoint(custom_endpoint)
+        self.settings.set_custom_endpoint_type(custom_endpoint_type)
         self.settings.set_custom_model(custom_model)
+        self.settings.set_hotkey(self.default_hotkey)
+        self.settings.set_screenshot_hotkey(self.default_screenshot_hotkey)
+        self.settings.set_custom_hotkey(self.default_custom_hotkey)
+        self.settings.set_theme(self.default_theme)
+        self.settings.set_prompts(self.default_prompts)
+        self.settings.set_voice_prompts(self.default_voice_prompts)
+        self.settings.set_microphone_index(self.default_microphone_index)
+        self.settings.set_describe_response_prompt(self.default_describe_response_prompt)
         
         # Mettre à jour la configuration du client API sans redémarrage
         if self.context_menu_manager:

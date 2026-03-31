@@ -9,11 +9,11 @@ from PySide6.QtCore import QSettings
 from src.utils.logger import log
 
 # Constantes pour les modèles OpenAI
-AVAILABLE_MODELS = ["gpt-5.2", "gpt-5-mini", "gpt-4.1-mini"]
+AVAILABLE_MODELS = ["gpt-5.4", "gpt-5.4-nano", "gpt-5.4-mini", "gpt-5.2", "gpt-5-mini", "gpt-4.1-mini"]
 GPT5_MODELS_PREFIX = "gpt-5"  # Préfixe pour les modèles nécessitant max_completion_tokens
 REASONING_EFFORTS = ["none", "low", "medium", "high"]
-REASONING_MODELS = {"gpt-5.2", "gpt-5-mini"}
-REASONING_MODELS_NO_NONE = {"gpt-5-mini"}
+REASONING_MODELS = {"gpt-5.4", "gpt-5.4-nano", "gpt-5.4-mini", "gpt-5.2", "gpt-5-mini"}
+REASONING_MODELS_NO_NONE = set()
 
 
 def is_gpt5_model(model_name: str) -> bool:
@@ -175,7 +175,9 @@ class Settings:
         self.default_hotkey = "Ctrl+²"
         self.default_screenshot_hotkey = "Ctrl+Alt+&"
         self.default_voice_hotkey = "Ctrl+Alt+²"
+        self.default_custom_hotkey = "Ctrl+Alt+M"
         self.default_screenshot_capture_mode = "fullscreen"
+        self.default_custom_endpoint_type = "ollama"
         self.default_model = "gpt-5.2"
         self.default_reasoning_effort = "none"
         self.default_custom_endpoint = ""
@@ -217,6 +219,9 @@ class Settings:
             
         if not self.settings.contains("custom_endpoint"):
             self.settings.setValue("custom_endpoint", self.default_custom_endpoint)
+
+        if not self.settings.contains("custom_endpoint_type"):
+            self.settings.setValue("custom_endpoint_type", self.default_custom_endpoint_type)
             
         if not self.settings.contains("custom_model"):
             self.settings.setValue("custom_model", self.default_custom_model)
@@ -232,6 +237,9 @@ class Settings:
         
         if not self.settings.contains("voice_hotkey"):
             self.settings.setValue("voice_hotkey", self.default_voice_hotkey)  # Raccourci vocal par défaut
+
+        if not self.settings.contains("custom_hotkey"):
+            self.settings.setValue("custom_hotkey", self.default_custom_hotkey)  # Raccourci du mode personnalisé
     
     def get_api_key(self):
         """Get the OpenAI API key"""
@@ -278,6 +286,25 @@ class Settings:
     def set_custom_endpoint(self, endpoint):
         """Set the custom endpoint URL"""
         self.settings.setValue("custom_endpoint", endpoint)
+
+    def get_custom_endpoint_type(self):
+        """Get the custom endpoint type (ollama or lmstudio)"""
+        endpoint_type = self.settings.value("custom_endpoint_type", "")
+        if isinstance(endpoint_type, str):
+            endpoint_type = endpoint_type.strip().lower()
+        else:
+            endpoint_type = ""
+
+        if endpoint_type in ("ollama", "lmstudio"):
+            return endpoint_type
+        return self.default_custom_endpoint_type
+
+    def set_custom_endpoint_type(self, endpoint_type):
+        """Set the custom endpoint type"""
+        endpoint_type = (endpoint_type or "").strip().lower()
+        if endpoint_type not in ("ollama", "lmstudio"):
+            endpoint_type = self.default_custom_endpoint_type
+        self.settings.setValue("custom_endpoint_type", endpoint_type)
     
     def get_custom_model(self):
         """Get the custom model name"""
@@ -347,6 +374,14 @@ class Settings:
     def set_voice_hotkey(self, hotkey):
         """Set the voice hotkey"""
         self.settings.setValue("voice_hotkey", hotkey)
+
+    def get_custom_hotkey(self):
+        """Get the custom mode hotkey"""
+        return self.settings.value("custom_hotkey", self.default_custom_hotkey)
+
+    def set_custom_hotkey(self, hotkey):
+        """Set the custom mode hotkey"""
+        self.settings.setValue("custom_hotkey", hotkey)
     
     def get_theme(self):
         """Get the configured theme"""
@@ -615,11 +650,13 @@ class Settings:
         """Reset all settings to defaults"""
         self.set_hotkey(self.default_hotkey)
         self.set_screenshot_hotkey(self.default_screenshot_hotkey)
+        self.set_custom_hotkey(self.default_custom_hotkey)
         self.set_theme(self.default_theme)
         self.set_prompts(self.default_prompts)
         self.set_voice_prompts(self.default_voice_prompts)
         self.set_model(self.default_model)
         self.set_reasoning_effort(self.default_reasoning_effort)
+        self.set_custom_endpoint_type(self.default_custom_endpoint_type)
         self.set_custom_endpoint(self.default_custom_endpoint)
         self.set_custom_model(self.default_custom_model)
         self.set_use_custom_endpoint(self.default_use_custom_endpoint)
