@@ -995,6 +995,7 @@ class ContextMenuManager(QObject):
 
     def update_client_config(self):
         """Met à jour la configuration du client API avec les paramètres actuels."""
+        self.settings.sync()
         # Déconnecter les anciens signaux pour éviter les fuites mémoire
         if self.api_client:
             try:

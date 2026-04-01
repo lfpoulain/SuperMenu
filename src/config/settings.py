@@ -13,7 +13,7 @@ AVAILABLE_MODELS = ["gpt-5.4", "gpt-5.4-nano", "gpt-5.4-mini", "gpt-5.2", "gpt-5
 GPT5_MODELS_PREFIX = "gpt-5"  # Préfixe pour les modèles nécessitant max_completion_tokens
 REASONING_EFFORTS = ["none", "low", "medium", "high"]
 REASONING_MODELS = {"gpt-5.4", "gpt-5.4-nano", "gpt-5.4-mini", "gpt-5.2", "gpt-5-mini"}
-REASONING_MODELS_NO_NONE = set()
+REASONING_MODELS_NO_NONE = {"gpt-5.4-nano"}
 
 
 def is_gpt5_model(model_name: str) -> bool:
@@ -48,6 +48,7 @@ def normalize_reasoning_effort(model_name: str, effort: str) -> str:
     """Normalise l'effort de raisonnement selon le modèle."""
     if not supports_reasoning(model_name):
         return "none"
+    effort = (effort or "").strip().lower()
     allowed = get_reasoning_efforts_for_model(model_name)
     if effort in allowed:
         return effort
@@ -271,13 +272,19 @@ class Settings:
         if effort not in REASONING_EFFORTS:
             effort = self.default_reasoning_effort
             self.set_reasoning_effort(effort)
-        return effort
+        normalized_effort = normalize_reasoning_effort(self.get_model(), effort)
+        if normalized_effort != effort:
+            self.set_reasoning_effort(normalized_effort)
+        return normalized_effort
 
     def set_reasoning_effort(self, effort):
         """Set the reasoning effort"""
-        if effort not in REASONING_EFFORTS:
-            effort = self.default_reasoning_effort
-        self.settings.setValue("reasoning_effort", effort)
+        normalized_effort = normalize_reasoning_effort(self.get_model(), effort)
+        self.settings.setValue("reasoning_effort", normalized_effort)
+
+    def sync(self):
+        """Force l'écriture des paramètres persistés."""
+        self.settings.sync()
     
     def get_custom_endpoint(self):
         """Get the custom endpoint URL"""

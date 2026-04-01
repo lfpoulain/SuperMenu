@@ -2056,10 +2056,12 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(self, "Nom de modèle invalide", error_msg)
                     return
         
+        normalized_reasoning_effort = normalize_reasoning_effort(model, reasoning_effort)
+
         # Save settings
         self.settings.set_api_key(api_key)
         self.settings.set_model(model)
-        self.settings.set_reasoning_effort(normalize_reasoning_effort(model, reasoning_effort))
+        self.settings.set_reasoning_effort(normalized_reasoning_effort)
         self.settings.set_use_custom_endpoint(use_custom)
         self.settings.set_custom_endpoint(custom_endpoint)
         self.settings.set_custom_endpoint_type(custom_endpoint_type)
@@ -2072,7 +2074,12 @@ class MainWindow(QMainWindow):
         self.settings.set_voice_prompts(self.default_voice_prompts)
         self.settings.set_microphone_index(self.default_microphone_index)
         self.settings.set_describe_response_prompt(self.default_describe_response_prompt)
-        
+        self.settings.sync()
+
+        self.reasoning_effort_combo.blockSignals(True)
+        self.reasoning_effort_combo.setCurrentText(normalized_reasoning_effort)
+        self.reasoning_effort_combo.blockSignals(False)
+
         # Mettre à jour la configuration du client API sans redémarrage
         if self.context_menu_manager:
             self.context_menu_manager.update_client_config()
