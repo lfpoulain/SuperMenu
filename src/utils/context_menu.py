@@ -225,15 +225,10 @@ class ContextMenuManager(QObject):
         
         # Ajouter tous les prompts au menu
         for prompt_id, prompt_data in sorted_prompts:
-            # Créer une fonction de rappel spécifique pour ce prompt
-            def create_callback(p_id):
-                return lambda: self._handle_menu_action(p_id)
-                
-            callback = create_callback(prompt_id)
-            
             action = menu.addAction(prompt_data["name"])
+            action.setData(("prompt", prompt_id, selected_text))
             if selected_text:
-                action.triggered.connect(callback)
+                action.setEnabled(True)
             else:
                 # Désactiver l'action si aucun texte n'est sélectionné
                 action.setEnabled(False)
@@ -243,18 +238,16 @@ class ContextMenuManager(QObject):
         
         # Ajouter l'option GodMode (toujours disponible)
         godmode_action = menu.addAction("🔮 Mode Personnalisé")
-        if selected_text:
-            godmode_action.triggered.connect(lambda: self._handle_godmode_action(selected_text))
-        else:
-            godmode_action.triggered.connect(lambda: self._handle_godmode_action(""))
+        godmode_action.setData(("godmode", selected_text if selected_text else ""))
         
         # Afficher le menu à la position du curseur
         # Utiliser exec_ pour les hotkeys car il est bloquant et assure que le menu reste visible
         # jusqu'à ce qu'une action soit sélectionnée ou que l'utilisateur clique ailleurs
+        chosen_action = None
         try:
             if not self._menu_watchdog.isActive():
                 self._menu_watchdog.start()
-            menu.exec_(QCursor.pos())  # Utiliser exec_ au lieu de popup()
+            chosen_action = menu.exec_(QCursor.pos())  # Utiliser exec_ au lieu de popup()
         finally:
             if self._menu_watchdog.isActive():
                 self._menu_watchdog.stop()
@@ -263,6 +256,21 @@ class ContextMenuManager(QObject):
             self._menu_owner_pid = None
             self._last_lbutton_down = False
             self._menu_opened_at = None
+
+        if chosen_action is None:
+            return
+
+        action_data = chosen_action.data()
+        if not action_data:
+            return
+
+        action_kind = action_data[0]
+        if action_kind == "prompt":
+            _, prompt_id, action_text = action_data
+            self._handle_menu_action(prompt_id, action_text)
+        elif action_kind == "godmode":
+            _, action_text = action_data
+            self._handle_godmode_action(action_text)
 
     def show_custom_mode(self):
         """Ouvrir directement le mode personnalisé depuis un raccourci."""
@@ -494,10 +502,11 @@ class ContextMenuManager(QObject):
         # print(f"Texte sélectionné: {selected_text[:30]}...")
         return selected_text
     
-    def _handle_menu_action(self, prompt_id):
+    def _handle_menu_action(self, prompt_id, selected_text=None):
         """Handle a menu action"""
         # Get the selected text
-        selected_text = self._get_selected_text()
+        if selected_text is None:
+            selected_text = self._get_selected_text()
         if not selected_text:
             return
         

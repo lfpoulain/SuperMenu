@@ -18,6 +18,7 @@
 - **Actions Rapides** : Corriger, Reformuler, Résumer, Traduire, Expliquer...
 - **Insertion Directe** : Remplace automatiquement le texte sélectionné par la réponse de l'IA (idéal pour les corrections).
 - **Prompts Personnalisables** : Crée tes propres actions adaptées à tes besoins.
+- **Mode Personnalisé Direct** : Lance le prompt libre sans passer par le menu contextuel (`Ctrl+Alt+M`).
 
 ### 🎙️ Voix & Dictée
 - **Commandes Vocales** : Parle à l'IA (`Ctrl+Alt+²`).
@@ -30,7 +31,9 @@
 - **Modes de Capture** : Plein écran, Zone sélective ou "Demander à chaque fois".
 
 ### ⚙️ Flexibilité & Sécurité
-- **Multi-Modèles** : Compatible OpenAI (`gpt-5.2`,`gpt-5.1`, `gpt-4.1`, etc.) et **Endpoints Locaux** (Ollama, LM Studio).
+- **Multi-Modèles** : Compatible OpenAI (`gpt-5.4`, `gpt-5.4-nano`, `gpt-5.4-micro`, `gpt-5.2`, `gpt-5-mini`, `gpt-4.1-mini`, etc.) et **Endpoints Locaux** (Ollama, LM Studio).
+- **Thinking / Raisonnement** : Supporte le `think` d'Ollama et le `reasoning` de LM Studio quand le modèle le permet.
+- **Sélecteur d'Endpoint** : Choisis explicitement Ollama ou LM Studio dans les paramètres au lieu de dépendre d'une détection automatique.
 - **Interface Moderne** : Thèmes Sombre/Clair/Auto (basé sur le système).
 - **Sécurisé** : Ta clé API est stockée dans le trousseau sécurisé de Windows (Windows Credential Locker), pas en clair.
 - **Mises à jour Faciles** : Système de mise à jour intégré via GitHub Releases.
@@ -59,6 +62,7 @@ Au premier lancement (ou via l'icône dans la barre des tâches) :
    - **Menu** : `Ctrl+²` (le carré, en haut à gauche du clavier AZERTY).
    - **Voix** : `Ctrl+Alt+²`.
    - **Capture** : `Ctrl+Alt+&`.
+   - **Mode personnalisé** : `Ctrl+Alt+M`.
 
 ---
 
