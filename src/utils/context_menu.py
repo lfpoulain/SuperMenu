@@ -724,7 +724,7 @@ class ContextMenuManager(QObject):
                     temp_client.request_error.connect(_on_error)
 
                     # Lancer la requête en arrière-plan
-                    temp_client.send_request(full_prompt, "", insert_directly=False)
+                    temp_client.send_request(full_prompt, "", insert_directly=False, include_reasoning=False)
             
             # Arrêter toute reconnaissance vocale en cours
             self.stop_voice_recognition()
@@ -839,7 +839,7 @@ class ContextMenuManager(QObject):
 
                         temp_client.request_finished.connect(_on_finished)
                         temp_client.request_error.connect(_on_error)
-                        temp_client.send_request(full_prompt, "", insert_directly=False)
+                        temp_client.send_request(full_prompt, "", insert_directly=False, include_reasoning=False)
                     else:
                         # Préparer la fenêtre de réponse
                         self.response_window.set_status(status)

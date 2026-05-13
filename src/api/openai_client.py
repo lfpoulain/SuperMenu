@@ -13,6 +13,8 @@ from urllib.parse import urlparse
 from PySide6.QtCore import QObject, Signal, QTimer, Slot
 from src.utils.logger import log
 from src.config.settings import (
+    CUSTOM_REASONING_EFFORTS,
+    OLLAMA_GPT_OSS_THINK_EFFORTS,
     is_gpt5_model,
     normalize_reasoning_effort,
     supports_reasoning,
@@ -101,15 +103,17 @@ class OpenAIClient(QObject):
 
     def _build_ollama_think_value(self):
         """Construit la valeur du paramètre think pour Ollama."""
-        effort = self.settings.get_reasoning_effort()
+        effort = (self.settings.get_reasoning_effort() or "none").strip().lower()
         if effort == "none":
             return False
 
         model_name = (self.model or "").lower()
-        if "gpt-oss" in model_name and effort in ("low", "medium", "high"):
-            return effort
+        if "gpt-oss" in model_name:
+            if effort in OLLAMA_GPT_OSS_THINK_EFFORTS:
+                return effort
+            return "low"
 
-        return True
+        return True if effort in CUSTOM_REASONING_EFFORTS else False
 
     @staticmethod
     def _combine_thinking(content, thinking):
@@ -124,6 +128,48 @@ class OpenAIClient(QObject):
             return content or thinking or ""
 
         return "\n\n".join(parts)
+
+    @staticmethod
+    def _content_to_text(content):
+        """Convertit les formats de contenu OpenAI-compatible en texte."""
+        if isinstance(content, str):
+            return content
+
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    text = item.get("text") or item.get("content")
+                    if isinstance(text, str):
+                        parts.append(text)
+            return "\n".join(part for part in parts if part)
+
+        return ""
+
+    @staticmethod
+    def _reasoning_value_to_text(value):
+        """Normalise un champ de raisonnement qui peut etre str, dict ou list."""
+        if isinstance(value, str):
+            return value.strip()
+
+        if isinstance(value, dict):
+            for nested_key in ("text", "content", "summary", "reasoning_content", "value"):
+                nested_value = OpenAIClient._reasoning_value_to_text(value.get(nested_key))
+                if nested_value:
+                    return nested_value
+            return ""
+
+        if isinstance(value, list):
+            parts = []
+            for item in value:
+                item_text = OpenAIClient._reasoning_value_to_text(item)
+                if item_text:
+                    parts.append(item_text)
+            return "\n\n".join(parts)
+
+        return ""
 
     @staticmethod
     def _extract_reasoning_text(response_data):
@@ -145,44 +191,60 @@ class OpenAIClient(QObject):
                 continue
 
             for key in ("reasoning_content", "reasoning", "thinking"):
-                value = item.get(key)
-                if isinstance(value, str) and value.strip():
+                value = OpenAIClient._reasoning_value_to_text(item.get(key))
+                if value:
                     return value
-                if isinstance(value, dict):
-                    for nested_key in ("text", "content", "summary", "reasoning_content", "value"):
-                        nested_value = value.get(nested_key)
-                        if isinstance(nested_value, str) and nested_value.strip():
-                            return nested_value
 
         return ""
 
-    def _extract_response_text(self, response_data):
-        """Extrait le texte utile d'une réponse OpenAI ou Ollama."""
+    def _extract_response_parts(self, response_data):
+        """Extrait la reponse finale et le raisonnement expose par le fournisseur."""
         if self.use_ollama_api:
             message = response_data.get("message", {}) if isinstance(response_data, dict) else {}
-            content = message.get("content", "") if isinstance(message, dict) else ""
-            thinking = message.get("thinking", "") if isinstance(message, dict) else ""
-            return self._combine_thinking(content, thinking)
+            content = self._content_to_text(message.get("content", "")) if isinstance(message, dict) else ""
+            thinking = self._reasoning_value_to_text(message.get("thinking", "")) if isinstance(message, dict) else ""
+            return content, thinking
 
         if self.use_lmstudio_api:
             choices = response_data.get("choices", []) if isinstance(response_data, dict) else []
             if not choices:
-                return ""
+                return "", self._extract_reasoning_text(response_data)
 
             message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
-            content = message.get("content", "") if isinstance(message, dict) else ""
+            content = self._content_to_text(message.get("content", "")) if isinstance(message, dict) else ""
             reasoning = self._extract_reasoning_text(response_data)
-            return self._combine_thinking(content, reasoning)
+            return content, reasoning
+
+        if isinstance(response_data, dict) and response_data.get("output_text"):
+            return self._content_to_text(response_data.get("output_text")), self._extract_reasoning_text(response_data)
+
+        if isinstance(response_data, dict) and isinstance(response_data.get("output"), list):
+            parts = []
+            for output_item in response_data.get("output", []):
+                if not isinstance(output_item, dict):
+                    continue
+                for content_item in output_item.get("content", []) or []:
+                    if isinstance(content_item, dict):
+                        text = content_item.get("text") or content_item.get("content")
+                        if isinstance(text, str):
+                            parts.append(text)
+            return "\n".join(parts), self._extract_reasoning_text(response_data)
 
         choices = response_data.get("choices", []) if isinstance(response_data, dict) else []
         if not choices:
-            return ""
+            return "", self._extract_reasoning_text(response_data)
 
         message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
-        content = message.get("content", "") if isinstance(message, dict) else ""
-        thinking = message.get("thinking", "") if isinstance(message, dict) else ""
-        return self._combine_thinking(content, thinking)
-    
+        content = self._content_to_text(message.get("content", "")) if isinstance(message, dict) else ""
+        reasoning = self._extract_reasoning_text(response_data)
+        return content, reasoning
+
+    def _extract_response_text(self, response_data, include_reasoning=True):
+        content, reasoning = self._extract_response_parts(response_data)
+        if include_reasoning:
+            return self._combine_thinking(content, reasoning)
+        return content
+
     def set_api_key(self, api_key):
         """Set the API key"""
         self.api_key = api_key
@@ -191,7 +253,7 @@ class OpenAIClient(QObject):
         """Set the model to use"""
         self.model = model
     
-    def send_request(self, prompt, content, insert_directly=False):
+    def send_request(self, prompt, content, insert_directly=False, include_reasoning=None):
         """Envoie une requête à l'API OpenAI en arrière-plan"""
         # Vérifier si une clé API est requise
         if not self.use_custom_endpoint and not self.api_key:
@@ -202,9 +264,12 @@ class OpenAIClient(QObject):
         self.request_started.emit()
         
         # Lancer la requête dans un thread séparé
+        if include_reasoning is None:
+            include_reasoning = not insert_directly
+
         threading.Thread(
             target=self._process_request_thread,
-            args=(prompt, content, insert_directly),
+            args=(prompt, content, insert_directly, include_reasoning),
             daemon=True
         ).start()
     
@@ -275,7 +340,7 @@ class OpenAIClient(QObject):
             raise last_exception
         raise Exception("All retry attempts failed")
     
-    def _process_request_thread(self, prompt, content, insert_directly=False):
+    def _process_request_thread(self, prompt, content, insert_directly=False, include_reasoning=True):
         """Traite la requête dans un thread séparé"""
         image_path = None
         try:
@@ -290,7 +355,7 @@ class OpenAIClient(QObject):
             if response.status_code == 200:
                 # Analyser la réponse
                 response_data = response.json()
-                response_content = self._extract_response_text(response_data)
+                response_content = self._extract_response_text(response_data, include_reasoning=include_reasoning)
                 
                 if insert_directly:
                     # Insérer directement le résultat
@@ -350,6 +415,12 @@ class OpenAIClient(QObject):
         except Exception as e:
             log(f"Erreur lors de la suppression de l'image après traitement API: {e}", logging.WARNING)
 
+    @staticmethod
+    def _data_url_to_base64(data_url):
+        if not isinstance(data_url, str) or ";base64," not in data_url:
+            return None
+        return data_url.split(";base64,", 1)[1]
+
     def _build_request_data(self, prompt, content):
         """Construit les données de requête API.
         
@@ -361,28 +432,38 @@ class OpenAIClient(QObject):
             tuple: (data dict, image_path si image, None sinon)
         """
         image_path = None
+        image_base64 = None
+        image_data_url = None
 
         if isinstance(content, str) and content.startswith("data:image/") and ";base64," in content:
-            data = {
-                "model": self.model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": content}},
-                        ],
-                    }
-                ],
-            }
+            image_data_url = content
+            image_base64 = self._data_url_to_base64(content)
         elif isinstance(content, str) and os.path.isfile(content) and content.lower().endswith((".png", ".jpg", ".jpeg")):
             with open(content, "rb") as image_file:
-                base64_image = base64.b64encode(image_file.read()).decode("utf-8")
+                image_base64 = base64.b64encode(image_file.read()).decode("utf-8")
 
             image_path = content
             ext = os.path.splitext(content)[1].lower()
             mime = "image/png" if ext == ".png" else "image/jpeg"
+            image_data_url = f"data:{mime};base64,{image_base64}"
 
+        full_prompt = f"{prompt}\n\n{content}" if content and not image_data_url else prompt
+
+        if self.use_ollama_api:
+            message = {"role": "user", "content": full_prompt}
+            if image_base64:
+                message["images"] = [image_base64]
+
+            data = {
+                "model": self.model,
+                "messages": [message],
+                "stream": False,
+                "think": self._build_ollama_think_value(),
+                "options": {"num_predict": DEFAULT_MAX_TOKENS},
+            }
+            return data, image_path
+
+        if image_data_url:
             data = {
                 "model": self.model,
                 "messages": [
@@ -390,25 +471,22 @@ class OpenAIClient(QObject):
                         "role": "user",
                         "content": [
                             {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{base64_image}"}},
+                            {"type": "image_url", "image_url": {"url": image_data_url}},
                         ],
                     }
                 ],
             }
         else:
-            full_prompt = f"{prompt}\n\n{content}" if content else prompt
             data = {"model": self.model, "messages": [{"role": "user", "content": full_prompt}]}
 
-        if self.use_ollama_api:
-            data["think"] = self._build_ollama_think_value()
-        elif self.use_lmstudio_api:
-            effort = self.settings.get_reasoning_effort()
-            if effort != "none":
+        if self.use_lmstudio_api:
+            effort = (self.settings.get_reasoning_effort() or "none").strip().lower()
+            if effort in CUSTOM_REASONING_EFFORTS and effort != "none":
                 data["reasoning"] = {"effort": effort}
 
-        if is_gpt5_model(self.model):
+        if not self.use_custom_endpoint and is_gpt5_model(self.model):
             data["max_completion_tokens"] = DEFAULT_MAX_TOKENS
-            if not self.use_custom_endpoint and supports_reasoning(self.model):
+            if supports_reasoning(self.model):
                 effort = normalize_reasoning_effort(self.model, self.settings.get_reasoning_effort())
                 data["reasoning_effort"] = effort
         else:
@@ -457,16 +535,43 @@ class OpenAIClient(QObject):
                 self._cleanup_image(image_path)
 
     @staticmethod
-    def fetch_available_models(endpoint_url, api_key=None, timeout=10):
+    def _is_ollama_endpoint(endpoint_url):
+        parsed = urlparse(endpoint_url or "")
+        host = (parsed.hostname or "").lower()
+        port = parsed.port
+        path = (parsed.path or "").lower()
+        return port == 11434 or "ollama" in host or path.startswith("/api")
+
+    @staticmethod
+    def _models_base_url(endpoint_url, is_ollama):
+        base = (endpoint_url or "").rstrip("/")
+        if is_ollama:
+            if base.endswith("/api/chat"):
+                return base[: -len("/api/chat")]
+            if base.endswith("/api"):
+                return base[: -len("/api")]
+            return base
+
+        if base.endswith("/v1/chat/completions"):
+            return base[: -len("/v1/chat/completions")]
+        if base.endswith("/v1"):
+            return base[: -len("/v1")]
+        return base
+
+    @staticmethod
+    def fetch_available_models(endpoint_url, api_key=None, timeout=10, endpoint_type=None):
         """Récupère la liste des modèles disponibles depuis un endpoint compatible OpenAI."""
         try:
             headers = {"Content-Type": "application/json"}
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
 
-            is_ollama = OpenAIClient._is_ollama_endpoint(endpoint_url)
+            endpoint_type = (endpoint_type or "").strip().lower()
+            is_ollama = endpoint_type == "ollama" or (
+                endpoint_type != "lmstudio" and OpenAIClient._is_ollama_endpoint(endpoint_url)
+            )
             candidates = []
-            base_url = endpoint_url.rstrip('/')
+            base_url = OpenAIClient._models_base_url(endpoint_url, is_ollama)
             if is_ollama:
                 candidates.append(f"{base_url}/api/tags")
             candidates.append(f"{base_url}/v1/models")

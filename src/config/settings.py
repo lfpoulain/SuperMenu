@@ -11,7 +11,9 @@ from src.utils.logger import log
 # Constantes pour les modèles OpenAI
 AVAILABLE_MODELS = ["gpt-5.4", "gpt-5.4-nano", "gpt-5.4-mini", "gpt-5.2", "gpt-5-mini", "gpt-4.1-mini"]
 GPT5_MODELS_PREFIX = "gpt-5"  # Préfixe pour les modèles nécessitant max_completion_tokens
-REASONING_EFFORTS = ["none", "low", "medium", "high"]
+REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"]
+CUSTOM_REASONING_EFFORTS = ["none", "low", "medium", "high"]
+OLLAMA_GPT_OSS_THINK_EFFORTS = ["low", "medium", "high"]
 REASONING_MODELS = {"gpt-5.4", "gpt-5.4-nano", "gpt-5.4-mini", "gpt-5.2", "gpt-5-mini"}
 REASONING_MODELS_NO_NONE = {"gpt-5.4-nano"}
 
@@ -272,6 +274,13 @@ class Settings:
         if effort not in REASONING_EFFORTS:
             effort = self.default_reasoning_effort
             self.set_reasoning_effort(effort)
+
+        if self.get_use_custom_endpoint():
+            if effort not in CUSTOM_REASONING_EFFORTS:
+                effort = self.default_reasoning_effort
+                self.settings.setValue("reasoning_effort", effort)
+            return effort
+
         normalized_effort = normalize_reasoning_effort(self.get_model(), effort)
         if normalized_effort != effort:
             self.set_reasoning_effort(normalized_effort)
@@ -279,7 +288,10 @@ class Settings:
 
     def set_reasoning_effort(self, effort):
         """Set the reasoning effort"""
-        normalized_effort = normalize_reasoning_effort(self.get_model(), effort)
+        if self.get_use_custom_endpoint():
+            normalized_effort = effort if effort in CUSTOM_REASONING_EFFORTS else self.default_reasoning_effort
+        else:
+            normalized_effort = normalize_reasoning_effort(self.get_model(), effort)
         self.settings.setValue("reasoning_effort", normalized_effort)
 
     def sync(self):
@@ -389,6 +401,14 @@ class Settings:
     def set_custom_hotkey(self, hotkey):
         """Set the custom mode hotkey"""
         self.settings.setValue("custom_hotkey", hotkey)
+
+    def get_last_update_check_date(self):
+        """Get the last automatic update check date as YYYY-MM-DD."""
+        return self.settings.value("last_update_check_date", "")
+
+    def set_last_update_check_date(self, date_value):
+        """Set the last automatic update check date as YYYY-MM-DD."""
+        self.settings.setValue("last_update_check_date", date_value or "")
     
     def get_theme(self):
         """Get the configured theme"""

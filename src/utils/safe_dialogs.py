@@ -4,7 +4,7 @@
 """
 Utilitaires pour afficher des dialogues Qt de manière thread-safe.
 """
-from PySide6.QtCore import QMetaObject, Qt, QObject, Q_ARG
+from PySide6.QtCore import QMetaObject, Qt, QObject, Q_ARG, Slot
 from PySide6.QtWidgets import QMessageBox, QApplication
 import logging
 from src.utils.logger import log
@@ -74,6 +74,7 @@ class SafeDialogs(QObject):
                                Q_ARG(str, title),
                                Q_ARG(str, message))
     
+    @Slot(str, str)
     def _show_information_impl(self, title, message):
         """Implémentation réelle de show_information dans le thread Qt"""
         try:
@@ -81,6 +82,7 @@ class SafeDialogs(QObject):
         except Exception as e:
             log(f"Error showing information dialog: {e}", logging.ERROR)
     
+    @Slot(str, str)
     def _show_warning_impl(self, title, message):
         """Implémentation réelle de show_warning dans le thread Qt"""
         try:
@@ -88,6 +90,7 @@ class SafeDialogs(QObject):
         except Exception as e:
             log(f"Error showing warning dialog: {e}", logging.ERROR)
     
+    @Slot(str, str)
     def _show_critical_impl(self, title, message):
         """Implémentation réelle de show_critical dans le thread Qt"""
         try:

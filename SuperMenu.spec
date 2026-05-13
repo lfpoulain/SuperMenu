@@ -5,7 +5,10 @@ a = Analysis(
     ['run.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        ('resources', 'resources'),
+        ('bin', 'bin'),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

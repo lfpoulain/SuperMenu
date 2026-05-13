@@ -133,7 +133,7 @@ class ResponseWindow(QWidget):
 
         display_text = response
         if has_thinking:
-            display_text = masked_response if masked_response else response
+            display_text = masked_response if masked_response else "(Aucune reponse finale; seul le raisonnement a ete renvoye.)"
             self.think_toggle_button.setVisible(True)
             self.think_toggle_button.setEnabled(True)
             self.think_toggle_button.setText("👁 Voir le raisonnement")
@@ -200,7 +200,7 @@ class ResponseWindow(QWidget):
             self.response_text.setPlainText(self.raw_response)
             self.think_toggle_button.setText("🙈 Masquer le raisonnement")
         else:
-            display_text = self.masked_response if self.masked_response else self.raw_response
+            display_text = self.masked_response if self.masked_response else "(Aucune reponse finale; seul le raisonnement a ete renvoye.)"
             self.response_text.setText(display_text)
             self.response_text.setPlainText(display_text)
             self.think_toggle_button.setText("👁 Voir le raisonnement")

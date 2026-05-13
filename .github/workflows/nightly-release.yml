@@ -40,6 +40,12 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install pyinstaller
 
+      - name: Run tests
+        shell: powershell
+        run: |
+          python -m compileall -q src run.py
+          python -m pytest -q
+
       - name: Build SuperMenu.exe (PyInstaller)
         shell: powershell
         run: |
@@ -61,7 +67,7 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           tag: nightly
-          name: Nightly
+          name: Nightly ${{ env.APP_VERSION }}
           prerelease: true
           allowUpdates: true
           replacesArtifacts: true
@@ -72,5 +78,6 @@ jobs:
           body: |
             Build automatique depuis `main`.
 
+            Channel: nightly
             Version: ${{ env.APP_VERSION }}
             Commit: ${{ github.sha }}

@@ -6,6 +6,7 @@ import tempfile
 import subprocess
 import ctypes
 import sys
+from datetime import date
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QPushButton, QTabWidget,
@@ -17,6 +18,7 @@ from PySide6.QtCore import Qt, QSize, Signal, QTimer, QThread
 from PySide6.QtGui import QIcon, QAction, QKeySequence
 
 from src.config.settings import (
+    CUSTOM_REASONING_EFFORTS,
     Settings,
     AVAILABLE_MODELS,
     get_reasoning_efforts_for_model,
@@ -81,6 +83,34 @@ class _UpdateDownloadWorker(QThread):
         except Exception as e:
             self.failed.emit(str(e))
 
+
+class _CustomModelsWorker(QThread):
+    finished_ok = Signal(list)
+    failed = Signal(str)
+
+    def __init__(self, endpoint: str, api_key: str | None, endpoint_type: str):
+        super().__init__()
+        self.endpoint = endpoint
+        self.api_key = api_key
+        self.endpoint_type = endpoint_type
+
+    def run(self):
+        try:
+            from src.api.openai_client import OpenAIClient
+
+            success, result = OpenAIClient.fetch_available_models(
+                self.endpoint,
+                self.api_key,
+                endpoint_type=self.endpoint_type,
+            )
+            if success:
+                self.finished_ok.emit(result)
+            else:
+                self.failed.emit(str(result))
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
 class MainWindow(QMainWindow):
     """Main application window for settings and configuration"""
     
@@ -102,6 +132,9 @@ class MainWindow(QMainWindow):
         self._update_check_worker = None
         self._update_download_worker = None
         self._update_loading = None
+        self._update_check_silent = False
+        self._custom_models_worker = None
+        self._custom_models_progress = None
 
         # Set window properties
         self.setWindowTitle("SuperMenu - Configuration")
@@ -440,7 +473,7 @@ class MainWindow(QMainWindow):
 
         reasoning_label = QLabel("Raisonnement:")
         self.reasoning_effort_combo = QComboBox()
-        self.reasoning_effort_combo.setToolTip("Disponible pour les modèles GPT-5.4, GPT-5.2 et GPT-5-Mini")
+        self.reasoning_effort_combo.setToolTip("Effort de raisonnement OpenAI: none, minimal, low, medium, high ou xhigh selon le modele.")
 
         openai_layout.addWidget(api_key_label)
         openai_layout.addWidget(self.api_key_input)
@@ -485,6 +518,21 @@ class MainWindow(QMainWindow):
         custom_layout.addWidget(self.custom_endpoint_type_combo)
         custom_layout.addWidget(custom_model_label)
         custom_layout.addLayout(custom_model_layout)
+
+        custom_reasoning_label = QLabel("Raisonnement / think :")
+        self.custom_reasoning_effort_combo = QComboBox()
+        self.custom_reasoning_effort_combo.addItems(CUSTOM_REASONING_EFFORTS)
+        saved_custom_effort = self.settings.get_reasoning_effort()
+        if saved_custom_effort in CUSTOM_REASONING_EFFORTS:
+            self.custom_reasoning_effort_combo.setCurrentText(saved_custom_effort)
+        else:
+            self.custom_reasoning_effort_combo.setCurrentText("none")
+        self.custom_reasoning_effort_combo.setToolTip(
+            "Ollama: none desactive think, low/medium/high activent think. "
+            "Les modeles gpt-oss recoivent low/medium/high directement."
+        )
+        custom_layout.addWidget(custom_reasoning_label)
+        custom_layout.addWidget(self.custom_reasoning_effort_combo)
 
         current_custom_model = self.settings.get_custom_model()
         if current_custom_model:
@@ -747,12 +795,27 @@ class MainWindow(QMainWindow):
             return version
         return "dev"
 
-    def check_for_updates(self):
+    def schedule_startup_update_check(self):
+        """Planifie une verification automatique discrete des mises a jour."""
+        QTimer.singleShot(5000, self.check_for_updates_silently)
+
+    def check_for_updates_silently(self):
+        """Verifie les mises a jour une fois par jour sans bruit si rien n'est disponible."""
+        today = date.today().isoformat()
+        if self.settings.get_last_update_check_date() == today:
+            return
+        self.settings.set_last_update_check_date(today)
+        self.settings.sync()
+        self.check_for_updates(silent=True)
+
+    def check_for_updates(self, silent=False):
         if self._update_check_worker and self._update_check_worker.isRunning():
             return
 
-        self._update_loading = SimpleLoadingIndicator("Vérification des mises à jour...")
-        self._update_loading.show()
+        self._update_check_silent = bool(silent)
+        if not self._update_check_silent:
+            self._update_loading = SimpleLoadingIndicator("Vérification des mises à jour...")
+            self._update_loading.show()
 
         self._update_check_worker = _UpdateCheckWorker(
             owner="lfpoulain",
@@ -772,21 +835,28 @@ class MainWindow(QMainWindow):
         installed_version = data.get("installed_version")
         latest_version = data.get("latest_version")
         asset_url = data.get("asset_url")
+        silent = self._update_check_silent
 
         if not latest_version:
-            QMessageBox.warning(self, "Mise à jour", "Impossible de déterminer la version de la release.")
+            if not silent:
+                QMessageBox.warning(self, "Mise à jour", "Impossible de déterminer la version de la release.")
             return
 
         if not asset_url:
-            QMessageBox.warning(self, "Mise à jour", "Aucun installateur n'a été trouvé sur la release (SuperMenu_Setup.exe).")
+            if not silent:
+                QMessageBox.warning(self, "Mise à jour", "Aucun installateur n'a été trouvé sur la release (SuperMenu_Setup.exe).")
+            return
+
+        if silent and not installed_version:
             return
 
         if not app_updater.is_newer_version(installed_version, latest_version):
-            QMessageBox.information(
-                self,
-                "Mise à jour",
-                f"Vous êtes déjà à jour.\n\nVersion installée : {installed_version or 'inconnue'}\nDernière version : {latest_version}",
-            )
+            if not silent:
+                QMessageBox.information(
+                    self,
+                    "Mise à jour",
+                    f"Vous êtes déjà à jour.\n\nVersion installée : {installed_version or 'inconnue'}\nDernière version : {latest_version}",
+                )
             return
 
         reply = QMessageBox.question(
@@ -806,6 +876,8 @@ class MainWindow(QMainWindow):
         if self._update_loading:
             self._update_loading.close()
             self._update_loading = None
+        if self._update_check_silent:
+            return
         QMessageBox.warning(self, "Mise à jour", f"Erreur lors de la vérification des mises à jour :\n\n{error}")
 
     def _start_download_installer(self, url: str, dest_path: str):
@@ -1254,6 +1326,7 @@ class MainWindow(QMainWindow):
             self.api_key_input.setText(self.settings.get_api_key())
             self.model_combo.setCurrentText(self.settings.get_model())
             self.update_reasoning_effort_ui()
+            self.custom_reasoning_effort_combo.setCurrentText(self.settings.get_reasoning_effort())
             
             # Reload custom endpoint configuration
             self.use_custom_endpoint_checkbox.setChecked(self.settings.get_use_custom_endpoint())
@@ -1976,65 +2049,78 @@ class MainWindow(QMainWindow):
     
     def refresh_custom_models(self):
         """Récupérer la liste des modèles disponibles depuis l'endpoint personnalisé"""
-        from src.api.openai_client import OpenAIClient
-        
+        if self._custom_models_worker and self._custom_models_worker.isRunning():
+            return
+
         endpoint = self.custom_endpoint_input.text().strip()
-        
+
         if not endpoint:
             QMessageBox.warning(self, "Endpoint manquant", 
                               "Veuillez d'abord entrer l'URL de l'endpoint personnalisé.")
             return
-        
+
         # Valider l'URL
         is_valid, error_msg = Validators.validate_url(endpoint)
         if not is_valid:
             QMessageBox.warning(self, "URL invalide", error_msg)
             return
-        
+
         # Afficher un message de chargement
         from PySide6.QtWidgets import QProgressDialog
-        progress = QProgressDialog("Récupération des modèles disponibles...", "Annuler", 0, 0, self)
-        progress.setWindowModality(Qt.WindowModal)
-        progress.setMinimumDuration(0)
-        progress.setValue(0)
-        progress.show()
+        self._custom_models_progress = QProgressDialog("Récupération des modèles disponibles...", "Annuler", 0, 0, self)
+        self._custom_models_progress.setWindowModality(Qt.WindowModal)
+        self._custom_models_progress.setMinimumDuration(0)
+        self._custom_models_progress.setValue(0)
+        self._custom_models_progress.show()
         QApplication.processEvents()
-        
+
         # Récupérer les modèles
         api_key = self.api_key_input.text().strip() if self.api_key_input.text().strip() else None
-        success, result = OpenAIClient.fetch_available_models(endpoint, api_key)
-        
-        progress.close()
-        
-        if success:
-            # Sauvegarder le modèle actuellement sélectionné
-            current_model = self.custom_model_combo.currentText()
-            
-            # Mettre à jour le combo box
-            self.custom_model_combo.clear()
-            self.custom_model_combo.addItems(result)
-            
-            # Restaurer la sélection si le modèle existe toujours
-            if current_model and current_model in result:
-                self.custom_model_combo.setCurrentText(current_model)
-            elif result:
-                self.custom_model_combo.setCurrentIndex(0)
-            
-            QMessageBox.information(self, "Modèles récupérés", 
-                                  f"{len(result)} modèle(s) trouvé(s) sur le serveur.")
-        else:
-            QMessageBox.warning(self, "Erreur", 
-                              f"Impossible de récupérer les modèles:\n\n{result}")
+        endpoint_type = self.custom_endpoint_type_combo.currentData() if self.custom_endpoint_type_combo else "ollama"
+        self._custom_models_worker = _CustomModelsWorker(endpoint, api_key, endpoint_type)
+        self._custom_models_worker.finished_ok.connect(self._on_custom_models_ok)
+        self._custom_models_worker.failed.connect(self._on_custom_models_failed)
+        self._custom_models_worker.start()
+
+    def _on_custom_models_ok(self, models: list):
+        if self._custom_models_progress:
+            self._custom_models_progress.close()
+            self._custom_models_progress = None
+
+        current_model = self.custom_model_combo.currentText()
+        self.custom_model_combo.clear()
+        self.custom_model_combo.addItems(models)
+
+        if current_model and current_model in models:
+            self.custom_model_combo.setCurrentText(current_model)
+        elif models:
+            self.custom_model_combo.setCurrentIndex(0)
+
+        QMessageBox.information(
+            self,
+            "Modèles récupérés",
+            f"{len(models)} modèle(s) trouvé(s) sur le serveur.",
+        )
+
+    def _on_custom_models_failed(self, error: str):
+        if self._custom_models_progress:
+            self._custom_models_progress.close()
+            self._custom_models_progress = None
+        QMessageBox.warning(self, "Erreur", f"Impossible de récupérer les modèles:\n\n{error}")
     
     def save_api_key(self):
         """Save the API key and configuration"""
         api_key = self.api_key_input.text().strip()
         model = self.model_combo.currentText()
-        reasoning_effort = self.reasoning_effort_combo.currentText().strip()
         use_custom = self.use_custom_endpoint_checkbox.isChecked()
         custom_endpoint = self.custom_endpoint_input.text().strip()
         custom_endpoint_type = self.custom_endpoint_type_combo.currentData() if self.custom_endpoint_type_combo else "ollama"
         custom_model = self.custom_model_combo.currentText().strip()
+        reasoning_effort = (
+            self.custom_reasoning_effort_combo.currentText().strip()
+            if use_custom
+            else self.reasoning_effort_combo.currentText().strip()
+        )
         
         # Validation
         if not use_custom and api_key:
@@ -2056,29 +2142,29 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(self, "Nom de modèle invalide", error_msg)
                     return
         
-        normalized_reasoning_effort = normalize_reasoning_effort(model, reasoning_effort)
+        if use_custom:
+            normalized_reasoning_effort = reasoning_effort if reasoning_effort in CUSTOM_REASONING_EFFORTS else "none"
+        else:
+            normalized_reasoning_effort = normalize_reasoning_effort(model, reasoning_effort)
 
         # Save settings
         self.settings.set_api_key(api_key)
         self.settings.set_model(model)
-        self.settings.set_reasoning_effort(normalized_reasoning_effort)
         self.settings.set_use_custom_endpoint(use_custom)
+        self.settings.set_reasoning_effort(normalized_reasoning_effort)
         self.settings.set_custom_endpoint(custom_endpoint)
         self.settings.set_custom_endpoint_type(custom_endpoint_type)
         self.settings.set_custom_model(custom_model)
-        self.settings.set_hotkey(self.default_hotkey)
-        self.settings.set_screenshot_hotkey(self.default_screenshot_hotkey)
-        self.settings.set_custom_hotkey(self.default_custom_hotkey)
-        self.settings.set_theme(self.default_theme)
-        self.settings.set_prompts(self.default_prompts)
-        self.settings.set_voice_prompts(self.default_voice_prompts)
-        self.settings.set_microphone_index(self.default_microphone_index)
-        self.settings.set_describe_response_prompt(self.default_describe_response_prompt)
         self.settings.sync()
 
         self.reasoning_effort_combo.blockSignals(True)
         self.reasoning_effort_combo.setCurrentText(normalized_reasoning_effort)
         self.reasoning_effort_combo.blockSignals(False)
+        self.custom_reasoning_effort_combo.blockSignals(True)
+        self.custom_reasoning_effort_combo.setCurrentText(
+            normalized_reasoning_effort if normalized_reasoning_effort in CUSTOM_REASONING_EFFORTS else "none"
+        )
+        self.custom_reasoning_effort_combo.blockSignals(False)
 
         # Mettre à jour la configuration du client API sans redémarrage
         if self.context_menu_manager:

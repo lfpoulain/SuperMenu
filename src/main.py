@@ -143,6 +143,7 @@ class SuperMenu:
             if self.main_window.setup_tray_icon():
                 # Démarrer réduit dans la zone de notification
                 self.main_window.hide()
+                self.main_window.schedule_startup_update_check()
                 return
 
             if self._startup_tray_attempts < 40:
@@ -151,10 +152,12 @@ class SuperMenu:
 
             logging.warning("Zone de notification indisponible au démarrage; affichage de la fenêtre principale.")
             self.main_window.show_main_window()
+            self.main_window.schedule_startup_update_check()
             return
 
         # Démarrer réduit dans la zone de notification
         self.main_window.hide()
+        self.main_window.schedule_startup_update_check()
 
     def _ensure_single_instance(self):
         server_name = "SuperMenuSingleInstance"
