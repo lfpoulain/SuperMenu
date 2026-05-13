@@ -529,7 +529,8 @@ class MainWindow(QMainWindow):
             self.custom_reasoning_effort_combo.setCurrentText("none")
         self.custom_reasoning_effort_combo.setToolTip(
             "Ollama: none desactive think, low/medium/high activent think. "
-            "Les modeles gpt-oss recoivent low/medium/high directement."
+            "LM Studio: none masque les blocs <think> renvoyes par le modele; "
+            "low/medium/high demandent leur affichage quand le serveur les expose."
         )
         custom_layout.addWidget(custom_reasoning_label)
         custom_layout.addWidget(self.custom_reasoning_effort_combo)

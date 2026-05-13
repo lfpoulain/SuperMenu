@@ -9,6 +9,7 @@ import base64
 import time
 import logging
 import tempfile
+import re
 from urllib.parse import urlparse
 from PySide6.QtCore import QObject, Signal, QTimer, Slot
 from src.utils.logger import log
@@ -23,6 +24,10 @@ from src.config.settings import (
 # Constante pour le timeout des requêtes API
 DEFAULT_API_TIMEOUT = 60
 DEFAULT_MAX_TOKENS = 2048
+THINK_BLOCK_RE = re.compile(r"<think\b[^>]*>.*?</think>", re.IGNORECASE | re.DOTALL)
+THINK_TAG_RE = re.compile(r"</?think\b[^>]*>", re.IGNORECASE)
+BRACKET_THINK_BLOCK_RE = re.compile(r"\[think\].*?\[/think\]", re.IGNORECASE | re.DOTALL)
+BRACKET_THINK_TAG_RE = re.compile(r"\[/?think\]", re.IGNORECASE)
 
 
 def _looks_like_ollama_endpoint(endpoint_url):
@@ -154,6 +159,18 @@ class OpenAIClient(QObject):
         return "\n\n".join(parts)
 
     @staticmethod
+    def _strip_inline_thinking(text):
+        """Supprime les blocs de raisonnement inclus dans le contenu final."""
+        if not isinstance(text, str) or not text:
+            return ""
+
+        stripped = THINK_BLOCK_RE.sub("", text)
+        stripped = BRACKET_THINK_BLOCK_RE.sub("", stripped)
+        stripped = THINK_TAG_RE.sub("", stripped)
+        stripped = BRACKET_THINK_TAG_RE.sub("", stripped)
+        return stripped.strip()
+
+    @staticmethod
     def _content_to_text(content):
         """Convertit les formats de contenu OpenAI-compatible en texte."""
         if isinstance(content, str):
@@ -267,7 +284,18 @@ class OpenAIClient(QObject):
         content, reasoning = self._extract_response_parts(response_data)
         if include_reasoning:
             return self._combine_thinking(content, reasoning)
-        return content
+        return self._strip_inline_thinking(content)
+
+    def _should_include_reasoning_by_default(self, insert_directly):
+        if insert_directly:
+            return False
+
+        if self.use_custom_endpoint:
+            effort = (self.settings.get_reasoning_effort() or "none").strip().lower()
+            if effort == "none":
+                return False
+
+        return True
 
     def set_api_key(self, api_key):
         """Set the API key"""
@@ -289,7 +317,7 @@ class OpenAIClient(QObject):
         
         # Lancer la requête dans un thread séparé
         if include_reasoning is None:
-            include_reasoning = not insert_directly
+            include_reasoning = self._should_include_reasoning_by_default(insert_directly)
 
         threading.Thread(
             target=self._process_request_thread,

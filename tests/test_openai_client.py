@@ -88,6 +88,43 @@ def test_extract_response_text_can_hide_reasoning_for_direct_insert():
     assert client._extract_response_text(response, include_reasoning=False) == "reponse finale"
 
 
+def test_extract_response_text_strips_inline_think_when_reasoning_hidden():
+    settings = FakeSettings(
+        use_custom_endpoint=True,
+        endpoint_type="lmstudio",
+        custom_endpoint="http://localhost:1234",
+        custom_model="openai/gpt-oss-20b",
+        reasoning_effort="none",
+    )
+    client = OpenAIClient(settings)
+    response = {
+        "choices": [
+            {
+                "message": {
+                    "content": "<think>raisonnement interne</think>\n\nreponse finale",
+                    "reasoning": "raisonnement structure",
+                }
+            }
+        ]
+    }
+
+    assert client._extract_response_text(response, include_reasoning=False) == "reponse finale"
+    assert client._should_include_reasoning_by_default(insert_directly=False) is False
+
+
+def test_custom_reasoning_low_keeps_reasoning_visible_by_default():
+    settings = FakeSettings(
+        use_custom_endpoint=True,
+        endpoint_type="lmstudio",
+        custom_endpoint="http://localhost:1234",
+        custom_model="openai/gpt-oss-20b",
+        reasoning_effort="low",
+    )
+    client = OpenAIClient(settings)
+
+    assert client._should_include_reasoning_by_default(insert_directly=False) is True
+
+
 def test_lmstudio_reasoning_payload_uses_reasoning_object():
     settings = FakeSettings(
         use_custom_endpoint=True,
