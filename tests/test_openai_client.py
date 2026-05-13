@@ -110,3 +110,31 @@ def test_model_list_base_url_accepts_chat_endpoint_paths():
     assert OpenAIClient._models_base_url("http://localhost:1234/v1/chat/completions", False) == (
         "http://localhost:1234"
     )
+
+
+def test_fetch_models_does_not_depend_on_class_private_endpoint_helper(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"models": [{"name": "qwen3"}]}
+
+    called_urls = []
+
+    def fake_get(url, headers, timeout):
+        called_urls.append(url)
+        return FakeResponse()
+
+    monkeypatch.setattr("src.api.openai_client.requests.get", fake_get)
+    monkeypatch.setattr(
+        OpenAIClient,
+        "_is_ollama_endpoint",
+        staticmethod(lambda endpoint_url: (_ for _ in ()).throw(RuntimeError("should not be called"))),
+    )
+
+    success, models = OpenAIClient.fetch_available_models("http://localhost:11434", endpoint_type=None)
+
+    assert success is True
+    assert models == ["qwen3"]
+    assert called_urls == ["http://localhost:11434/api/tags"]

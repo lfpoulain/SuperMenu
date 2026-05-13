@@ -6,7 +6,7 @@ import ctypes.wintypes
 import logging
 import sys
 import weakref
-from PySide6.QtCore import QAbstractNativeEventFilter, QCoreApplication, QObject, Signal, Qt
+from PySide6.QtCore import QAbstractNativeEventFilter, QCoreApplication, QObject, Signal, Qt, QTimer
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout
 from src.utils.logger import log
@@ -133,10 +133,15 @@ class _Win32HotkeyRegistry:
         if callback is None:
             log(f"WM_HOTKEY received for unknown id={int(hotkey_id)}", logging.WARNING)
             return
-        try:
-            callback()
-        except Exception as e:
-            log(f"Error while handling WM_HOTKEY: {e}", logging.ERROR)
+
+        def _invoke_callback():
+            try:
+                callback()
+            except Exception as e:
+                log(f"Error while handling WM_HOTKEY: {e}", logging.ERROR)
+
+        # Run UI work after Qt has returned from the native WM_HOTKEY filter.
+        QTimer.singleShot(0, _invoke_callback)
 
 
 _REGISTRY = _Win32HotkeyRegistry()

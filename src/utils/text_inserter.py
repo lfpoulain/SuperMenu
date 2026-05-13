@@ -16,6 +16,19 @@ class TextInserter:
     def __init__(self):
         """Initialise l'inserteur de texte."""
         self.keyboard = Controller()
+
+    def _press_keyboard_shortcut(self, *keys):
+        pressed = []
+        try:
+            for key in keys:
+                self.keyboard.press(key)
+                pressed.append(key)
+        finally:
+            for key in reversed(pressed):
+                try:
+                    self.keyboard.release(key)
+                except Exception:
+                    pass
     
     def insert_text(self, text):
         """
@@ -41,10 +54,7 @@ class TextInserter:
             time.sleep(CLIPBOARD_COPY_DELAY)
             
             # Simuler Ctrl+V pour coller le texte
-            self.keyboard.press(Key.ctrl)
-            self.keyboard.press('v')
-            self.keyboard.release('v')
-            self.keyboard.release(Key.ctrl)
+            self._press_keyboard_shortcut(Key.ctrl, 'v')
             
             # Attendre que le collage soit terminé
             time.sleep(CLIPBOARD_PASTE_DELAY)
@@ -54,7 +64,7 @@ class TextInserter:
             time.sleep(CLIPBOARD_RESTORE_DELAY)
         finally:
             # Restaurer le contenu original du presse-papiers
-            if original_clipboard:
+            if original_clipboard is not None:
                 ClipboardManager.set_clipboard_text_safe(original_clipboard)
     
     # Méthodes obsolètes - conservées pour compatibilité descendante

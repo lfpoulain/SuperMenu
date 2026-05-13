@@ -25,6 +25,30 @@ DEFAULT_API_TIMEOUT = 60
 DEFAULT_MAX_TOKENS = 2048
 
 
+def _looks_like_ollama_endpoint(endpoint_url):
+    parsed = urlparse(endpoint_url or "")
+    host = (parsed.hostname or "").lower()
+    port = parsed.port
+    path = (parsed.path or "").lower()
+    return port == 11434 or "ollama" in host or path.startswith("/api")
+
+
+def _models_base_url(endpoint_url, is_ollama):
+    base = (endpoint_url or "").rstrip("/")
+    if is_ollama:
+        if base.endswith("/api/chat"):
+            return base[: -len("/api/chat")]
+        if base.endswith("/api"):
+            return base[: -len("/api")]
+        return base
+
+    if base.endswith("/v1/chat/completions"):
+        return base[: -len("/v1/chat/completions")]
+    if base.endswith("/v1"):
+        return base[: -len("/v1")]
+    return base
+
+
 class OpenAIClient(QObject):
     """Client for OpenAI API interactions"""
     
@@ -536,27 +560,11 @@ class OpenAIClient(QObject):
 
     @staticmethod
     def _is_ollama_endpoint(endpoint_url):
-        parsed = urlparse(endpoint_url or "")
-        host = (parsed.hostname or "").lower()
-        port = parsed.port
-        path = (parsed.path or "").lower()
-        return port == 11434 or "ollama" in host or path.startswith("/api")
+        return _looks_like_ollama_endpoint(endpoint_url)
 
     @staticmethod
     def _models_base_url(endpoint_url, is_ollama):
-        base = (endpoint_url or "").rstrip("/")
-        if is_ollama:
-            if base.endswith("/api/chat"):
-                return base[: -len("/api/chat")]
-            if base.endswith("/api"):
-                return base[: -len("/api")]
-            return base
-
-        if base.endswith("/v1/chat/completions"):
-            return base[: -len("/v1/chat/completions")]
-        if base.endswith("/v1"):
-            return base[: -len("/v1")]
-        return base
+        return _models_base_url(endpoint_url, is_ollama)
 
     @staticmethod
     def fetch_available_models(endpoint_url, api_key=None, timeout=10, endpoint_type=None):
@@ -568,10 +576,10 @@ class OpenAIClient(QObject):
 
             endpoint_type = (endpoint_type or "").strip().lower()
             is_ollama = endpoint_type == "ollama" or (
-                endpoint_type != "lmstudio" and OpenAIClient._is_ollama_endpoint(endpoint_url)
+                endpoint_type != "lmstudio" and _looks_like_ollama_endpoint(endpoint_url)
             )
             candidates = []
-            base_url = OpenAIClient._models_base_url(endpoint_url, is_ollama)
+            base_url = _models_base_url(endpoint_url, is_ollama)
             if is_ollama:
                 candidates.append(f"{base_url}/api/tags")
             candidates.append(f"{base_url}/v1/models")

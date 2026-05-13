@@ -28,6 +28,8 @@ from src.audio.audio_config import CLIPBOARD_COPY_DELAY, CLIPBOARD_RESTORE_DELAY
 
 class ContextMenuManager(QObject):
     """Manage the context menu for text operations"""
+
+    MENU_STALE_SECONDS = 20
     
     def __init__(self, settings):
         super().__init__()
@@ -101,8 +103,7 @@ class ContextMenuManager(QObject):
         try:
             menu = self._active_menu
             if menu is None or not menu.isVisible():
-                if self._menu_watchdog.isActive():
-                    self._menu_watchdog.stop()
+                self._finish_menu_session(menu)
                 return
 
             try:
@@ -149,8 +150,10 @@ class ContextMenuManager(QObject):
                     menu.close()
 
             self._last_lbutton_down = lbutton_down
-        except Exception:
-            pass
+        except RuntimeError:
+            self._finish_menu_session()
+        except Exception as e:
+            log(f"Erreur watchdog menu: {e}", logging.DEBUG)
 
     def _on_application_state_changed(self, state):
         return
@@ -175,6 +178,82 @@ class ContextMenuManager(QObject):
             pass
 
         return super().eventFilter(obj, event)
+
+    def _recover_stale_menu_state(self):
+        """Clear a stale menu lock left by a failed or externally deleted menu."""
+        if not self._is_menu_open:
+            return
+
+        menu = self._active_menu
+        try:
+            if menu is None or not menu.isVisible():
+                log("Reinitialisation d'un verrou de menu inactif", logging.WARNING)
+                self._finish_menu_session(menu)
+                return
+        except RuntimeError:
+            log("Reinitialisation d'un menu Qt deja detruit", logging.WARNING)
+            self._finish_menu_session()
+            return
+
+        opened_at = self._menu_opened_at
+        if opened_at is not None and (time.monotonic() - opened_at) > self.MENU_STALE_SECONDS:
+            log("Fermeture d'un menu reste ouvert trop longtemps", logging.WARNING)
+            self._finish_menu_session(menu, close_visible=True)
+
+    def _begin_menu_session(self, owner_pid=None):
+        self._recover_stale_menu_state()
+        if self._is_menu_open:
+            log("Demande de menu ignoree: un menu est deja ouvert", logging.DEBUG)
+            return None
+
+        self._is_menu_open = True
+        try:
+            menu = QMenu()
+            self._active_menu = menu
+            self._menu_owner_pid = owner_pid
+            self._menu_opened_at = time.monotonic()
+            try:
+                self._last_lbutton_down = (win32api.GetAsyncKeyState(win32con.VK_LBUTTON) & 0x8000) != 0
+            except Exception:
+                self._last_lbutton_down = False
+
+            menu.setAttribute(Qt.WA_DeleteOnClose)
+            menu.setWindowFlags(menu.windowFlags() | Qt.Popup | Qt.FramelessWindowHint)
+            menu.setAttribute(Qt.WA_TranslucentBackground)
+            return menu
+        except Exception:
+            self._finish_menu_session()
+            raise
+
+    def _exec_menu(self, menu):
+        if not self._menu_watchdog.isActive():
+            self._menu_watchdog.start()
+        try:
+            return menu.exec_(QCursor.pos())
+        finally:
+            self._finish_menu_session(menu)
+
+    def _finish_menu_session(self, menu=None, close_visible=False):
+        try:
+            if self._menu_watchdog.isActive():
+                self._menu_watchdog.stop()
+        except Exception:
+            pass
+
+        if close_visible and menu is not None:
+            try:
+                if menu.isVisible():
+                    menu.close()
+            except RuntimeError:
+                pass
+            except Exception as e:
+                log(f"Erreur fermeture menu: {e}", logging.DEBUG)
+
+        self._is_menu_open = False
+        self._active_menu = None
+        self._menu_owner_pid = None
+        self._last_lbutton_down = False
+        self._menu_opened_at = None
     
     def _create_temp_api_client(self):
         """
@@ -194,68 +273,46 @@ class ContextMenuManager(QObject):
     
     def show_menu(self):
         """Show the context menu at the current cursor position"""
-        if self._is_menu_open:
+        menu = self._begin_menu_session(owner_pid=self._get_foreground_pid())
+        if menu is None:
             return
 
-        self._is_menu_open = True
-        # Créer le menu
-        menu = QMenu()
-        self._active_menu = menu
-        self._menu_owner_pid = self._get_foreground_pid()
-        self._menu_opened_at = time.monotonic()
-        try:
-            self._last_lbutton_down = (win32api.GetAsyncKeyState(win32con.VK_LBUTTON) & 0x8000) != 0
-        except Exception:
-            self._last_lbutton_down = False
-        menu.setAttribute(Qt.WA_DeleteOnClose)  # S'assurer que le menu est supprimé après fermeture
-        menu.setWindowFlags(menu.windowFlags() | Qt.Popup | Qt.FramelessWindowHint)
-        menu.setAttribute(Qt.WA_TranslucentBackground)
-        
-        # Fermer le menu si on clique en dehors ou si on perd le focus
-        menu.aboutToHide.connect(menu.close)
-        
-        # Tenter de récupérer le texte sélectionné sans bloquer
-        selected_text = self._try_get_selected_text()
-        
-        # Ajouter les éléments de menu basés sur les prompts configurés
-        prompts = self.settings.get_prompts()
-        
-        # Trier les prompts par position
-        sorted_prompts = sorted(prompts.items(), key=lambda x: x[1].get("position", 999))
-        
-        # Ajouter tous les prompts au menu
-        for prompt_id, prompt_data in sorted_prompts:
-            action = menu.addAction(prompt_data["name"])
-            action.setData(("prompt", prompt_id, selected_text))
-            if selected_text:
-                action.setEnabled(True)
-            else:
-                # Désactiver l'action si aucun texte n'est sélectionné
-                action.setEnabled(False)
-        
-        # Ajouter un séparateur
-        menu.addSeparator()
-        
-        # Ajouter l'option GodMode (toujours disponible)
-        godmode_action = menu.addAction("🔮 Mode Personnalisé")
-        godmode_action.setData(("godmode", selected_text if selected_text else ""))
-        
-        # Afficher le menu à la position du curseur
-        # Utiliser exec_ pour les hotkeys car il est bloquant et assure que le menu reste visible
-        # jusqu'à ce qu'une action soit sélectionnée ou que l'utilisateur clique ailleurs
         chosen_action = None
         try:
-            if not self._menu_watchdog.isActive():
-                self._menu_watchdog.start()
-            chosen_action = menu.exec_(QCursor.pos())  # Utiliser exec_ au lieu de popup()
-        finally:
-            if self._menu_watchdog.isActive():
-                self._menu_watchdog.stop()
-            self._is_menu_open = False
-            self._active_menu = None
-            self._menu_owner_pid = None
-            self._last_lbutton_down = False
-            self._menu_opened_at = None
+            # Tenter de récupérer le texte sélectionné sans bloquer
+            selected_text = self._try_get_selected_text()
+
+            # Ajouter les éléments de menu basés sur les prompts configurés
+            prompts = self.settings.get_prompts()
+
+            # Trier les prompts par position
+            sorted_prompts = sorted(prompts.items(), key=lambda x: x[1].get("position", 999))
+
+            # Ajouter tous les prompts au menu
+            for prompt_id, prompt_data in sorted_prompts:
+                action = menu.addAction(prompt_data["name"])
+                action.setData(("prompt", prompt_id, selected_text))
+                if selected_text:
+                    action.setEnabled(True)
+                else:
+                    # Désactiver l'action si aucun texte n'est sélectionné
+                    action.setEnabled(False)
+
+            # Ajouter un séparateur
+            menu.addSeparator()
+
+            # Ajouter l'option GodMode (toujours disponible)
+            godmode_action = menu.addAction("🔮 Mode Personnalisé")
+            godmode_action.setData(("godmode", selected_text if selected_text else ""))
+
+            # Afficher le menu à la position du curseur
+            # Utiliser exec_ pour les hotkeys car il est bloquant et assure que le menu reste visible
+            # jusqu'à ce qu'une action soit sélectionnée ou que l'utilisateur clique ailleurs
+            chosen_action = self._exec_menu(menu)
+        except Exception as e:
+            self._finish_menu_session(menu, close_visible=True)
+            log(f"Erreur lors de la preparation du menu contextuel: {e}", logging.ERROR)
+            return
 
         if chosen_action is None:
             return
@@ -274,37 +331,26 @@ class ContextMenuManager(QObject):
 
     def show_custom_mode(self):
         """Ouvrir directement le mode personnalisé depuis un raccourci."""
+        self._recover_stale_menu_state()
+        if self._is_menu_open:
+            log("Mode personnalise ignore: un menu est deja ouvert", logging.DEBUG)
+            return
+
         selected_text = self._try_get_selected_text()
         self._handle_godmode_action(selected_text)
 
     def _choose_screenshot_mode_menu(self):
-        if self._is_menu_open:
+        menu = self._begin_menu_session(owner_pid=self._get_foreground_pid())
+        if menu is None:
             return None
 
-        self._is_menu_open = True
-        menu = QMenu()
-        self._active_menu = menu
-        self._menu_owner_pid = self._get_foreground_pid()
-        self._menu_opened_at = time.monotonic()
         try:
-            self._last_lbutton_down = (win32api.GetAsyncKeyState(win32con.VK_LBUTTON) & 0x8000) != 0
-        except Exception:
-            self._last_lbutton_down = False
+            fullscreen_action = menu.addAction("Plein écran")
+            region_action = menu.addAction("Sélection de zone")
+            menu.addSeparator()
+            cancel_action = menu.addAction("Annuler")
 
-        menu.setAttribute(Qt.WA_DeleteOnClose)
-        menu.setWindowFlags(menu.windowFlags() | Qt.Popup | Qt.FramelessWindowHint)
-        menu.setAttribute(Qt.WA_TranslucentBackground)
-        menu.aboutToHide.connect(menu.close)
-
-        fullscreen_action = menu.addAction("Plein écran")
-        region_action = menu.addAction("Sélection de zone")
-        menu.addSeparator()
-        cancel_action = menu.addAction("Annuler")
-
-        try:
-            if not self._menu_watchdog.isActive():
-                self._menu_watchdog.start()
-            chosen_action = menu.exec_(QCursor.pos())
+            chosen_action = self._exec_menu(menu)
             if chosen_action is None or chosen_action == cancel_action:
                 return None
             if chosen_action == fullscreen_action:
@@ -312,80 +358,78 @@ class ContextMenuManager(QObject):
             if chosen_action == region_action:
                 return "region"
             return None
-        finally:
-            if self._menu_watchdog.isActive():
-                self._menu_watchdog.stop()
-            self._is_menu_open = False
-            self._active_menu = None
-            self._menu_owner_pid = None
-            self._last_lbutton_down = False
-            self._menu_opened_at = None
+        except Exception as e:
+            self._finish_menu_session(menu, close_visible=True)
+            log(f"Erreur lors du choix du mode de capture: {e}", logging.ERROR)
+            return None
     
     def show_voice_menu(self):
         """Show only the voice interaction menu at the current cursor position"""
-        if self._is_menu_open:
+        menu = self._begin_menu_session(owner_pid=self._guess_menu_owner_pid())
+        if menu is None:
             return
 
-        self._is_menu_open = True
-        # Créer le menu
-        menu = QMenu()
-        self._active_menu = menu
-        self._menu_owner_pid = self._guess_menu_owner_pid()
-        self._menu_opened_at = time.monotonic()
+        chosen_action = None
         try:
-            self._last_lbutton_down = (win32api.GetAsyncKeyState(win32con.VK_LBUTTON) & 0x8000) != 0
-        except Exception:
-            self._last_lbutton_down = False
-        menu.setAttribute(Qt.WA_DeleteOnClose)  # S'assurer que le menu est supprimé après fermeture
-        menu.setWindowFlags(menu.windowFlags() | Qt.Popup | Qt.FramelessWindowHint)
-        menu.setAttribute(Qt.WA_TranslucentBackground)
-        
-        # Fermer le menu si on clique en dehors ou si on perd le focus
-        menu.aboutToHide.connect(menu.close)
-        
-        # Ajouter l'option de reconnaissance vocale
-        voice_action = menu.addAction("Écrire à la voix")
-        voice_action.triggered.connect(self._handle_voice_action)
-        
-        # Ajouter un séparateur
-        menu.addSeparator()
-        
-        # Récupérer et ajouter tous les prompts vocaux configurés
-        voice_prompts = self.settings.get_voice_prompts()
-        
-        # Trier les prompts vocaux par position
-        sorted_voice_prompts = sorted(voice_prompts.items(), key=lambda x: x[1].get("position", 999))
-        
-        for prompt_id, prompt_data in sorted_voice_prompts:
-            # Créer une fonction de rappel spécifique pour ce prompt
-            def create_callback(p_id):
-                return lambda: self._handle_voice_prompt_action(p_id)
-                
-            callback = create_callback(prompt_id)
-            
-            action = menu.addAction(prompt_data["name"])
-            action.triggered.connect(callback)
-        
-        # Ajouter un séparateur
-        menu.addSeparator()
-        
-        # Ajouter l'option GodMode vocal (personnalisation à la volée)
-        godmode_action = menu.addAction("🔮 Prompt vocal personnalisé")
-        godmode_action.triggered.connect(self._handle_voice_godmode_action)
-        
-        # Afficher le menu à la position du curseur
+            # Ajouter l'option de reconnaissance vocale
+            voice_action = menu.addAction("Écrire à la voix")
+            voice_action.setData(("voice",))
+
+            # Ajouter un séparateur
+            menu.addSeparator()
+
+            # Récupérer et ajouter tous les prompts vocaux configurés
+            voice_prompts = self.settings.get_voice_prompts()
+
+            # Trier les prompts vocaux par position
+            sorted_voice_prompts = sorted(voice_prompts.items(), key=lambda x: x[1].get("position", 999))
+
+            for prompt_id, prompt_data in sorted_voice_prompts:
+                action = menu.addAction(prompt_data["name"])
+                action.setData(("voice_prompt", prompt_id))
+
+            # Ajouter un séparateur
+            menu.addSeparator()
+
+            # Ajouter l'option GodMode vocal (personnalisation à la volée)
+            godmode_action = menu.addAction("🔮 Prompt vocal personnalisé")
+            godmode_action.setData(("voice_godmode",))
+
+            # Afficher le menu à la position du curseur
+            chosen_action = self._exec_menu(menu)
+        except Exception as e:
+            self._finish_menu_session(menu, close_visible=True)
+            log(f"Erreur lors de la preparation du menu vocal: {e}", logging.ERROR)
+            return
+
+        if chosen_action is None:
+            return
+
+        action_data = chosen_action.data()
+        if not action_data:
+            return
+
+        action_kind = action_data[0]
+        if action_kind == "voice":
+            self._handle_voice_action()
+        elif action_kind == "voice_prompt":
+            _, prompt_id = action_data
+            self._handle_voice_prompt_action(prompt_id)
+        elif action_kind == "voice_godmode":
+            self._handle_voice_godmode_action()
+
+    def _press_keyboard_shortcut(self, *keys):
+        pressed = []
         try:
-            if not self._menu_watchdog.isActive():
-                self._menu_watchdog.start()
-            menu.exec_(QCursor.pos())  # Utiliser exec_ au lieu de popup()
+            for key in keys:
+                self.keyboard.press(key)
+                pressed.append(key)
         finally:
-            if self._menu_watchdog.isActive():
-                self._menu_watchdog.stop()
-            self._is_menu_open = False
-            self._active_menu = None
-            self._menu_owner_pid = None
-            self._last_lbutton_down = False
-            self._menu_opened_at = None
+            for key in reversed(pressed):
+                try:
+                    self.keyboard.release(key)
+                except Exception:
+                    pass
     
     def _try_get_selected_text(self):
         """
@@ -396,15 +440,21 @@ class ContextMenuManager(QObject):
             str: Le texte sélectionné ou une chaîne vide si aucun texte n'est sélectionné
         """
         selected_text = ""
-        
+        old_clipboard = None
+        clipboard_needs_restore = False
+        sentinel = f"__SUPERMENU_EMPTY_SELECTION_{time.monotonic_ns()}__"
+
         try:
             # Sauvegarder le contenu actuel du presse-papiers avec ClipboardManager
             old_clipboard = ClipboardManager.get_clipboard_text_safe()
-            
-            # IMPORTANT: Vider le clipboard avant de copier pour détecter si quelque chose a été copié
-            ClipboardManager.set_clipboard_text_safe("")
-            time.sleep(0.05)  # Petit délai pour s'assurer que le clipboard est vidé
-            
+
+            # Placer un marqueur permet de distinguer "rien n'a ete copie" d'un ancien clipboard.
+            if not ClipboardManager.set_clipboard_text_safe(sentinel):
+                log("Impossible de preparer le presse-papiers pour la lecture de selection", logging.WARNING)
+                return ""
+            clipboard_needs_restore = True
+            time.sleep(0.05)  # Petit délai pour s'assurer que le clipboard est préparé
+
             # Méthode 1: Utiliser pynput pour copier le texte sélectionné
             try:
                 try:
@@ -421,15 +471,9 @@ class ContextMenuManager(QObject):
                     pass
 
                 if is_console:
-                    self.keyboard.press(Key.ctrl)
-                    self.keyboard.press(Key.insert)
-                    self.keyboard.release(Key.insert)
-                    self.keyboard.release(Key.ctrl)
+                    self._press_keyboard_shortcut(Key.ctrl, Key.insert)
                 else:
-                    self.keyboard.press(Key.ctrl)
-                    self.keyboard.press('c')
-                    self.keyboard.release('c')
-                    self.keyboard.release(Key.ctrl)
+                    self._press_keyboard_shortcut(Key.ctrl, 'c')
 
                 time.sleep(CLIPBOARD_COPY_DELAY)
             except KeyboardInterrupt:
@@ -442,35 +486,23 @@ class ContextMenuManager(QObject):
 
             if (not selected_text or selected_text == "") and 'is_console' in locals() and is_console:
                 try:
-                    self.keyboard.press(Key.ctrl)
-                    self.keyboard.press(Key.shift)
-                    self.keyboard.press('c')
-                    self.keyboard.release('c')
-                    self.keyboard.release(Key.shift)
-                    self.keyboard.release(Key.ctrl)
+                    self._press_keyboard_shortcut(Key.ctrl, Key.shift, 'c')
                     time.sleep(CLIPBOARD_COPY_DELAY)
                     selected_text = ClipboardManager.get_clipboard_text_safe()
                 except Exception:
                     pass
-            
+
             # Si le clipboard est toujours vide, aucun texte n'était sélectionné
-            if not selected_text or selected_text == "":
+            if not selected_text or selected_text == sentinel:
                 log("Aucun texte détecté après Ctrl+C", logging.DEBUG)
-                # Restaurer immédiatement l'ancien clipboard
-                if old_clipboard:
-                    ClipboardManager.set_clipboard_text_safe(old_clipboard)
                 return ""
-            
+
             # Log pour déboguer
             log(f"Texte copié avec succès: {selected_text[:50]}{'...' if len(selected_text) > 50 else ''}", logging.DEBUG)
-            
+
             # Attendre avant de restaurer pour éviter les interférences
             time.sleep(CLIPBOARD_RESTORE_DELAY)
-            
-            # Restaurer l'ancien contenu du presse-papiers
-            if old_clipboard:
-                ClipboardManager.set_clipboard_text_safe(old_clipboard)
-        
+
         except Exception as e:
             log(
                 f"Erreur générale lors de la récupération du texte sélectionné: {e}",
@@ -479,7 +511,10 @@ class ContextMenuManager(QObject):
             selected_text = ""
         except KeyboardInterrupt:
             return ""
-        
+        finally:
+            if clipboard_needs_restore:
+                ClipboardManager.set_clipboard_text_safe(old_clipboard if old_clipboard is not None else "")
+
         # Retourner le texte récupéré ou une chaîne vide si rien n'est sélectionné
         if not selected_text:
             return ""
