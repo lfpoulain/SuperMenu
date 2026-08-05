@@ -1,0 +1,149 @@
+name: Beta Release
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: beta-release
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish-beta:
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: windows-latest
+    env:
+      BUILD_COMMIT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.BUILD_COMMIT }}
+          fetch-depth: 0
+
+      - name: Prepare beta metadata
+        shell: powershell
+        run: |
+          $baseVersion = (Get-Content -LiteralPath "VERSION" -Raw).Trim()
+          if ($baseVersion -notmatch '^\d+\.\d+\.\d+$') {
+            throw "VERSION must contain a SemVer version such as 1.2.0"
+          }
+
+          $appVersion = "$baseVersion-beta.${{ github.run_number }}"
+          "APP_VERSION=$appVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          @(
+            '"""Build metadata overwritten by GitHub Actions for packaged releases."""'
+            ''
+            "APP_VERSION = `"$appVersion`""
+            'BUILD_CHANNEL = "beta"'
+          ) | Set-Content -LiteralPath "src/config/build_info.py" -Encoding utf8
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Validate source
+        shell: powershell
+        run: |
+          python -m compileall -q src run.py
+          python -m pytest -q
+          python -m flake8 src tests run.py --select=F,E9
+
+      - name: Build portable executable
+        shell: powershell
+        run: |
+          pyinstaller --noconfirm --clean SuperMenu.spec
+          if (!(Test-Path -LiteralPath "dist/SuperMenu.exe")) {
+            throw "dist/SuperMenu.exe not found"
+          }
+
+          $smoke = Start-Process -FilePath "dist/SuperMenu.exe" -ArgumentList "--smoke-test" -WindowStyle Hidden -Wait -PassThru
+          if ($smoke.ExitCode -ne 0) {
+            throw "Packaged smoke test failed with exit code $($smoke.ExitCode)"
+          }
+
+          Copy-Item -LiteralPath "dist/SuperMenu.exe" -Destination "SuperMenu_Beta.exe"
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup --no-progress -y
+
+      - name: Build beta installer
+        shell: powershell
+        run: |
+          iscc "setup_supermenu.iss" "/DMyAppVersion=$env:APP_VERSION" "/DMyOutputBaseFilename=SuperMenu_Beta_Setup"
+          if (!(Test-Path -LiteralPath "SuperMenu_Beta_Setup.exe")) {
+            throw "SuperMenu_Beta_Setup.exe not found"
+          }
+
+      - name: Generate checksums
+        shell: powershell
+        run: |
+          $assets = @("SuperMenu_Beta.exe", "SuperMenu_Beta_Setup.exe")
+          $checksums = foreach ($asset in $assets) {
+            $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $asset"
+          }
+          $checksums | Set-Content -LiteralPath "SHA256SUMS-beta.txt" -Encoding ascii
+
+      - name: Preserve beta build artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: SuperMenu-${{ env.APP_VERSION }}
+          path: |
+            SuperMenu_Beta.exe
+            SuperMenu_Beta_Setup.exe
+            SHA256SUMS-beta.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish rolling beta prerelease
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
+        with:
+          tag: beta
+          commit: ${{ env.BUILD_COMMIT }}
+          name: SuperMenu Beta ${{ env.APP_VERSION }}
+          prerelease: true
+          makeLatest: false
+          allowUpdates: true
+          updateOnlyUnreleased: true
+          replacesArtifacts: true
+          removeArtifacts: true
+          artifactErrorsFailBuild: true
+          artifacts: |
+            SuperMenu_Beta.exe
+            SuperMenu_Beta_Setup.exe
+            SHA256SUMS-beta.txt
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            Build beta automatique depuis la branche main.
+
+            Channel: beta
+            Version: ${{ env.APP_VERSION }}
+            Commit: ${{ env.BUILD_COMMIT }}
+
+            Cette version est une prérelease destinée aux tests. Pour la version recommandée, utilisez la dernière release stable.

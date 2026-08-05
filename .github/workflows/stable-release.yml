@@ -1,0 +1,165 @@
+name: Stable Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stable-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish-stable:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate stable version
+        shell: powershell
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ($tag -notmatch '^v(\d+\.\d+\.\d+)$') {
+            throw "Stable tags must use the exact vMAJOR.MINOR.PATCH format"
+          }
+
+          $appVersion = $Matches[1]
+          $declaredVersion = (Get-Content -LiteralPath "VERSION" -Raw).Trim()
+          if ($appVersion -ne $declaredVersion) {
+            throw "Tag version $appVersion does not match VERSION ($declaredVersion)"
+          }
+
+          "APP_VERSION=$appVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          @(
+            '"""Build metadata overwritten by GitHub Actions for packaged releases."""'
+            ''
+            "APP_VERSION = `"$appVersion`""
+            'BUILD_CHANNEL = "stable"'
+          ) | Set-Content -LiteralPath "src/config/build_info.py" -Encoding utf8
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Validate source
+        shell: powershell
+        run: |
+          python -m compileall -q src run.py
+          python -m pytest -q
+          python -m flake8 src tests run.py --select=F,E9
+
+      - name: Build portable executable
+        shell: powershell
+        run: |
+          pyinstaller --noconfirm --clean SuperMenu.spec
+          if (!(Test-Path -LiteralPath "dist/SuperMenu.exe")) {
+            throw "dist/SuperMenu.exe not found"
+          }
+
+          $smoke = Start-Process -FilePath "dist/SuperMenu.exe" -ArgumentList "--smoke-test" -WindowStyle Hidden -Wait -PassThru
+          if ($smoke.ExitCode -ne 0) {
+            throw "Packaged smoke test failed with exit code $($smoke.ExitCode)"
+          }
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup --no-progress -y
+
+      - name: Build stable installer
+        shell: powershell
+        run: |
+          iscc "setup_supermenu.iss" "/DMyAppVersion=$env:APP_VERSION" "/DMyOutputBaseFilename=SuperMenu_Setup"
+          if (!(Test-Path -LiteralPath "SuperMenu_Setup.exe")) {
+            throw "SuperMenu_Setup.exe not found"
+          }
+
+      - name: Generate checksums
+        shell: powershell
+        run: |
+          $assets = @("dist/SuperMenu.exe", "SuperMenu_Setup.exe")
+          $checksums = foreach ($asset in $assets) {
+            $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $([IO.Path]::GetFileName($asset))"
+          }
+          $checksums | Set-Content -LiteralPath "SHA256SUMS.txt" -Encoding ascii
+
+      - name: Preserve stable build artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: SuperMenu-${{ env.APP_VERSION }}
+          path: |
+            dist/SuperMenu.exe
+            SuperMenu_Setup.exe
+            SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish immutable stable release
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
+        with:
+          tag: ${{ github.ref_name }}
+          commit: ${{ github.sha }}
+          name: SuperMenu ${{ env.APP_VERSION }}
+          makeLatest: true
+          immutableCreate: true
+          allowUpdates: true
+          updateOnlyUnreleased: true
+          artifactErrorsFailBuild: true
+          artifacts: |
+            dist/SuperMenu.exe
+            SuperMenu_Setup.exe
+            SHA256SUMS.txt
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            Première release officielle du canal Stable de SuperMenu.
+
+            Channel: stable
+            Version: ${{ env.APP_VERSION }}
+            Commit: ${{ github.sha }}
+
+            Cette version est recommandée pour une utilisation quotidienne.
+
+      - name: Migrate legacy installations to stable
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
+        with:
+          tag: nightly
+          name: Migration vers SuperMenu Stable ${{ env.APP_VERSION }}
+          prerelease: true
+          makeLatest: false
+          allowUpdates: true
+          updateOnlyUnreleased: true
+          replacesArtifacts: true
+          removeArtifacts: true
+          artifactErrorsFailBuild: true
+          artifacts: |
+            dist/SuperMenu.exe
+            SuperMenu_Setup.exe
+            SHA256SUMS.txt
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            Migration finale des anciennes installations vers le canal Stable.
+
+            Channel: stable
+            Version: ${{ env.APP_VERSION }}
+            Commit: ${{ github.sha }}
+
+            Après installation, SuperMenu utilisera le canal Stable. L'ancien canal nightly est désormais obsolète.

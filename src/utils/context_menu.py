@@ -1,0 +1,1217 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+from PySide6.QtWidgets import QMenu, QApplication
+from PySide6.QtGui import QCursor, QGuiApplication
+from PySide6.QtCore import QObject, Qt, QEvent, QTimer, QPoint
+import os
+import tempfile
+import base64
+import time
+import logging
+import uuid
+import win32gui
+import win32process
+import win32api
+import win32con
+from pynput.keyboard import Controller, Key
+
+from src.api.openai_client import OpenAIClient
+from src.utils.safe_dialogs import SafeDialogs
+from src.ui.response_window import ResponseWindow
+from src.ui.prompt_dialog import PromptDialog
+from src.ui.screen_capture import capture_screen
+from src.audio.voice_recognition import VoiceRecognition
+from src.utils.text_inserter import TextInserter
+from src.utils.logger import log
+from src.utils.clipboard_manager import ClipboardManager
+from src.utils.loading_indicator import SimpleLoadingIndicator
+from src.utils.window_target import PasteTarget
+from src.audio.audio_config import CLIPBOARD_COPY_DELAY, CLIPBOARD_RESTORE_DELAY
+
+class ContextMenuManager(QObject):
+    """Manage the context menu for text operations"""
+
+    MENU_STALE_SECONDS = 20
+    
+    def __init__(self, settings):
+        super().__init__()
+        self.settings = settings
+        # Initialiser le client API avec les paramètres
+        # Ne pas passer le modèle ici, OpenAIClient le déterminera selon le type d'endpoint
+        self.api_client = OpenAIClient(
+            settings=settings,
+            api_key=settings.get_api_key()
+        )
+        self.response_window = ResponseWindow()
+        self.voice_recognition = None
+        self._pending_requests = {}
+        self._active_response_request_id = None
+        self._retired_clients = []
+        
+        # Créer un contrôleur de clavier réutilisable pour éviter les conflits
+        self.keyboard = Controller()
+
+        self._is_menu_open = False
+        self._active_menu = None
+        self._menu_owner_pid = None
+        self._last_lbutton_down = False
+        self._menu_opened_at = None
+        self._menu_watchdog = QTimer(self)
+        self._menu_watchdog.setInterval(200)
+        self._menu_watchdog.timeout.connect(self._menu_watchdog_tick)
+
+        try:
+            app = QApplication.instance()
+            if app is not None:
+                app.installEventFilter(self)
+
+            gui_app = QGuiApplication.instance()
+            if gui_app is not None:
+                gui_app.applicationStateChanged.connect(self._on_application_state_changed)
+        except Exception:
+            pass
+        
+        self._connect_api_client(self.api_client)
+        
+        # Connecter le signal de retry
+        self.response_window.retry_requested.connect(self.on_retry_requested)
+
+    def _connect_api_client(self, client):
+        client.request_started_scoped.connect(self.on_request_started_scoped)
+        client.request_finished_scoped.connect(self.on_request_finished_scoped)
+        client.request_error_scoped.connect(self.on_request_error_scoped)
+
+    def _disconnect_api_client(self, client):
+        try:
+            client.request_started_scoped.disconnect(self.on_request_started_scoped)
+            client.request_finished_scoped.disconnect(self.on_request_finished_scoped)
+            client.request_error_scoped.disconnect(self.on_request_error_scoped)
+        except (TypeError, RuntimeError):
+            pass
+
+    def _send_request(
+        self,
+        prompt,
+        content,
+        insert_directly=False,
+        *,
+        target=None,
+        include_reasoning=None,
+        direct_status=None,
+    ):
+        """Register request state before the client can emit synchronously."""
+        request_id = uuid.uuid4().hex
+        client = self.api_client
+        direct_indicator = None
+        if insert_directly:
+            direct_indicator = SimpleLoadingIndicator.show_near_cursor(
+                direct_status or "✅ Envoyé à l'IA — réponse en attente…"
+            )
+
+        self._pending_requests[request_id] = {
+            "client": client,
+            "insert_directly": bool(insert_directly),
+            "target": target,
+            "indicator": direct_indicator,
+        }
+        if not insert_directly:
+            self._active_response_request_id = request_id
+
+        try:
+            client.send_request(
+                prompt,
+                content,
+                insert_directly=insert_directly,
+                include_reasoning=include_reasoning,
+                request_id=request_id,
+                target=target,
+            )
+        except Exception as e:
+            self.on_request_error_scoped(request_id, f"Erreur: {e}")
+        return request_id
+
+    def _release_retired_client_if_idle(self, client):
+        if client is self.api_client:
+            return
+        if any(
+            request.get("client") is client
+            for request in self._pending_requests.values()
+        ):
+            return
+        self._disconnect_api_client(client)
+        try:
+            self._retired_clients.remove(client)
+        except ValueError:
+            pass
+
+    def _present_response_window(self, force=False):
+        """Afficher la fenêtre avec la stratégie hybride Qt/Win32 unique."""
+        self.response_window.present()
+
+    def show_response_window(self):
+        """Ouvrir manuellement la fenêtre de correction depuis l'interface."""
+        self.response_window.set_trigger_position(None)
+        self._present_response_window(force=True)
+
+    def _get_foreground_pid(self):
+        try:
+            hwnd = win32gui.GetForegroundWindow()
+            if not hwnd:
+                return None
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            return pid
+        except Exception:
+            return None
+
+    def _guess_menu_owner_pid(self):
+        try:
+            x, y = win32gui.GetCursorPos()
+            hwnd = win32gui.WindowFromPoint((int(x), int(y)))
+            if not hwnd:
+                return self._get_foreground_pid()
+            _, under_cursor_pid = win32process.GetWindowThreadProcessId(hwnd)
+            our_pid = os.getpid()
+            if under_cursor_pid and under_cursor_pid != our_pid:
+                return under_cursor_pid
+        except Exception:
+            pass
+
+        return self._get_foreground_pid()
+
+    def _menu_watchdog_tick(self):
+        try:
+            menu = self._active_menu
+            if menu is None or not menu.isVisible():
+                self._finish_menu_session(menu)
+                return
+
+            try:
+                opened_at = self._menu_opened_at
+                if opened_at is not None and (time.monotonic() - opened_at) < 0.25:
+                    try:
+                        self._last_lbutton_down = (win32api.GetAsyncKeyState(win32con.VK_LBUTTON) & 0x8000) != 0
+                    except Exception:
+                        self._last_lbutton_down = False
+                    return
+            except Exception:
+                pass
+
+            pid = self._get_foreground_pid()
+            if pid is None:
+                return
+
+            if self._menu_owner_pid is None:
+                if pid != os.getpid():
+                    self._menu_owner_pid = pid
+                return
+
+            current_pid = pid
+            our_pid = os.getpid()
+            owner_pid = self._menu_owner_pid
+
+            if current_pid not in (owner_pid, our_pid):
+                menu.close()
+                return
+
+            try:
+                lbutton_down = (win32api.GetAsyncKeyState(win32con.VK_LBUTTON) & 0x8000) != 0
+            except Exception:
+                lbutton_down = False
+
+            if lbutton_down and not self._last_lbutton_down:
+                try:
+                    x, y = win32gui.GetCursorPos()
+                    pos = QPoint(int(x), int(y))
+                except Exception:
+                    pos = None
+
+                if pos is not None and not menu.geometry().contains(pos):
+                    menu.close()
+
+            self._last_lbutton_down = lbutton_down
+        except RuntimeError:
+            self._finish_menu_session()
+        except Exception as e:
+            log(f"Erreur watchdog menu: {e}", logging.DEBUG)
+
+    def _on_application_state_changed(self, state):
+        return
+
+    def eventFilter(self, obj, event):
+        try:
+            menu = self._active_menu
+            if menu is not None and menu.isVisible():
+                et = event.type()
+                if et == QEvent.MouseButtonPress:
+                    try:
+                        pos = event.globalPosition().toPoint()
+                    except Exception:
+                        try:
+                            pos = event.globalPos()
+                        except Exception:
+                            pos = None
+
+                    if pos is not None and not menu.geometry().contains(pos):
+                        menu.close()
+        except Exception:
+            pass
+
+        return super().eventFilter(obj, event)
+
+    def _recover_stale_menu_state(self):
+        """Clear a stale menu lock left by a failed or externally deleted menu."""
+        if not self._is_menu_open:
+            return
+
+        menu = self._active_menu
+        try:
+            if menu is None or not menu.isVisible():
+                log("Reinitialisation d'un verrou de menu inactif", logging.WARNING)
+                self._finish_menu_session(menu)
+                return
+        except RuntimeError:
+            log("Reinitialisation d'un menu Qt deja detruit", logging.WARNING)
+            self._finish_menu_session()
+            return
+
+        opened_at = self._menu_opened_at
+        if opened_at is not None and (time.monotonic() - opened_at) > self.MENU_STALE_SECONDS:
+            log("Fermeture d'un menu reste ouvert trop longtemps", logging.WARNING)
+            self._finish_menu_session(menu, close_visible=True)
+
+    def _begin_menu_session(self, owner_pid=None):
+        self._recover_stale_menu_state()
+        if self._is_menu_open:
+            log("Demande de menu ignoree: un menu est deja ouvert", logging.DEBUG)
+            return None
+
+        self._is_menu_open = True
+        try:
+            menu = QMenu()
+            self._active_menu = menu
+            self._menu_owner_pid = owner_pid
+            self._menu_opened_at = time.monotonic()
+            try:
+                self._last_lbutton_down = (win32api.GetAsyncKeyState(win32con.VK_LBUTTON) & 0x8000) != 0
+            except Exception:
+                self._last_lbutton_down = False
+
+            menu.setAttribute(Qt.WA_DeleteOnClose)
+            return menu
+        except Exception:
+            self._finish_menu_session()
+            raise
+
+    def _exec_menu(self, menu):
+        if not self._menu_watchdog.isActive():
+            self._menu_watchdog.start()
+        try:
+            return menu.exec(QCursor.pos())
+        finally:
+            self._finish_menu_session(menu)
+
+    def _finish_menu_session(self, menu=None, close_visible=False):
+        try:
+            if self._menu_watchdog.isActive():
+                self._menu_watchdog.stop()
+        except Exception:
+            pass
+
+        if close_visible and menu is not None:
+            try:
+                if menu.isVisible():
+                    menu.close()
+            except RuntimeError:
+                pass
+            except Exception as e:
+                log(f"Erreur fermeture menu: {e}", logging.DEBUG)
+
+        self._is_menu_open = False
+        self._active_menu = None
+        self._menu_owner_pid = None
+        self._last_lbutton_down = False
+        self._menu_opened_at = None
+    
+    def _create_temp_api_client(self):
+        """
+        Crée un client OpenAI temporaire avec les paramètres actuels.
+        Utilisé pour les requêtes vocales où on ne veut pas interférer avec le client principal.
+        
+        Returns:
+            OpenAIClient: Un nouveau client API configuré
+        """
+        # Créer un client temporaire qui déterminera automatiquement le bon modèle
+        temp_client = OpenAIClient(
+            settings=self.settings,
+            api_key=self.settings.get_api_key()
+        )
+        
+        return temp_client
+
+    def _create_voice_recognition(
+        self,
+        *,
+        callback=None,
+        target=None,
+        callback_success_message=(
+            "Le texte a été transcrit. Le traitement IA est lancé."
+        ),
+    ):
+        """Créer une session vocale avec une configuration centralisée."""
+        get_languages = getattr(
+            self.settings,
+            "get_transcription_languages",
+            lambda: "fr",
+        )
+        get_prompt = getattr(
+            self.settings,
+            "get_transcription_prompt",
+            lambda: "",
+        )
+        get_keywords = getattr(
+            self.settings,
+            "get_transcription_keywords",
+            lambda: "",
+        )
+        return VoiceRecognition(
+            api_key=self.settings.get_api_key(),
+            microphone_index=self.settings.get_microphone_index(),
+            callback=callback,
+            target=target,
+            transcription_languages=get_languages(),
+            transcription_prompt=get_prompt(),
+            transcription_keywords=get_keywords(),
+            callback_success_message=callback_success_message,
+        )
+    
+    def show_menu(self):
+        """Show the context menu at the current cursor position"""
+        paste_target = PasteTarget.capture()
+        owner_pid = paste_target.process_id if paste_target else self._get_foreground_pid()
+        menu = self._begin_menu_session(owner_pid=owner_pid)
+        if menu is None:
+            return
+
+        chosen_action = None
+        try:
+            # Tenter de récupérer le texte sélectionné sans bloquer
+            selected_text = self._try_get_selected_text()
+
+            # Ajouter les éléments de menu basés sur les prompts configurés
+            prompts = self.settings.get_prompts()
+
+            # Trier les prompts par position
+            sorted_prompts = sorted(prompts.items(), key=lambda x: x[1].get("position", 999))
+
+            # Ajouter tous les prompts au menu
+            for prompt_id, prompt_data in sorted_prompts:
+                action = menu.addAction(prompt_data["name"])
+                action.setData(("prompt", prompt_id, selected_text, paste_target))
+                if selected_text:
+                    action.setEnabled(True)
+                else:
+                    # Désactiver l'action si aucun texte n'est sélectionné
+                    action.setEnabled(False)
+
+            # Ajouter un séparateur
+            menu.addSeparator()
+
+            # Ajouter l'option GodMode (toujours disponible)
+            godmode_action = menu.addAction("🔮 Mode Personnalisé")
+            godmode_action.setData(
+                ("godmode", selected_text if selected_text else "", paste_target)
+            )
+
+            # Afficher le menu à la position du curseur
+            # Utiliser exec_ pour les hotkeys car il est bloquant et assure que le menu reste visible
+            # jusqu'à ce qu'une action soit sélectionnée ou que l'utilisateur clique ailleurs
+            chosen_action = self._exec_menu(menu)
+        except Exception as e:
+            self._finish_menu_session(menu, close_visible=True)
+            log(f"Erreur lors de la preparation du menu contextuel: {e}", logging.ERROR)
+            return
+
+        if chosen_action is None:
+            return
+
+        action_data = chosen_action.data()
+        if not action_data:
+            return
+
+        action_kind = action_data[0]
+        if action_kind == "prompt":
+            _, prompt_id, action_text, target = action_data
+            self._handle_menu_action(prompt_id, action_text, target=target)
+        elif action_kind == "godmode":
+            _, action_text, target = action_data
+            self._handle_godmode_action(action_text, target=target)
+
+    def show_custom_mode(self):
+        """Ouvrir directement le mode personnalisé depuis un raccourci."""
+        self._recover_stale_menu_state()
+        if self._is_menu_open:
+            log("Mode personnalise ignore: un menu est deja ouvert", logging.DEBUG)
+            return
+
+        paste_target = PasteTarget.capture()
+        selected_text = self._try_get_selected_text()
+        self._handle_godmode_action(selected_text, target=paste_target)
+
+    def _choose_screenshot_mode_menu(self):
+        menu = self._begin_menu_session(owner_pid=self._get_foreground_pid())
+        if menu is None:
+            return None
+
+        try:
+            fullscreen_action = menu.addAction("Plein écran")
+            region_action = menu.addAction("Sélection de zone")
+            menu.addSeparator()
+            cancel_action = menu.addAction("Annuler")
+
+            chosen_action = self._exec_menu(menu)
+            if chosen_action is None or chosen_action == cancel_action:
+                return None
+            if chosen_action == fullscreen_action:
+                return "fullscreen"
+            if chosen_action == region_action:
+                return "region"
+            return None
+        except Exception as e:
+            self._finish_menu_session(menu, close_visible=True)
+            log(f"Erreur lors du choix du mode de capture: {e}", logging.ERROR)
+            return None
+    
+    def show_voice_menu(self):
+        """Show only the voice interaction menu at the current cursor position"""
+        paste_target = PasteTarget.capture()
+        owner_pid = (
+            paste_target.process_id if paste_target else self._guess_menu_owner_pid()
+        )
+        menu = self._begin_menu_session(owner_pid=owner_pid)
+        if menu is None:
+            return
+
+        chosen_action = None
+        try:
+            # Ajouter l'option de reconnaissance vocale
+            voice_action = menu.addAction("Écrire à la voix")
+            voice_action.setData(("voice", paste_target))
+
+            # Ajouter un séparateur
+            menu.addSeparator()
+
+            # Récupérer et ajouter tous les prompts vocaux configurés
+            voice_prompts = self.settings.get_voice_prompts()
+
+            # Trier les prompts vocaux par position
+            sorted_voice_prompts = sorted(voice_prompts.items(), key=lambda x: x[1].get("position", 999))
+
+            for prompt_id, prompt_data in sorted_voice_prompts:
+                action = menu.addAction(prompt_data["name"])
+                action.setData(("voice_prompt", prompt_id, paste_target))
+
+            # Ajouter un séparateur
+            menu.addSeparator()
+
+            # Ajouter l'option GodMode vocal (personnalisation à la volée)
+            godmode_action = menu.addAction("🔮 Prompt vocal personnalisé")
+            godmode_action.setData(("voice_godmode", paste_target))
+
+            # Afficher le menu à la position du curseur
+            chosen_action = self._exec_menu(menu)
+        except Exception as e:
+            self._finish_menu_session(menu, close_visible=True)
+            log(f"Erreur lors de la preparation du menu vocal: {e}", logging.ERROR)
+            return
+
+        if chosen_action is None:
+            return
+
+        action_data = chosen_action.data()
+        if not action_data:
+            return
+
+        action_kind = action_data[0]
+        if action_kind == "voice":
+            _, target = action_data
+            self._handle_voice_action(target=target)
+        elif action_kind == "voice_prompt":
+            _, prompt_id, target = action_data
+            self._handle_voice_prompt_action(prompt_id, target=target)
+        elif action_kind == "voice_godmode":
+            _, target = action_data
+            self._handle_voice_godmode_action(target=target)
+
+    def _press_keyboard_shortcut(self, *keys):
+        pressed = []
+        try:
+            for key in keys:
+                self.keyboard.press(key)
+                pressed.append(key)
+        finally:
+            for key in reversed(pressed):
+                try:
+                    self.keyboard.release(key)
+                except Exception:
+                    pass
+    
+    def _try_get_selected_text(self):
+        """
+        Tente de récupérer le texte sélectionné sans bloquer l'interface utilisateur.
+        Utilise plusieurs méthodes pour maximiser les chances de succès.
+        
+        Returns:
+            str: Le texte sélectionné ou une chaîne vide si aucun texte n'est sélectionné
+        """
+        selected_text = ""
+        old_clipboard = None
+        clipboard_needs_restore = False
+        sentinel = f"__SUPERMENU_EMPTY_SELECTION_{time.monotonic_ns()}__"
+
+        try:
+            # Sauvegarder le contenu actuel du presse-papiers avec ClipboardManager
+            old_clipboard = ClipboardManager.capture_snapshot()
+
+            # Placer un marqueur permet de distinguer "rien n'a ete copie" d'un ancien clipboard.
+            if not ClipboardManager.set_clipboard_text_safe(sentinel):
+                log("Impossible de preparer le presse-papiers pour la lecture de selection", logging.WARNING)
+                return ""
+            clipboard_needs_restore = True
+            time.sleep(0.05)  # Petit délai pour s'assurer que le clipboard est préparé
+
+            # Méthode 1: Utiliser pynput pour copier le texte sélectionné
+            try:
+                try:
+                    hwnd = win32gui.GetForegroundWindow()
+                    _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                    if pid == os.getpid():
+                        return ""
+                    is_console = win32gui.GetClassName(hwnd) in (
+                        "ConsoleWindowClass",
+                        "CASCADIA_HOSTING_WINDOW_CLASS",
+                    )
+                except Exception:
+                    is_console = False
+                    pass
+
+                if is_console:
+                    self._press_keyboard_shortcut(Key.ctrl, Key.insert)
+                else:
+                    self._press_keyboard_shortcut(Key.ctrl, 'c')
+
+                time.sleep(CLIPBOARD_COPY_DELAY)
+            except KeyboardInterrupt:
+                return ""
+            except Exception as e:
+                log(f"Erreur pynput: {e}", logging.DEBUG)
+            
+            # Méthode 2: Récupérer le texte avec ClipboardManager
+            selected_text = ClipboardManager.get_clipboard_text_safe()
+
+            if (not selected_text or selected_text == "") and 'is_console' in locals() and is_console:
+                try:
+                    self._press_keyboard_shortcut(Key.ctrl, Key.shift, 'c')
+                    time.sleep(CLIPBOARD_COPY_DELAY)
+                    selected_text = ClipboardManager.get_clipboard_text_safe()
+                except Exception:
+                    pass
+
+            # Si le clipboard est toujours vide, aucun texte n'était sélectionné
+            if not selected_text or selected_text == sentinel:
+                log("Aucun texte détecté après Ctrl+C", logging.DEBUG)
+                return ""
+
+            # Log pour déboguer
+            log(f"Texte copié avec succès: {selected_text[:50]}{'...' if len(selected_text) > 50 else ''}", logging.DEBUG)
+
+            # Attendre avant de restaurer pour éviter les interférences
+            time.sleep(CLIPBOARD_RESTORE_DELAY)
+
+        except Exception as e:
+            log(
+                f"Erreur générale lors de la récupération du texte sélectionné: {e}",
+                logging.DEBUG,
+            )
+            selected_text = ""
+        except KeyboardInterrupt:
+            return ""
+        finally:
+            if clipboard_needs_restore:
+                expected_text = selected_text if selected_text else sentinel
+                ClipboardManager.restore_if_unchanged(
+                    old_clipboard, expected_text
+                )
+
+        # Retourner le texte récupéré ou une chaîne vide si rien n'est sélectionné
+        if not selected_text:
+            return ""
+
+        return selected_text
+    
+    def _get_selected_text(self):
+        """Get the selected text from the clipboard and show error message if none"""
+        selected_text = self._try_get_selected_text()
+        
+        if not selected_text:
+            log("Aucun texte sélectionné", logging.DEBUG)
+            SafeDialogs.show_information(
+                "Information",
+                "Aucun texte sélectionné. Veuillez sélectionner du texte avant d'utiliser le raccourci."
+            )
+            return ""
+            
+        # Ne pas afficher le texte sélectionné dans les logs pour éviter la duplication
+        # print(f"Texte sélectionné: {selected_text[:30]}...")
+        return selected_text
+    
+    def run_prompt_hotkey(self, prompt_id):
+        """Run one prompt without opening the menu, honoring its display mode."""
+        target = PasteTarget.capture()
+        selected_text = self._try_get_selected_text()
+        if not selected_text:
+            SimpleLoadingIndicator.show_near_cursor(
+                "⚠️ Aucun texte sélectionné",
+                duration_ms=1800,
+            )
+            return
+
+        self._handle_menu_action(
+            prompt_id,
+            selected_text=selected_text,
+            target=target,
+        )
+
+    def _handle_menu_action(
+        self,
+        prompt_id,
+        selected_text=None,
+        target=None,
+    ):
+        """Handle a menu action"""
+        # Get the selected text
+        if selected_text is None:
+            selected_text = self._get_selected_text()
+        if not selected_text:
+            return
+        
+        # Get the prompt data
+        prompt_data = self.settings.get_prompt(prompt_id)
+        if not prompt_data:
+            return
+        
+        # Afficher un log avec le texte sélectionné (une seule fois)
+        log(f"Texte sélectionné: {selected_text[:30]}...", logging.DEBUG)
+        
+        # Vérifier si le résultat doit être inséré directement
+        insert_directly = bool(prompt_data.get("insert_directly", False))
+        
+        if not insert_directly:
+            # Préparer la fenêtre de réponse en avance
+            self.response_window.set_status(prompt_data["status"])
+            # Définir la position de déclenchement à la position actuelle du curseur
+            self.response_window.set_trigger_position(QCursor.pos())
+            self.response_window.set_paste_target(target)
+            self._present_response_window()
+        
+        # Stocker la requête pour permettre un retry
+        if not insert_directly:
+            self.response_window.store_request(prompt_data["prompt"], selected_text)
+        
+        # Lancer la requête API en arrière-plan
+        self._send_request(
+            prompt_data["prompt"],
+            selected_text,
+            insert_directly,
+            target=target,
+            direct_status=(
+                f"✅ Envoyé à l'IA — {prompt_data['status']}"
+                if insert_directly
+                else None
+            ),
+        )
+    
+    def _handle_godmode_action(self, selected_text, target=None):
+        """Gérer l'action GodMode"""
+        if not selected_text:
+            # Ouvrir directement le dialogue de prompt personnalisé sans texte
+            custom_prompt = PromptDialog.show_prompt_dialog("")
+            
+            if custom_prompt:
+                # Préparer la fenêtre de réponse
+                self.response_window.set_status("Traitement en cours...")
+                # Définir la position de déclenchement à la position actuelle du curseur
+                self.response_window.set_trigger_position(QCursor.pos())
+                self.response_window.set_paste_target(target)
+                self._present_response_window()
+                
+                # Stocker la requête pour permettre un retry
+                self.response_window.store_request(custom_prompt, "")
+                
+                # Lancer la requête API en arrière-plan avec un texte vide
+                self._send_request(custom_prompt, "")
+            return
+            
+        # Afficher le dialogue de prompt personnalisé
+        custom_prompt = PromptDialog.show_prompt_dialog(selected_text)
+        
+        if custom_prompt:
+            # Préparer la fenêtre de réponse
+            self.response_window.set_status("Traitement en cours...")
+            # Définir la position de déclenchement à la position actuelle du curseur
+            self.response_window.set_trigger_position(QCursor.pos())
+            self.response_window.set_paste_target(target)
+            self._present_response_window()
+            
+            # Stocker la requête pour permettre un retry
+            self.response_window.store_request(custom_prompt, selected_text)
+            
+            # Lancer la requête API en arrière-plan
+            self._send_request(custom_prompt, selected_text)
+    
+    def _handle_screenshot_action(self):
+        """Gérer l'action de capture d'écran"""
+        log("Démarrage de la capture d'écran...", logging.DEBUG)
+        paste_target = PasteTarget.capture()
+        
+        # Cacher temporairement le menu contextuel
+        QApplication.processEvents()
+        
+        # Capturer l'écran
+        capture_mode = "fullscreen"
+        try:
+            capture_mode = self.settings.get_screenshot_capture_mode()
+        except Exception:
+            capture_mode = "fullscreen"
+
+        if capture_mode == "ask":
+            chosen = self._choose_screenshot_mode_menu()
+            if not chosen:
+                return
+            capture_mode = chosen
+
+        screenshot_path = capture_screen(capture_mode)
+        
+        log(f"Résultat de la capture: {screenshot_path}", logging.DEBUG)
+        
+        # Si nous avons un chemin d'image valide
+        if screenshot_path:
+            try:
+                # Sauvegarder la position actuelle du curseur
+                cursor_pos = QCursor.pos()
+                
+                # Ouvrir directement le dialogue GodMode
+                from src.ui.prompt_dialog import PromptDialog
+                prompt_dialog = PromptDialog("", None)
+                prompt_dialog.set_image_path(screenshot_path)
+                
+                if prompt_dialog.exec():
+                    # Utiliser la méthode d'instance get_prompt() sans argument
+                    prompt = prompt_dialog.get_prompt()
+                    log(f"Prompt saisi: {prompt}", logging.DEBUG)
+                    
+                    content = screenshot_path
+                    try:
+                        with open(screenshot_path, "rb") as image_file:
+                            base64_image = base64.b64encode(image_file.read()).decode("utf-8")
+                        ext = os.path.splitext(screenshot_path)[1].lower()
+                        mime = "image/png" if ext == ".png" else "image/jpeg"
+                        content = f"data:{mime};base64,{base64_image}"
+                        self._cleanup_screenshot(screenshot_path)
+                    except Exception as e:
+                        log(f"Erreur lors de la préparation de l'image: {e}", logging.ERROR)
+                    
+                    # Préparer la fenêtre de réponse
+                    self.response_window.set_status("Traitement de la capture d'écran...")
+                    # Définir la position de déclenchement à la position du curseur
+                    self.response_window.set_trigger_position(cursor_pos)
+                    self.response_window.set_paste_target(paste_target)
+                    self._present_response_window()
+                    
+                    # Stocker la requête pour permettre un retry
+                    self.response_window.store_request(prompt, content)
+                    
+                    # Lancer la requête API en arrière-plan
+                    self._send_request(prompt, content)
+                else:
+                    # Si l'utilisateur annule, supprimer l'image
+                    self._cleanup_screenshot(screenshot_path)
+            except Exception as e:
+                log(f"Erreur lors du traitement de la capture: {e}", logging.ERROR)
+                self._cleanup_screenshot(screenshot_path)
+    
+    def _handle_voice_action(self, target=None):
+        """Gérer l'action de reconnaissance vocale"""
+        try:
+            # Récupérer l'index du microphone depuis les paramètres
+            microphone_index = self.settings.get_microphone_index()
+
+            # Arrêter toute reconnaissance vocale en cours
+            self.stop_voice_recognition()
+
+            def show_transcription(text):
+                if not text:
+                    return
+                self.response_window.set_trigger_position(QCursor.pos())
+                self.response_window.set_paste_target(target)
+                self.response_window.set_standalone_response(
+                    text,
+                    title="🎙️ SuperMenu - Transcription",
+                )
+                self._present_response_window()
+
+            self.voice_recognition = self._create_voice_recognition(
+                callback=show_transcription,
+                target=target,
+                callback_success_message=(
+                    "La transcription est prête dans la fenêtre de réponse."
+                ),
+            )
+
+            # Afficher un message de débogage sur le microphone utilisé
+            if microphone_index is not None:
+                log(f"Utilisation du microphone avec l'index: {microphone_index}", logging.DEBUG)
+            else:
+                log("Utilisation du microphone par défaut du système", logging.DEBUG)
+
+            # Transcrire sans coller automatiquement : la fenêtre de réponse
+            # propose explicitement de copier ou d'écrire le texte.
+            self.voice_recognition.start_voice_recognition(insert_text=False)
+        except Exception as e:
+            SafeDialogs.show_critical("Erreur de reconnaissance vocale",
+                                f"Une erreur s'est produite lors de la reconnaissance vocale : {str(e)}")
+
+    def _handle_voice_prompt_action(self, prompt_id, target=None):
+        """Gérer l'action d'un prompt vocal spécifique"""
+        try:
+            # Récupérer l'index du microphone depuis les paramètres
+            microphone_index = self.settings.get_microphone_index()
+            
+            # Récupérer les données du prompt vocal
+            prompt_data = self.settings.get_voice_prompt(prompt_id)
+            if not prompt_data:
+                log(f"Prompt vocal non trouvé: {prompt_id}", logging.WARNING)
+                return
+                
+            prompt_text = prompt_data["prompt"]
+            status = prompt_data["status"]
+            insert_directly = prompt_data.get("insert_directly", True)
+            include_selected_text = prompt_data.get("include_selected_text", False)
+            prompt_order = prompt_data.get("prompt_order", "prompt_transcription_selected")
+            
+            log(f"Exécution du prompt vocal: {prompt_data['name']}", logging.DEBUG)
+            
+            # Si l'option d'inclusion du texte sélectionné est activée, récupérer le texte
+            selected_text = ""
+            if include_selected_text:
+                selected_text = self._try_get_selected_text()
+                if selected_text:
+                    log(f"Texte sélectionné inclus: {selected_text[:50]}...", logging.DEBUG)
+            
+            # Fonction de rappel pour traiter le texte transcrit
+            def process_transcription(text):
+                if text:
+                    log(f"Transcription vocale reçue: {text[:50]}...", logging.DEBUG)
+                    
+                    # Construire le prompt complet selon l'ordre spécifié
+                    if include_selected_text and selected_text:
+                        # Construire le prompt selon l'ordre spécifié
+                        if prompt_order == "prompt_transcription_selected":
+                            full_prompt = f"{prompt_text}\n\nTexte transcrit: {text}\n\nTexte sélectionné: {selected_text}"
+                        elif prompt_order == "prompt_selected_transcription":
+                            full_prompt = f"{prompt_text}\n\nTexte sélectionné: {selected_text}\n\nTexte transcrit: {text}"
+                        elif prompt_order == "selected_prompt_transcription":
+                            full_prompt = f"Texte sélectionné: {selected_text}\n\n{prompt_text}\n\nTexte transcrit: {text}"
+                        elif prompt_order == "transcription_prompt_selected":
+                            full_prompt = f"Texte transcrit: {text}\n\n{prompt_text}\n\nTexte sélectionné: {selected_text}"
+                        elif prompt_order == "transcription_selected_prompt":
+                            full_prompt = f"Texte transcrit: {text}\n\nTexte sélectionné: {selected_text}\n\n{prompt_text}"
+                        elif prompt_order == "selected_transcription_prompt":
+                            full_prompt = f"Texte sélectionné: {selected_text}\n\nTexte transcrit: {text}\n\n{prompt_text}"
+                        else:
+                            # Ordre par défaut
+                            full_prompt = f"{prompt_text}\n\nTexte transcrit: {text}\n\nTexte sélectionné: {selected_text}"
+                    else:
+                        # Pas de texte sélectionné, simplement prompt + transcription
+                        full_prompt = f"{prompt_text}\n\n{text}"
+                    
+                    # Créer un client OpenAI temporaire pour cette requête spécifique
+                    temp_client = self._create_temp_api_client()
+
+                    if insert_directly:
+                        QApplication.setOverrideCursor(Qt.WaitCursor)
+
+                        def _on_finished(response_text: str):
+                            try:
+                                try:
+                                    temp_client.request_finished.disconnect(_on_finished)
+                                    temp_client.request_error.disconnect(_on_error)
+                                except (TypeError, RuntimeError):
+                                    pass
+                                text_inserter = TextInserter()
+                                if text_inserter.insert_text(
+                                    response_text, target=target
+                                ):
+                                    log(
+                                        "Réponse insérée avec succès",
+                                        logging.INFO,
+                                    )
+                                else:
+                                    SafeDialogs.show_information(
+                                        "Insertion annulée",
+                                        "La fenêtre ou le champ cible a changé. "
+                                        "La réponse n'a pas été collée.",
+                                    )
+                            finally:
+                                QApplication.restoreOverrideCursor()
+
+                        def _on_error(error_message: str):
+                            try:
+                                try:
+                                    temp_client.request_finished.disconnect(_on_finished)
+                                    temp_client.request_error.disconnect(_on_error)
+                                except (TypeError, RuntimeError):
+                                    pass
+                                log(f"Erreur lors de la requête API: {error_message}", logging.ERROR)
+                                SafeDialogs.show_critical(
+                                    "Erreur de traitement",
+                                    f"Une erreur s'est produite lors du traitement de la réponse : {error_message}",
+                                )
+                            finally:
+                                QApplication.restoreOverrideCursor()
+
+                        temp_client.request_finished.connect(_on_finished)
+                        temp_client.request_error.connect(_on_error)
+                        temp_client.send_request(full_prompt, "", insert_directly=False, include_reasoning=False)
+                    else:
+                        # Préparer la fenêtre de réponse
+                        self.response_window.set_status(status)
+                        # Définir la position de déclenchement à la position actuelle du curseur
+                        self.response_window.set_trigger_position(QCursor.pos())
+                        self.response_window.set_paste_target(target)
+                        self._present_response_window()
+                        
+                        # Stocker la requête pour permettre un retry
+                        self.response_window.store_request(full_prompt, "")
+                        
+                        # Lancer la requête API en arrière-plan
+                        self._send_request(full_prompt, "")
+            
+            # Arrêter toute reconnaissance vocale en cours
+            self.stop_voice_recognition()
+
+            self.voice_recognition = self._create_voice_recognition(
+                callback=process_transcription,
+                target=target,
+            )
+
+            # Afficher un message de débogage sur le microphone utilisé
+            if microphone_index is not None:
+                log(f"Utilisation du microphone avec l'index: {microphone_index}", logging.DEBUG)
+            else:
+                log("Utilisation du microphone par défaut du système", logging.DEBUG)
+
+            # Démarrer la reconnaissance vocale sans insérer le texte (car nous allons le traiter avec la fonction de rappel)
+            self.voice_recognition.start_voice_recognition(insert_text=False)
+            
+        except Exception as e:
+            SafeDialogs.show_critical("Erreur de prompt vocal", 
+                                f"Une erreur s'est produite lors de l'exécution du prompt vocal : {str(e)}")
+    
+    def _handle_voice_godmode_action(self, target=None):
+        """Gérer l'action de prompt vocal personnalisé (GodMode vocal)"""
+        try:
+            # Afficher une boîte de dialogue pour saisir le prompt personnalisé
+            from src.ui.prompt_dialog import PromptDialog
+            custom_prompt = PromptDialog.show_prompt_dialog("")
+            
+            if not custom_prompt:
+                return  # L'utilisateur a annulé
+                
+            # Récupérer l'index du microphone depuis les paramètres
+            microphone_index = self.settings.get_microphone_index()
+            
+            # Fonction de rappel pour traiter le texte transcrit
+            def process_transcription(text):
+                if text:
+                    log(
+                        f"Transcription vocale reçue pour prompt personnalisé: {text[:50]}...",
+                        logging.DEBUG,
+                    )
+                    
+                    # Construire le prompt complet avec le texte transcrit
+                    full_prompt = f"{custom_prompt}\n\n{text}"
+                    
+                    # Préparer la fenêtre de réponse
+                    self.response_window.set_status("Traitement du prompt personnalisé...")
+                    # Définir la position de déclenchement à la position actuelle du curseur
+                    self.response_window.set_trigger_position(QCursor.pos())
+                    self.response_window.set_paste_target(target)
+                    self._present_response_window()
+                    
+                    # Stocker la requête pour permettre un retry
+                    self.response_window.store_request(full_prompt, "")
+                    
+                    # Lancer la requête API en arrière-plan
+                    self._send_request(full_prompt, "")
+            
+            # Arrêter toute reconnaissance vocale en cours
+            self.stop_voice_recognition()
+
+            self.voice_recognition = self._create_voice_recognition(
+                callback=process_transcription,
+                target=target,
+            )
+
+            # Afficher un message de débogage sur le microphone utilisé
+            if microphone_index is not None:
+                log(f"Utilisation du microphone avec l'index: {microphone_index}", logging.DEBUG)
+            else:
+                log("Utilisation du microphone par défaut du système", logging.DEBUG)
+
+            # Démarrer la reconnaissance vocale sans insérer le texte (car nous allons le traiter avec la fonction de rappel)
+            self.voice_recognition.start_voice_recognition(insert_text=False)
+
+        except Exception as e:
+            SafeDialogs.show_critical("Erreur de prompt personnalisé",
+                                f"Une erreur s'est produite lors du traitement du prompt personnalisé : {str(e)}")
+
+    def stop_voice_recognition(self):
+        """Arrête proprement la reconnaissance vocale en cours"""
+        if self.voice_recognition:
+            try:
+                self.voice_recognition.cleanup()
+            except Exception as e:
+                log(f"Erreur lors de l'arrêt de la reconnaissance vocale: {e}", logging.ERROR)
+            finally:
+                self.voice_recognition = None
+
+    def _cleanup_screenshot(self, screenshot_path):
+        """Nettoyer l'image temporaire"""
+        try:
+            if not screenshot_path or not os.path.exists(screenshot_path):
+                return
+ 
+            basename = os.path.basename(screenshot_path)
+            if "supermenu_screenshot_" not in basename:
+                return
+ 
+            temp_dir = os.path.abspath(tempfile.gettempdir())
+            image_dir = os.path.abspath(os.path.dirname(screenshot_path))
+            if image_dir != temp_dir:
+                return
+ 
+            os.remove(screenshot_path)
+            log(f"Image temporaire supprimée: {screenshot_path}", logging.DEBUG)
+        except Exception as e:
+            log(f"Erreur lors de la suppression de l'image: {e}", logging.ERROR)
+    
+    def on_request_started(self):
+        """Handle request started signal"""
+        self.response_window.set_loading(True)
+
+    def on_request_started_scoped(self, request_id, insert_directly):
+        if (
+            not insert_directly
+            and request_id == self._active_response_request_id
+        ):
+            self.response_window.set_loading(True)
+    
+    def on_request_finished(self, response):
+        """Handle request finished signal"""
+        self.response_window.set_response(response)
+        self.response_window.set_loading(False)
+
+    def on_request_finished_scoped(
+        self, request_id, response, insert_directly, target
+    ):
+        request = self._pending_requests.pop(request_id, None)
+        if request is None:
+            return
+
+        client = request["client"]
+        if request["insert_directly"] or insert_directly:
+            safe_target = request.get("target") or target
+            inserted = TextInserter().insert_text(response, target=safe_target)
+            indicator = request.get("indicator")
+            if not inserted:
+                if indicator is not None:
+                    indicator.set_message("⚠️ Insertion annulée")
+                    indicator.move_near_cursor()
+                    QTimer.singleShot(2200, indicator.close)
+                SafeDialogs.show_information(
+                    "Insertion annulée",
+                    "La fenêtre ou le champ cible a changé. La réponse n'a pas "
+                    "été collée pour éviter une insertion au mauvais endroit.",
+                )
+            elif indicator is not None:
+                indicator.set_message("✅ Réponse reçue et insérée")
+                indicator.move_near_cursor()
+                QTimer.singleShot(1200, indicator.close)
+            self._release_retired_client_if_idle(client)
+            return
+
+        if request_id != self._active_response_request_id:
+            self._release_retired_client_if_idle(client)
+            return
+
+        self.on_request_finished(response)
+        self._release_retired_client_if_idle(client)
+    
+    def on_request_error(self, error):
+        """Handle request error signal"""
+        self.response_window.set_response(f"Erreur: {error}")
+        self.response_window.set_loading(False)
+
+    def on_request_error_scoped(self, request_id, error):
+        request = self._pending_requests.pop(request_id, None)
+        if request is None:
+            return
+
+        client = request["client"]
+        if (
+            not request["insert_directly"]
+            and request_id == self._active_response_request_id
+        ):
+            self.on_request_error(error)
+        elif request["insert_directly"]:
+            indicator = request.get("indicator")
+            if indicator is not None:
+                indicator.set_message("❌ Échec du traitement")
+                indicator.move_near_cursor()
+                QTimer.singleShot(2200, indicator.close)
+            SafeDialogs.show_critical("Erreur de traitement", error)
+
+        self._release_retired_client_if_idle(client)
+    
+    def on_retry_requested(self):
+        """Handle retry request from response window"""
+        prompt, content = self.response_window.get_last_request()
+        if prompt is not None:
+            log("Retry de la dernière requête...", logging.INFO)
+            self._send_request(prompt, content if content else "")
+
+    def update_client_config(self):
+        """Met à jour la configuration du client API avec les paramètres actuels."""
+        self.settings.sync()
+        old_client = self.api_client
+        if old_client is not None:
+            self._retired_clients.append(old_client)
+        
+        # Recréer le client avec les nouveaux paramètres
+        # Le modèle sera automatiquement déterminé selon le type d'endpoint
+        self.api_client = OpenAIClient(
+            settings=self.settings,
+            api_key=self.settings.get_api_key()
+        )
+        
+        self._connect_api_client(self.api_client)
+        self._release_retired_client_if_idle(old_client)
+            
+        endpoint_info = self.settings.get_custom_endpoint() if self.settings.get_use_custom_endpoint() else "OpenAI"
+        model_info = self.settings.get_custom_model() if self.settings.get_use_custom_endpoint() else self.settings.get_model()
+        
+        log(
+            f"ContextMenuManager: Configuration du client API mise à jour. Endpoint: {endpoint_info}, Modèle: {model_info}",
+            logging.INFO,
+        )
