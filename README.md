@@ -57,6 +57,7 @@
 - Le canal se choisit dans **À propos > Canal de mise à jour**.
 - **Automatique** : utilise **Vérifier les mises à jour** ou la vérification quotidienne discrète.
 - **Manuelle** : télécharge `SuperMenu_Setup.exe` pour une stable ou `SuperMenu_Beta_Setup.exe` pour une beta.
+- La vérification automatique lit d'abord un petit manifeste attaché à la release, sans consommer le quota de l'API GitHub. L'API reste disponible comme solution de secours.
 
 ---
 
@@ -119,21 +120,19 @@ dist\SuperMenu.exe --smoke-test
 
 Pour publier une stable, il faut volontairement effectuer ces trois opérations :
 
-1. inscrire le nouveau numéro sans `v` dans `VERSION`, par exemple `1.2.0` ;
+1. inscrire le nouveau numéro sans `v` dans `VERSION`, par exemple `1.2.1` ;
 2. commiter et pousser ce changement sur `main`, puis attendre que la CI réussisse ;
-3. créer et pousser le tag correspondant avec un `v`, par exemple `v1.2.0`.
+3. créer et pousser le tag correspondant avec un `v`, par exemple `v1.2.1`.
 
-Exemple lorsque `VERSION` contient déjà `1.2.0` et que ce changement est sur `main` :
+Exemple lorsque `VERSION` contient déjà `1.2.1` et que ce changement est sur `main` :
 
 ```bash
-# VERSION contient 1.2.0 et le commit a déjà été poussé sur main
-git tag v1.2.0
-git push origin v1.2.0
+# VERSION contient 1.2.1 et le commit a déjà été poussé sur main
+git tag v1.2.1
+git push origin v1.2.1
 ```
 
 À partir du push du tag, les tests, la compilation des exécutables et de l'installateur, les checksums et la publication de la release GitHub Stable sont automatiques. Si le tag et `VERSION` ne correspondent pas, le workflow s'arrête sans publier.
-
-Lors de la publication Stable, l'ancien tag technique `nightly` reçoit temporairement le même installateur Stable afin de migrer les installations existantes. Ce n'est plus un canal de publication : après installation, ces applications utilisent `stable`. Les nouvelles installations choisissent uniquement `stable` ou `beta`.
 
 ---
 

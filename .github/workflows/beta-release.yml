@@ -103,7 +103,25 @@ jobs:
       - name: Generate checksums
         shell: powershell
         run: |
-          $assets = @("SuperMenu_Beta.exe", "SuperMenu_Beta_Setup.exe")
+          $manifest = [ordered]@{
+            schema_version = 1
+            channel = "beta"
+            version = $env:APP_VERSION
+            prerelease = $true
+            tag = "beta"
+          } | ConvertTo-Json
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [IO.File]::WriteAllText(
+            (Join-Path $PWD "update-beta.json"),
+            $manifest,
+            $utf8NoBom
+          )
+
+          $assets = @(
+            "SuperMenu_Beta.exe"
+            "SuperMenu_Beta_Setup.exe"
+            "update-beta.json"
+          )
           $checksums = foreach ($asset in $assets) {
             $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $asset"
@@ -117,6 +135,7 @@ jobs:
           path: |
             SuperMenu_Beta.exe
             SuperMenu_Beta_Setup.exe
+            update-beta.json
             SHA256SUMS-beta.txt
           if-no-files-found: error
           retention-days: 14
@@ -137,6 +156,7 @@ jobs:
           artifacts: |
             SuperMenu_Beta.exe
             SuperMenu_Beta_Setup.exe
+            update-beta.json
             SHA256SUMS-beta.txt
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |

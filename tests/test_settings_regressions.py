@@ -251,7 +251,7 @@ def test_update_channel_defaults_to_stable_and_rejects_unknown_values(
     isolated_settings.set_update_channel("beta")
     assert isolated_settings.get_update_channel() == "beta"
 
-    isolated_settings.set_update_channel("nightly")
+    isolated_settings.set_update_channel("legacy")
     assert isolated_settings.get_update_channel() == "stable"
 
 

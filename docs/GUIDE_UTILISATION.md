@@ -59,6 +59,8 @@ Changer de canal réinitialise la date de vérification afin que vous puissiez l
 
 La méthode recommandée est d'utiliser le canal Stable. Un installateur peut être exécuté par-dessus une installation existante.
 
+La vérification utilise normalement un manifeste léger téléchargé avec la release et ne dépend donc pas du quota de l'API GitHub.
+
 Les fichiers de configuration et les logs sont conservés lors d'une mise à jour.
 
 ## Premier démarrage

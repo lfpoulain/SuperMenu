@@ -1,4 +1,6 @@
+import json
 import re
+from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 import requests
@@ -14,6 +16,12 @@ _VERSION_PATTERN = re.compile(
     r"v?(\d+\.\d+\.\d+(?:-(?:beta|rc)\.\d+)?)",
     re.IGNORECASE,
 )
+
+_MANIFEST_SCHEMA_VERSION = 1
+
+
+class UpdateCheckError(RuntimeError):
+    """User-facing update lookup failure."""
 
 
 def _build_session() -> requests.Session:
@@ -58,6 +66,12 @@ def installer_asset_name(channel: Optional[str]) -> str:
     if normalize_update_channel(channel) == UPDATE_CHANNEL_BETA:
         return "SuperMenu_Beta_Setup.exe"
     return "SuperMenu_Setup.exe"
+
+
+def release_manifest_name(channel: Optional[str]) -> str:
+    if normalize_update_channel(channel) == UPDATE_CHANNEL_BETA:
+        return "update-beta.json"
+    return "update-stable.json"
 
 
 def _parse_version(value: str) -> Tuple[int, ...]:
@@ -134,18 +148,136 @@ def get_installed_app_version(app_id_guid: str) -> Optional[str]:
     return None
 
 
+def _raise_for_github_api_error(response, owner: str, repo: str) -> None:
+    if (
+        response.status_code == 403
+        and response.headers.get("X-RateLimit-Remaining") == "0"
+    ):
+        reset_text = "dans quelques minutes"
+        reset_value = response.headers.get("X-RateLimit-Reset")
+        try:
+            reset_time = datetime.fromtimestamp(
+                int(reset_value),
+                tz=timezone.utc,
+            ).astimezone()
+            reset_text = f"à {reset_time:%H:%M}"
+        except (TypeError, ValueError, OSError):
+            pass
+
+        raise UpdateCheckError(
+            "La limite temporaire de GitHub est atteinte. "
+            f"Réessayez {reset_text} ou téléchargez la mise à jour depuis "
+            f"https://github.com/{owner}/{repo}/releases"
+        )
+    response.raise_for_status()
+
+
 def get_github_release_by_tag(owner: str, repo: str, tag: str, timeout_s: int = 15) -> dict:
     url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
     resp = _SESSION.get(url, timeout=(5, timeout_s))
-    resp.raise_for_status()
+    _raise_for_github_api_error(resp, owner, repo)
     return resp.json()
 
 
 def get_latest_stable_release(owner: str, repo: str, timeout_s: int = 15) -> dict:
     url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
     resp = _SESSION.get(url, timeout=(5, timeout_s))
-    resp.raise_for_status()
+    _raise_for_github_api_error(resp, owner, repo)
     return resp.json()
+
+
+def _release_from_manifest(
+    payload: dict,
+    owner: str,
+    repo: str,
+    expected_channel: str,
+) -> dict:
+    if not isinstance(payload, dict):
+        raise ValueError("Le manifeste de mise à jour n'est pas un objet JSON.")
+    if payload.get("schema_version") != _MANIFEST_SCHEMA_VERSION:
+        raise ValueError("Version de manifeste de mise à jour incompatible.")
+
+    channel = str(payload.get("channel") or "").strip().lower()
+    if channel != expected_channel:
+        raise ValueError("Le canal du manifeste de mise à jour est incorrect.")
+
+    version = str(payload.get("version") or "").strip()
+    if not _parse_version(version):
+        raise ValueError("La version du manifeste de mise à jour est invalide.")
+
+    prerelease = payload.get("prerelease")
+    expected_prerelease = expected_channel == UPDATE_CHANNEL_BETA
+    if not isinstance(prerelease, bool) or prerelease != expected_prerelease:
+        raise ValueError("Le type de release du manifeste est incorrect.")
+
+    tag = str(payload.get("tag") or "").strip()
+    expected_tag = (
+        UPDATE_CHANNEL_BETA
+        if expected_prerelease
+        else f"v{version}"
+    )
+    if tag != expected_tag:
+        raise ValueError("Le tag du manifeste de mise à jour est incorrect.")
+
+    asset_name = installer_asset_name(expected_channel)
+    release_base = f"https://github.com/{owner}/{repo}/releases"
+    return {
+        "name": f"SuperMenu {version}",
+        "body": f"Channel: {expected_channel}\nVersion: {version}",
+        "tag_name": tag,
+        "prerelease": prerelease,
+        "html_url": f"{release_base}/tag/{tag}",
+        "assets": [
+            {
+                "name": asset_name,
+                "browser_download_url": (
+                    f"{release_base}/download/{tag}/{asset_name}"
+                ),
+            }
+        ],
+    }
+
+
+def get_release_from_manifest(
+    owner: str,
+    repo: str,
+    channel: Optional[str],
+    timeout_s: int = 15,
+) -> Optional[dict]:
+    normalized_channel = normalize_update_channel(channel)
+    manifest_name = release_manifest_name(normalized_channel)
+    if normalized_channel == UPDATE_CHANNEL_BETA:
+        url = (
+            f"https://github.com/{owner}/{repo}/releases/download/"
+            f"beta/{manifest_name}"
+        )
+    else:
+        url = (
+            f"https://github.com/{owner}/{repo}/releases/latest/download/"
+            f"{manifest_name}"
+        )
+
+    response = _SESSION.get(
+        url,
+        timeout=(5, timeout_s),
+        headers={
+            "Accept": "application/json",
+            "Cache-Control": "no-cache",
+        },
+    )
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    try:
+        payload = json.loads(response.content.decode("utf-8-sig"))
+    except (AttributeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Le manifeste de mise à jour est illisible.") from exc
+    return _release_from_manifest(
+        payload,
+        owner,
+        repo,
+        normalized_channel,
+    )
 
 
 def get_release_for_update_channel(
@@ -155,6 +287,18 @@ def get_release_for_update_channel(
     timeout_s: int = 15,
 ) -> dict:
     normalized_channel = normalize_update_channel(channel)
+    try:
+        manifest_release = get_release_from_manifest(
+            owner,
+            repo,
+            normalized_channel,
+            timeout_s=timeout_s,
+        )
+    except (requests.RequestException, ValueError):
+        manifest_release = None
+    if manifest_release is not None:
+        return manifest_release
+
     if normalized_channel == UPDATE_CHANNEL_BETA:
         release = get_github_release_by_tag(
             owner,

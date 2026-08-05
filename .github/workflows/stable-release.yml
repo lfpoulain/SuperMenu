@@ -95,7 +95,25 @@ jobs:
       - name: Generate checksums
         shell: powershell
         run: |
-          $assets = @("dist/SuperMenu.exe", "SuperMenu_Setup.exe")
+          $manifest = [ordered]@{
+            schema_version = 1
+            channel = "stable"
+            version = $env:APP_VERSION
+            prerelease = $false
+            tag = "${{ github.ref_name }}"
+          } | ConvertTo-Json
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [IO.File]::WriteAllText(
+            (Join-Path $PWD "update-stable.json"),
+            $manifest,
+            $utf8NoBom
+          )
+
+          $assets = @(
+            "dist/SuperMenu.exe"
+            "SuperMenu_Setup.exe"
+            "update-stable.json"
+          )
           $checksums = foreach ($asset in $assets) {
             $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $([IO.Path]::GetFileName($asset))"
@@ -109,6 +127,7 @@ jobs:
           path: |
             dist/SuperMenu.exe
             SuperMenu_Setup.exe
+            update-stable.json
             SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
@@ -127,6 +146,7 @@ jobs:
           artifacts: |
             dist/SuperMenu.exe
             SuperMenu_Setup.exe
+            update-stable.json
             SHA256SUMS.txt
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
@@ -137,29 +157,3 @@ jobs:
             Commit: ${{ github.sha }}
 
             Cette version est recommandée pour une utilisation quotidienne.
-
-      - name: Migrate legacy installations to stable
-        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
-        with:
-          tag: nightly
-          name: Migration vers SuperMenu Stable ${{ env.APP_VERSION }}
-          prerelease: true
-          makeLatest: false
-          allowUpdates: true
-          updateOnlyUnreleased: true
-          replacesArtifacts: true
-          removeArtifacts: true
-          artifactErrorsFailBuild: true
-          artifacts: |
-            dist/SuperMenu.exe
-            SuperMenu_Setup.exe
-            SHA256SUMS.txt
-          token: ${{ secrets.GITHUB_TOKEN }}
-          body: |
-            Migration finale des anciennes installations vers le canal Stable.
-
-            Channel: stable
-            Version: ${{ env.APP_VERSION }}
-            Commit: ${{ github.sha }}
-
-            Après installation, SuperMenu utilisera le canal Stable. L'ancien canal nightly est désormais obsolète.

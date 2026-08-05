@@ -174,9 +174,9 @@ Le fichier `VERSION` contient la prochaine version stable sous la forme `MAJOR.M
 - **Beta** (`beta-release.yml`) : exécution après la réussite du workflow CI d'un push sur `main`, ou lancement manuel depuis `main`; version `VERSION-beta.RUN_NUMBER`, tag roulant `beta`, prérelease GitHub, installateur `SuperMenu_Beta_Setup.exe` et checksums SHA-256.
 - **Stable** (`stable-release.yml`) : déclenchement uniquement par un tag exact `vMAJOR.MINOR.PATCH`; le tag doit correspondre à `VERSION`, la release n'est jamais remplacée et devient la release GitHub `Latest`.
 
-L'updater interroge `/releases/latest` pour Stable, ce qui exclut les préversions, et le tag `beta` pour Beta. Il vérifie également que la release beta est bien marquée comme prérelease et attend un nom d'installateur différent par canal. Le choix est conservé dans `QSettings`; un build beta neuf sélectionne Beta, tandis qu'un build stable sélectionne Stable.
+L'updater télécharge en priorité le manifeste `update-stable.json` de la dernière release Stable ou `update-beta.json` du tag roulant Beta. Ces fichiers sont servis comme des artefacts GitHub classiques et n'utilisent pas le quota de l'API REST. Le manifeste est strictement validé (schéma, canal, version, type de release et tag) avant de construire l'URL exacte de l'installateur. Si le manifeste est absent, illisible ou momentanément inaccessible, l'updater utilise l'API GitHub comme solution de secours : `/releases/latest` pour Stable et le tag `beta` pour Beta.
 
-Lors d'une publication Stable, le tag technique historique `nightly` reçoit temporairement les artefacts Stable sous leurs anciens noms afin que les installations existantes migrent vers le nouvel updater et sélectionnent Stable. La Beta ne modifie jamais ce tag. Il ne représente plus un canal et n'est plus proposé dans l'interface.
+Le choix du canal est conservé dans `QSettings`; un build beta neuf sélectionne Beta, tandis qu'un build stable sélectionne Stable. En cas de quota GitHub épuisé pendant le secours API, l'utilisateur reçoit un message compréhensible avec l'heure de réinitialisation et un lien vers les releases, au lieu de l'erreur HTTP brute.
 
 ## Considérations techniques
 

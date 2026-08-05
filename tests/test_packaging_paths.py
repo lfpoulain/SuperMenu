@@ -64,10 +64,9 @@ def test_release_workflows_keep_ci_beta_and_stable_separate():
     assert "github.event.workflow_run.conclusion == 'success'" in beta
     assert "schedule:" not in beta
     assert "tag: beta" in beta
-    assert "tag: nightly" not in beta
     assert "SuperMenu_Beta_Setup.exe" in beta
+    assert "update-beta.json" in beta
     assert 'tags:\n      - "v*.*.*"' in stable
     assert "immutableCreate: true" in stable
     assert "updateOnlyUnreleased: true" in stable
-    assert "tag: nightly" in stable
-    assert "Migration vers SuperMenu Stable" in stable
+    assert "update-stable.json" in stable
