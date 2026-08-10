@@ -23,6 +23,10 @@ from src.config.openai_models import (
     normalize_reasoning_effort,
 )
 from src.config.settings import CUSTOM_REASONING_EFFORTS
+from src.api.model_capabilities import (
+    choose_reasoning_option,
+    normalize_reasoning_option,
+)
 from src.utils.validators import Validators
 from src.utils import updater as app_updater
 from src.utils.loading_indicator import SimpleLoadingIndicator
@@ -107,7 +111,7 @@ class _CustomModelsWorker(QThread):
         try:
             from src.api.openai_client import OpenAIClient
 
-            success, result = OpenAIClient.fetch_available_models(
+            success, result = OpenAIClient.fetch_available_model_details(
                 self.endpoint,
                 self.api_key,
                 endpoint_type=self.endpoint_type,
@@ -154,6 +158,14 @@ class MainWindow(QMainWindow):
         self._update_check_silent = False
         self._custom_models_worker = None
         self._custom_models_progress = None
+        self._custom_models_silent = False
+        self._custom_model_details = {}
+        self._custom_models_refresh_timer = QTimer(self)
+        self._custom_models_refresh_timer.setSingleShot(True)
+        self._custom_models_refresh_timer.setInterval(400)
+        self._custom_models_refresh_timer.timeout.connect(
+            lambda: self.refresh_custom_models(silent=True)
+        )
 
         # Set window properties
         self.setWindowTitle("SuperMenu - Configuration")
@@ -559,27 +571,29 @@ class MainWindow(QMainWindow):
         custom_layout.addWidget(custom_model_label)
         custom_layout.addLayout(custom_model_layout)
 
-        custom_reasoning_label = QLabel("Raisonnement / think :")
+        self.custom_reasoning_label = QLabel("Raisonnement / think :")
         self.custom_reasoning_effort_combo = QComboBox()
-        self.custom_reasoning_effort_combo.addItems(CUSTOM_REASONING_EFFORTS)
-        saved_custom_effort = self.settings.get_custom_reasoning_effort()
-        if saved_custom_effort in CUSTOM_REASONING_EFFORTS:
-            self.custom_reasoning_effort_combo.setCurrentText(saved_custom_effort)
-        else:
-            self.custom_reasoning_effort_combo.setCurrentText("none")
         self.custom_reasoning_effort_combo.setToolTip(
-            "Ollama : Qwen/DeepSeek utilisent un interrupteur think. GPT-OSS "
-            "accepte uniquement low/medium/high et none est ramené à low tout "
-            "en masquant la trace. LM Studio : le choix est traduit vers les "
-            "capacités annoncées par le modèle (off/on ou niveaux)."
+            "Les choix sont adaptés aux capacités annoncées par le modèle."
         )
-        custom_layout.addWidget(custom_reasoning_label)
+        custom_layout.addWidget(self.custom_reasoning_label)
         custom_layout.addWidget(self.custom_reasoning_effort_combo)
 
         current_custom_model = self.settings.get_custom_model()
         if current_custom_model:
             self.custom_model_combo.addItem(current_custom_model)
             self.custom_model_combo.setCurrentText(current_custom_model)
+
+        self.custom_model_combo.currentTextChanged.connect(
+            self.update_custom_reasoning_effort_ui
+        )
+        self.custom_endpoint_type_combo.currentIndexChanged.connect(
+            self._on_custom_endpoint_configuration_changed
+        )
+        self.custom_endpoint_input.editingFinished.connect(
+            self._on_custom_endpoint_configuration_changed
+        )
+        self.update_custom_reasoning_effort_ui()
 
         note_label = QLabel(
             "Note : la dictée utilise toujours l'API OpenAI "
@@ -1655,10 +1669,6 @@ class MainWindow(QMainWindow):
             self.api_key_input.setText(self.settings.get_api_key())
             self.model_combo.setCurrentText(self.settings.get_model())
             self.update_reasoning_effort_ui()
-            self.custom_reasoning_effort_combo.setCurrentText(
-                self.settings.get_custom_reasoning_effort()
-            )
-            
             # Reload custom endpoint configuration
             self.use_custom_endpoint_checkbox.setChecked(self.settings.get_use_custom_endpoint())
             self.custom_endpoint_input.setText(self.settings.get_custom_endpoint())
@@ -1667,6 +1677,8 @@ class MainWindow(QMainWindow):
             if current_custom_model:
                 self.custom_model_combo.addItem(current_custom_model)
                 self.custom_model_combo.setCurrentText(current_custom_model)
+            self._custom_model_details = {}
+            self.update_custom_reasoning_effort_ui()
             
             # Update the display based on endpoint type
             self.toggle_custom_endpoint()
@@ -2458,6 +2470,10 @@ class MainWindow(QMainWindow):
         # Afficher/masquer les sections appropriées
         self.openai_group.setVisible(not use_custom)
         self.custom_group.setVisible(use_custom)
+        if use_custom and self.custom_endpoint_input.text().strip():
+            self._custom_models_refresh_timer.start()
+        else:
+            self._custom_models_refresh_timer.stop()
 
     def update_reasoning_effort_ui(self):
         """Mettre à jour la liste des efforts de raisonnement selon le modèle choisi."""
@@ -2478,7 +2494,7 @@ class MainWindow(QMainWindow):
             self.reasoning_effort_combo.setEnabled(False)
         self.reasoning_effort_combo.blockSignals(False)
     
-    def refresh_custom_models(self):
+    def refresh_custom_models(self, _checked=False, *, silent=False):
         """Récupérer la liste des modèles disponibles depuis l'endpoint personnalisé"""
         if self._custom_models_worker and self._custom_models_worker.isRunning():
             return
@@ -2486,24 +2502,33 @@ class MainWindow(QMainWindow):
         endpoint = self.custom_endpoint_input.text().strip()
 
         if not endpoint:
-            QMessageBox.warning(self, "Endpoint manquant", 
-                              "Veuillez d'abord entrer l'URL de l'endpoint personnalisé.")
+            if not silent:
+                QMessageBox.warning(
+                    self,
+                    "Endpoint manquant",
+                    "Veuillez d'abord entrer l'URL de l'endpoint personnalisé.",
+                )
             return
 
         # Valider l'URL
         is_valid, error_msg = Validators.validate_url(endpoint)
         if not is_valid:
-            QMessageBox.warning(self, "URL invalide", error_msg)
+            if not silent:
+                QMessageBox.warning(self, "URL invalide", error_msg)
             return
 
-        # Afficher un message de chargement
-        from PySide6.QtWidgets import QProgressDialog
-        self._custom_models_progress = QProgressDialog("Récupération des modèles disponibles...", "Annuler", 0, 0, self)
-        self._custom_models_progress.setWindowModality(Qt.WindowModal)
-        self._custom_models_progress.setMinimumDuration(0)
-        self._custom_models_progress.setValue(0)
-        self._custom_models_progress.show()
-        QApplication.processEvents()
+        self._custom_models_silent = silent
+        if not silent:
+            from PySide6.QtWidgets import QProgressDialog
+
+            self._custom_models_progress = QProgressDialog(
+                "Récupération des modèles disponibles...", "Annuler", 0, 0, self
+            )
+            self._custom_models_progress.setWindowModality(Qt.WindowModal)
+            self._custom_models_progress.setMinimumDuration(0)
+            self._custom_models_progress.setValue(0)
+            self._custom_models_progress.show()
+            QApplication.processEvents()
 
         # Récupérer les modèles
         api_key = self.api_key_input.text().strip() if self.api_key_input.text().strip() else None
@@ -2513,31 +2538,64 @@ class MainWindow(QMainWindow):
         self._custom_models_worker.failed.connect(self._on_custom_models_failed)
         self._custom_models_worker.start()
 
-    def _on_custom_models_ok(self, models: list):
+    def _on_custom_models_ok(self, model_details: list):
         if self._custom_models_progress:
             self._custom_models_progress.close()
             self._custom_models_progress = None
 
+        silent = self._custom_models_silent
+        self._custom_models_silent = False
+        worker = self._custom_models_worker
+        current_endpoint = self.custom_endpoint_input.text().strip()
+        current_type = self.custom_endpoint_type_combo.currentData()
+        if worker and (
+            worker.endpoint != current_endpoint or worker.endpoint_type != current_type
+        ):
+            self._custom_models_refresh_timer.start()
+            return
+
+        self._custom_model_details = {}
+        for details in model_details:
+            if not isinstance(details, dict) or not details.get("id"):
+                continue
+            for identifier in details.get("identifiers", []) or [details["id"]]:
+                self._custom_model_details[identifier] = details
+
+        models = [
+            details["id"]
+            for details in model_details
+            if isinstance(details, dict) and details.get("id")
+        ]
         current_model = self.custom_model_combo.currentText()
         self.custom_model_combo.clear()
         self.custom_model_combo.addItems(models)
 
-        if current_model and current_model in models:
+        if current_model and self._get_custom_model_details(current_model):
             self.custom_model_combo.setCurrentText(current_model)
         elif models:
             self.custom_model_combo.setCurrentIndex(0)
+        self.update_custom_reasoning_effort_ui()
 
-        QMessageBox.information(
-            self,
-            "Modèles récupérés",
-            f"{len(models)} modèle(s) trouvé(s) sur le serveur.",
-        )
+        if not silent:
+            QMessageBox.information(
+                self,
+                "Modèles récupérés",
+                f"{len(models)} modèle(s) trouvé(s) sur le serveur.",
+            )
 
     def _on_custom_models_failed(self, error: str):
         if self._custom_models_progress:
             self._custom_models_progress.close()
             self._custom_models_progress = None
-        QMessageBox.warning(self, "Erreur", f"Impossible de récupérer les modèles:\n\n{error}")
+        silent = self._custom_models_silent
+        self._custom_models_silent = False
+        self.update_custom_reasoning_effort_ui()
+        if not silent:
+            QMessageBox.warning(
+                self,
+                "Erreur",
+                f"Impossible de récupérer les modèles:\n\n{error}",
+            )
     
     def save_api_key(self):
         """Save the API key and configuration"""
@@ -2548,8 +2606,8 @@ class MainWindow(QMainWindow):
         custom_endpoint_type = self.custom_endpoint_type_combo.currentData() if self.custom_endpoint_type_combo else "ollama"
         custom_model = self.custom_model_combo.currentText().strip()
         openai_reasoning_effort = self.reasoning_effort_combo.currentText().strip()
-        custom_reasoning_effort = (
-            self.custom_reasoning_effort_combo.currentText().strip()
+        custom_reasoning_effort = normalize_reasoning_option(
+            self.custom_reasoning_effort_combo.currentData(), "none"
         )
         
         # Validation
@@ -2588,10 +2646,8 @@ class MainWindow(QMainWindow):
             model,
             openai_reasoning_effort,
         )
-        normalized_custom_effort = (
-            custom_reasoning_effort
-            if custom_reasoning_effort in CUSTOM_REASONING_EFFORTS
-            else "none"
+        normalized_custom_effort = normalize_reasoning_option(
+            custom_reasoning_effort, "none"
         )
 
         # Save settings
@@ -2612,12 +2668,112 @@ class MainWindow(QMainWindow):
         self.reasoning_effort_combo.setCurrentText(normalized_openai_effort)
         self.reasoning_effort_combo.blockSignals(False)
         self.custom_reasoning_effort_combo.blockSignals(True)
-        self.custom_reasoning_effort_combo.setCurrentText(normalized_custom_effort)
+        custom_effort_index = self.custom_reasoning_effort_combo.findData(
+            normalized_custom_effort
+        )
+        if custom_effort_index >= 0:
+            self.custom_reasoning_effort_combo.setCurrentIndex(custom_effort_index)
         self.custom_reasoning_effort_combo.blockSignals(False)
 
         # Mettre à jour la configuration du client API sans redémarrage
         if self.context_menu_manager:
             self.context_menu_manager.update_client_config()
-        
-        QMessageBox.information(self, "Configuration enregistrée", 
-                              "La configuration a été enregistrée avec succès.\n\nLes modifications sont actives immédiatement.")
+
+        QMessageBox.information(
+            self,
+            "Configuration enregistrée",
+            "La configuration a été enregistrée avec succès.\n\n"
+            "Les modifications sont actives immédiatement.",
+        )
+
+    def _on_custom_endpoint_configuration_changed(self, *_args):
+        """Invalidate stale capabilities and refresh them without blocking the UI."""
+        self._custom_model_details = {}
+        self.update_custom_reasoning_effort_ui()
+        if (
+            self.use_custom_endpoint_checkbox.isChecked()
+            and self.custom_endpoint_input.text().strip()
+        ):
+            self._custom_models_refresh_timer.start()
+
+    def _get_custom_model_details(self, model):
+        details = self._custom_model_details.get(model)
+        if details:
+            return details
+        for candidate in self._custom_model_details.values():
+            if model in candidate.get("identifiers", []):
+                return candidate
+        return None
+
+    def update_custom_reasoning_effort_ui(self, *_args):
+        """Adapt reasoning choices to the selected local model at runtime."""
+        if not hasattr(self, "custom_reasoning_effort_combo"):
+            return
+
+        combo = self.custom_reasoning_effort_combo
+        previous = normalize_reasoning_option(combo.currentData())
+        if not previous:
+            previous = normalize_reasoning_option(combo.currentText())
+        preferred = previous or self.settings.get_custom_reasoning_effort()
+        model = self.custom_model_combo.currentText().strip()
+        endpoint_type = self.custom_endpoint_type_combo.currentData()
+        details = self._get_custom_model_details(model)
+
+        combo.blockSignals(True)
+        combo.clear()
+
+        if endpoint_type == "lmstudio" and details:
+            options = details.get("reasoning_options", [])
+            if details.get("reasoning_supported") is False:
+                combo.addItem("Non pris en charge", "none")
+                combo.setEnabled(False)
+                self.custom_reasoning_label.setText(
+                    "Raisonnement / think (non pris en charge) :"
+                )
+                combo.setToolTip(
+                    "LM Studio n'annonce aucune option de raisonnement pour ce modèle."
+                )
+                combo.blockSignals(False)
+                return
+
+            if options:
+                selected = choose_reasoning_option(
+                    options,
+                    preferred=preferred,
+                    default=details.get("reasoning_default"),
+                )
+                for option in options:
+                    combo.addItem(option, option)
+                selected_index = combo.findData(selected)
+                combo.setCurrentIndex(max(0, selected_index))
+                combo.setEnabled(len(options) > 1)
+                self.custom_reasoning_label.setText(
+                    "Raisonnement / think (détecté) :"
+                )
+                combo.setToolTip(
+                    "Options annoncées par LM Studio pour ce modèle : "
+                    + ", ".join(options)
+                )
+                combo.blockSignals(False)
+                return
+
+        fallback_options = list(CUSTOM_REASONING_EFFORTS)
+        if preferred in {"off", "on"}:
+            fallback_options = ["off", "on"]
+        for option in fallback_options:
+            combo.addItem(option, option)
+        selected = choose_reasoning_option(fallback_options, preferred=preferred)
+        selected_index = combo.findData(selected)
+        combo.setCurrentIndex(max(0, selected_index))
+        combo.setEnabled(True)
+        self.custom_reasoning_label.setText("Raisonnement / think :")
+        if endpoint_type == "lmstudio":
+            combo.setToolTip(
+                "Détection en attente ou indisponible. Cliquez sur Actualiser pour "
+                "lire les options annoncées par LM Studio."
+            )
+        else:
+            combo.setToolTip(
+                "Ollama adapte think aux capacités disponibles lors de la requête."
+            )
+        combo.blockSignals(False)

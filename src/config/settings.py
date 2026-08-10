@@ -14,6 +14,7 @@ from src.config.openai_models import (
     normalize_openai_model,
     normalize_reasoning_effort,
 )
+from src.api.model_capabilities import normalize_reasoning_option
 from src.utils.logger import log
 
 CUSTOM_REASONING_EFFORTS = ["none", "low", "medium", "high"]
@@ -443,21 +444,20 @@ class Settings:
 
     def get_custom_reasoning_effort(self):
         """Get the local-provider think effort without touching OpenAI settings."""
-        effort = self.settings.value(
-            "custom_reasoning_effort",
-            self.default_custom_reasoning_effort,
+        raw_effort = self.settings.value(
+            "custom_reasoning_effort", self.default_custom_reasoning_effort
         )
-        if effort not in CUSTOM_REASONING_EFFORTS:
-            effort = self.default_custom_reasoning_effort
+        effort = normalize_reasoning_option(
+            raw_effort, self.default_custom_reasoning_effort
+        )
+        if effort != raw_effort:
             self.settings.setValue("custom_reasoning_effort", effort)
         return effort
 
     def set_custom_reasoning_effort(self, effort):
         """Persist the local-provider think effort independently."""
-        normalized = (
-            effort
-            if effort in CUSTOM_REASONING_EFFORTS
-            else self.default_custom_reasoning_effort
+        normalized = normalize_reasoning_option(
+            effort, self.default_custom_reasoning_effort
         )
         self.settings.setValue("custom_reasoning_effort", normalized)
 

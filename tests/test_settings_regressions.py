@@ -92,6 +92,16 @@ def test_openai_and_custom_reasoning_settings_are_independent(isolated_settings)
     assert isolated_settings.get_reasoning_effort() == "max"
 
 
+def test_custom_reasoning_accepts_dynamic_provider_options(isolated_settings):
+    isolated_settings.set_custom_reasoning_effort("on")
+    assert isolated_settings.get_custom_reasoning_effort() == "on"
+
+    isolated_settings.set_custom_reasoning_effort("future_tier")
+    assert isolated_settings.get_custom_reasoning_effort() == "future_tier"
+
+    isolated_settings.set_custom_reasoning_effort("not a valid option")
+    assert isolated_settings.get_custom_reasoning_effort() == "none"
+
 def test_corrupt_model_settings_fall_back_without_crashing(isolated_settings):
     isolated_settings.settings.setValue("model", 42)
     isolated_settings.settings.setValue("openai_reasoning_effort", 42)

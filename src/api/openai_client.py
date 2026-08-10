@@ -23,6 +23,10 @@ from src.config.openai_models import (
     normalize_openai_model,
     normalize_reasoning_effort,
 )
+from src.api.model_capabilities import (
+    choose_reasoning_option,
+    parse_lmstudio_model_catalog,
+)
 
 # Constante pour le timeout des requêtes API
 DEFAULT_API_TIMEOUT = 60
@@ -101,7 +105,9 @@ class OpenAIClient(QObject):
         self._ollama_capabilities_checked = False
         self._ollama_capabilities = None
         self._lmstudio_catalog_checked = False
+        self._lmstudio_reasoning_supported = None
         self._lmstudio_reasoning_options = None
+        self._lmstudio_reasoning_default = None
         self._lmstudio_compat_url = ""
         
         # Si on utilise un endpoint personnalisé et qu'on a un custom_model dans les settings, l'utiliser
@@ -180,45 +186,17 @@ class OpenAIClient(QObject):
             payload = response.json()
             if not isinstance(payload, dict):
                 return
-            models = payload.get("models", [])
-            if not isinstance(models, list):
-                return
             selected = None
-            for model_info in models:
-                if not isinstance(model_info, dict):
-                    continue
-                identifiers = {
-                    model_info.get("key"),
-                    model_info.get("id"),
-                    model_info.get("name"),
-                    model_info.get("display_name"),
-                }
-                for instance in model_info.get("loaded_instances", []) or []:
-                    if isinstance(instance, dict):
-                        identifiers.add(instance.get("id"))
-                        identifiers.add(instance.get("model_key"))
-                if self.model in identifiers:
-                    selected = model_info
+            for model_details in parse_lmstudio_model_catalog(payload):
+                if self.model in model_details["identifiers"]:
+                    selected = model_details
                     break
 
             if selected is None:
                 return
-
-            capabilities = selected.get("capabilities", {})
-            if not isinstance(capabilities, dict):
-                return
-            reasoning = capabilities.get("reasoning", {})
-            if not isinstance(reasoning, dict):
-                return
-            options = reasoning.get("allowed_options", [])
-            if isinstance(options, list):
-                normalized = {
-                    str(option).strip().lower()
-                    for option in options
-                    if str(option).strip()
-                }
-                if normalized:
-                    self._lmstudio_reasoning_options = normalized
+            self._lmstudio_reasoning_supported = selected["reasoning_supported"]
+            self._lmstudio_reasoning_options = selected["reasoning_options"]
+            self._lmstudio_reasoning_default = selected["reasoning_default"]
         except (requests.RequestException, ValueError, TypeError) as e:
             log(
                 f"Impossible de lire les capacités LM Studio: {e}",
@@ -232,23 +210,17 @@ class OpenAIClient(QObject):
         ).strip().lower()
         options = self._lmstudio_reasoning_options
 
-        if not options:
-            return "off" if requested == "none" else requested
-
-        if requested == "none":
-            if "off" in options:
-                return "off"
-            if "none" in options:
-                return "none"
-            if "low" in options:
-                return "low"
+        if self._lmstudio_reasoning_supported is False:
             return None
 
-        if requested in options:
-            return requested
-        if "on" in options:
-            return "on"
-        return None
+        if not options:
+            return "off" if requested in {"none", "off"} else requested
+
+        return choose_reasoning_option(
+            options,
+            preferred=requested,
+            default=self._lmstudio_reasoning_default,
+        )
 
     @staticmethod
     def _is_gpt_oss_model(model_name):
@@ -315,8 +287,11 @@ class OpenAIClient(QObject):
         ):
             return None
 
-        if effort == "none":
+        if effort in {"none", "off"}:
             return False
+
+        if effort == "on":
+            return True
 
         # Qwen 3, DeepSeek R1/v3.1 and other Ollama thinking models use the
         # documented boolean switch. Effort strings are GPT-OSS-specific.
@@ -1069,6 +1044,21 @@ class OpenAIClient(QObject):
 
     @staticmethod
     def fetch_available_models(endpoint_url, api_key=None, timeout=10, endpoint_type=None):
+        """Return the model IDs exposed by a custom endpoint."""
+        success, result = OpenAIClient.fetch_available_model_details(
+            endpoint_url,
+            api_key=api_key,
+            timeout=timeout,
+            endpoint_type=endpoint_type,
+        )
+        if not success:
+            return False, result
+        return True, [model["id"] for model in result]
+
+    @staticmethod
+    def fetch_available_model_details(
+        endpoint_url, api_key=None, timeout=10, endpoint_type=None
+    ):
         """Récupère la liste des modèles disponibles depuis un endpoint compatible OpenAI."""
         try:
             headers = {"Content-Type": "application/json"}
@@ -1098,16 +1088,21 @@ class OpenAIClient(QObject):
                     continue
 
                 data = response.json()
-                models = []
+                model_details = []
 
-                if "data" in data and isinstance(data["data"], list):
+                if models_url.endswith("/api/v1/models"):
+                    model_details = parse_lmstudio_model_catalog(data)
+
+                if not model_details and "data" in data and isinstance(data["data"], list):
                     for model_info in data["data"]:
                         if isinstance(model_info, dict):
                             model_id = model_info.get("id") or model_info.get("name")
                             if model_id:
-                                models.append(model_id)
+                                model_details.append(
+                                    OpenAIClient._basic_model_details(model_id)
+                                )
 
-                if not models and "models" in data and isinstance(data["models"], list):
+                if not model_details and "models" in data and isinstance(data["models"], list):
                     for model_info in data["models"]:
                         if isinstance(model_info, dict):
                             model_id = (
@@ -1116,11 +1111,14 @@ class OpenAIClient(QObject):
                                 or model_info.get("id")
                             )
                             if model_id:
-                                models.append(model_id)
+                                model_details.append(
+                                    OpenAIClient._basic_model_details(model_id)
+                                )
 
-                if models:
-                    log(f"Modèles récupérés avec succès: {models}", logging.INFO)
-                    return True, models
+                if model_details:
+                    model_ids = [model["id"] for model in model_details]
+                    log(f"Modèles récupérés avec succès: {model_ids}", logging.INFO)
+                    return True, model_details
 
                 last_error = "Aucun modèle trouvé dans la réponse de l'API"
 
@@ -1132,3 +1130,13 @@ class OpenAIClient(QObject):
             return False, "Impossible de se connecter au serveur"
         except Exception as e:
             return False, f"Erreur: {str(e)}"
+
+    @staticmethod
+    def _basic_model_details(model_id):
+        return {
+            "id": model_id,
+            "identifiers": [model_id],
+            "reasoning_supported": None,
+            "reasoning_options": [],
+            "reasoning_default": None,
+        }

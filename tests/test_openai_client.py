@@ -406,7 +406,27 @@ def test_lmstudio_reads_reasoning_options_from_native_model_catalog(monkeypatch)
 
     client._ensure_lmstudio_model_capabilities()
 
-    assert client._lmstudio_reasoning_options == {"off", "on"}
+    assert client._lmstudio_reasoning_options == ["off", "on"]
+    assert client._lmstudio_reasoning_default == "on"
+    assert client._lmstudio_reasoning_supported is True
+
+
+def test_lmstudio_model_without_reasoning_omits_reasoning_parameter():
+    client = OpenAIClient(
+        FakeSettings(
+            use_custom_endpoint=True,
+            endpoint_type="lmstudio",
+            custom_endpoint="http://localhost:1234",
+            custom_model="embedding-model",
+            reasoning_effort="high",
+        )
+    )
+    client._lmstudio_reasoning_supported = False
+    client._lmstudio_reasoning_options = []
+
+    data, _ = client._build_request_data("Question", "")
+
+    assert "reasoning" not in data
 
 
 def test_lmstudio_native_404_falls_back_without_output_token_cap(monkeypatch):
@@ -468,3 +488,46 @@ def test_fetch_models_detects_ollama_endpoint(monkeypatch):
     assert success is True
     assert models == ["qwen3"]
     assert called_urls == ["http://localhost:11434/api/tags"]
+
+
+def test_fetch_lmstudio_model_details_keeps_dynamic_reasoning_options(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {
+                "models": [
+                    {
+                        "key": "qwen3.5-4b",
+                        "capabilities": {
+                            "reasoning": {
+                                "allowed_options": ["off", "on"],
+                                "default": "on",
+                            }
+                        },
+                    },
+                    {
+                        "key": "gpt-oss-20b",
+                        "capabilities": {
+                            "reasoning": {
+                                "allowed_options": ["low", "medium", "high"],
+                                "default": "low",
+                            }
+                        },
+                    },
+                ]
+            }
+
+    monkeypatch.setattr(
+        "src.api.openai_client.requests.get",
+        lambda *_args, **_kwargs: FakeResponse(),
+    )
+
+    success, models = OpenAIClient.fetch_available_model_details(
+        "http://localhost:1234", endpoint_type="lmstudio"
+    )
+
+    assert success is True
+    assert models[0]["reasoning_options"] == ["off", "on"]
+    assert models[1]["reasoning_options"] == ["low", "medium", "high"]

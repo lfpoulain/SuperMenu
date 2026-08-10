@@ -304,4 +304,48 @@ def test_main_window_constructs_without_duplicate_prompts(
     window.update_channel_combo.setCurrentIndex(beta_index)
     assert settings.get_update_channel() == "beta"
     assert "régressions" in window.update_channel_description.text()
+
+    lmstudio_index = window.custom_endpoint_type_combo.findData("lmstudio")
+    window.custom_endpoint_type_combo.setCurrentIndex(lmstudio_index)
+    window._custom_models_silent = True
+    window._on_custom_models_ok(
+        [
+            {
+                "id": "qwen3.5-4b",
+                "identifiers": ["qwen3.5-4b"],
+                "reasoning_supported": True,
+                "reasoning_options": ["off", "on"],
+                "reasoning_default": "on",
+            },
+            {
+                "id": "gpt-oss-20b",
+                "identifiers": ["gpt-oss-20b"],
+                "reasoning_supported": True,
+                "reasoning_options": ["low", "medium", "high"],
+                "reasoning_default": "low",
+            },
+            {
+                "id": "embedding-model",
+                "identifiers": ["embedding-model"],
+                "reasoning_supported": False,
+                "reasoning_options": [],
+                "reasoning_default": None,
+            },
+        ]
+    )
+
+    assert [
+        window.custom_reasoning_effort_combo.itemData(index)
+        for index in range(window.custom_reasoning_effort_combo.count())
+    ] == ["off", "on"]
+
+    window.custom_model_combo.setCurrentText("gpt-oss-20b")
+    assert [
+        window.custom_reasoning_effort_combo.itemData(index)
+        for index in range(window.custom_reasoning_effort_combo.count())
+    ] == ["low", "medium", "high"]
+
+    window.custom_model_combo.setCurrentText("embedding-model")
+    assert window.custom_reasoning_effort_combo.isEnabled() is False
+    assert window.custom_reasoning_effort_combo.currentData() == "none"
     window.close()
