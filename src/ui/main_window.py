@@ -587,6 +587,9 @@ class MainWindow(QMainWindow):
         self.custom_model_combo.currentTextChanged.connect(
             self.update_custom_reasoning_effort_ui
         )
+        self.custom_reasoning_effort_combo.currentIndexChanged.connect(
+            self._apply_custom_reasoning_setting
+        )
         self.custom_endpoint_type_combo.currentIndexChanged.connect(
             self._on_custom_endpoint_configuration_changed
         )
@@ -2704,6 +2707,22 @@ class MainWindow(QMainWindow):
             if model in candidate.get("identifiers", []):
                 return candidate
         return None
+
+    def _apply_custom_reasoning_setting(self, *_args):
+        """Apply a local reasoning choice as soon as the user selects it."""
+        option = normalize_reasoning_option(
+            self.custom_reasoning_effort_combo.currentData()
+        )
+        if not option or option == self.settings.get_custom_reasoning_effort():
+            return
+
+        self.settings.set_custom_reasoning_effort(option)
+        self.settings.sync()
+        if (
+            self.context_menu_manager
+            and self.use_custom_endpoint_checkbox.isChecked()
+        ):
+            self.context_menu_manager.update_client_config()
 
     def update_custom_reasoning_effort_ui(self, *_args):
         """Adapt reasoning choices to the selected local model at runtime."""

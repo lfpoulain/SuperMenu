@@ -948,6 +948,11 @@ class OpenAIClient(QObject):
             reasoning = self._build_lmstudio_reasoning_value()
             if reasoning:
                 data["reasoning"] = reasoning
+                log(
+                    f"LM Studio: raisonnement '{reasoning}' envoyé au modèle "
+                    f"'{self.model}'.",
+                    logging.INFO,
+                )
             return data, image_path
 
         if image_data_url:

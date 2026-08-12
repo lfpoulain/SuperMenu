@@ -1,4 +1,5 @@
 import os
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -348,4 +349,18 @@ def test_main_window_constructs_without_duplicate_prompts(
     window.custom_model_combo.setCurrentText("embedding-model")
     assert window.custom_reasoning_effort_combo.isEnabled() is False
     assert window.custom_reasoning_effort_combo.currentData() == "none"
+
+    client_updates = []
+    window.context_menu_manager = SimpleNamespace(
+        update_client_config=lambda: client_updates.append("updated")
+    )
+    window.use_custom_endpoint_checkbox.setChecked(True)
+    window.custom_model_combo.setCurrentText("qwen3.5-4b")
+    on_index = window.custom_reasoning_effort_combo.findData("on")
+    off_index = window.custom_reasoning_effort_combo.findData("off")
+    window.custom_reasoning_effort_combo.setCurrentIndex(on_index)
+    window.custom_reasoning_effort_combo.setCurrentIndex(off_index)
+
+    assert settings.get_custom_reasoning_effort() == "off"
+    assert client_updates == ["updated", "updated"]
     window.close()
