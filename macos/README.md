@@ -39,7 +39,14 @@ Aucun droit Microphone ou Enregistrement de l’écran n’est utilisé.
 
 Tous les raccourcis partagent un seul écouteur macOS persistant. Modifier un
 raccourci ou revérifier les autorisations met à jour ses liaisons sans arrêter
-ni recréer le tap clavier natif.
+ni recréer le tap clavier natif. Si Quartz désactive temporairement ce tap,
+SuperMenu le réactive en place comme le prévoit Core Graphics. L’enregistreur
+tient également compte de l’inversion Command/Control appliquée par défaut par
+Qt sur macOS : les noms affichés correspondent donc aux touches physiques.
+
+L’affichage des fenêtres demande d’abord l’activation moderne et coopérative
+d’AppKit. L’ancienne activation forcée n’est utilisée qu’en repli de
+compatibilité si macOS n’a pas honoré la demande dans le délai attendu.
 
 La version macOS n’utilise pas le Trousseau afin d’éviter ses demandes lors
 des builds de test non signés. La clé API est enregistrée dans
@@ -50,8 +57,14 @@ le passage depuis une version qui utilisait le Trousseau.
 ## Diagnostic
 
 Les journaux sont conservés dans `~/Library/Logs/SuperMenu`. Le fichier
-`supermenu.log` contient les erreurs Python et `native-crash.log` conserve une
-trace des crashs natifs éventuels. Ils ne contiennent pas la clé API.
+`supermenu.log` trace le chemin complet d’un raccourci (détection, passage au
+thread Qt, activation macOS et affichage du menu) ainsi que les erreurs Python.
+`native-crash.log` conserve une trace des crashs natifs éventuels. Aucun de ces
+fichiers ne contient la clé API, le texte sélectionné ou le contenu des prompts.
+
+Les doublons de raccourcis sont comparés après normalisation. Par exemple,
+`Command+Shift+<` et `Cmd+Shift+<` sont considérés comme le même raccourci et le
+second est refusé sans remplacer le premier.
 
 ## Valider la source
 

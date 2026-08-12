@@ -16,14 +16,22 @@ from src.ui.prompt_dialog import PromptDialog
 from src.ui.response_window import ResponseWindow
 from src.utils.clipboard_manager import ClipboardManager
 from src.utils.loading_indicator import SimpleLoadingIndicator
-from src.utils.logger import log
+from src.utils.logger import log, logger
 from src.utils.safe_dialogs import SafeDialogs
 from src.utils.text_inserter import TextInserter
-from src.utils.window_target import PasteTarget
+from src.utils.window_target import (
+    PasteTarget,
+    activate_current_application,
+    current_application_is_active,
+)
 
 
 COPY_DELAY = 0.18
 RESTORE_DELAY = 0.10
+MENU_ACTIVATION_POLL_MS = 25
+MENU_ACTIVATION_MAX_POLLS = 6
+MENU_FORCED_ACTIVATION_DELAY_MS = 50
+MENU_VISIBILITY_CHECK_DELAY_MS = 350
 
 
 class ContextMenuManager(QObject):
@@ -81,6 +89,7 @@ class ContextMenuManager(QObject):
         if target is None:
             target = PasteTarget.capture()
         if target is None:
+            log("Lecture de la sélection ignorée : aucune application cible")
             return ""
 
         snapshot = ClipboardManager.capture_snapshot()
@@ -89,18 +98,29 @@ class ContextMenuManager(QObject):
         clipboard_changed = False
         try:
             if not ClipboardManager.set_clipboard_text_safe(sentinel):
+                log("Lecture de la sélection impossible : presse-papiers indisponible")
                 return ""
             clipboard_changed = True
             if not target.activate_and_verify():
+                log(
+                    "Lecture de la sélection impossible : application cible "
+                    "non réactivée",
+                    logging.WARNING,
+                )
                 return ""
             self._press_keyboard_shortcut(Key.cmd, "c")
             time.sleep(COPY_DELAY)
             selected_text = ClipboardManager.get_clipboard_text_safe()
             if not selected_text or selected_text == sentinel:
+                log("Lecture de la sélection terminée : aucun texte sélectionné")
                 return ""
+            log(
+                "Lecture de la sélection terminée : "
+                f"{len(selected_text)} caractère(s) détecté(s)"
+            )
             return selected_text
-        except Exception as exc:
-            log(f"Lecture de la sélection impossible : {exc}", logging.WARNING)
+        except Exception:
+            logger.exception("Lecture de la sélection impossible")
             return ""
         finally:
             if clipboard_changed:
@@ -109,13 +129,25 @@ class ContextMenuManager(QObject):
                 ClipboardManager.restore_if_unchanged(snapshot, expected)
 
     def show_menu(self) -> None:
-        if self._closed or self._menu_open:
+        if self._closed:
+            log("Ouverture du menu ignorée : service fermé", logging.WARNING)
             return
+        if self._menu_open:
+            log("Ouverture du menu ignorée : un menu est déjà ouvert")
+            return
+        log("Préparation du menu contextuel")
         target = PasteTarget.capture()
+        log(
+            "Application cible capturée"
+            if target is not None
+            else "Aucune application cible capturée",
+            logging.INFO if target is not None else logging.WARNING,
+        )
         selected_text = self._try_get_selected_text(target)
         menu = QMenu()
         self._menu_open = True
         self._active_menu = menu
+        action_dispatched = False
         for prompt_id, prompt in sorted(
             self.settings.get_prompts().items(),
             key=lambda item: item[1].get("position", 999),
@@ -133,21 +165,98 @@ class ContextMenuManager(QObject):
             self._active_menu = None
             self._menu_open = False
             menu.deleteLater()
+            log("Menu contextuel fermé")
+            if not action_dispatched and target is not None:
+                QTimer.singleShot(0, restore_target_after_cancel)
+
+        def restore_target_after_cancel():
+            restored = target.activate_and_verify()
+            log(
+                "Application cible réactivée après fermeture du menu"
+                if restored
+                else "Application cible non réactivée après fermeture du menu",
+                logging.INFO if restored else logging.WARNING,
+            )
 
         def handle_action(chosen):
+            nonlocal action_dispatched
             data = chosen.data()
+            action_dispatched = bool(data)
             cleanup_menu()
             if self._closed or not data:
                 return
             action_kind, prompt_id = data
+            log(f"Action du menu déclenchée : {action_kind}")
             if action_kind == "prompt":
                 self._handle_prompt(prompt_id, selected_text, target)
             else:
                 self._handle_custom(selected_text, target)
 
+        def popup_menu():
+            if self._closed or self._active_menu is not menu:
+                return
+            try:
+                menu.popup(QCursor.pos())
+                menu.activateWindow()
+                menu.raise_()
+                window_handle = menu.windowHandle()
+                if window_handle is not None:
+                    window_handle.requestActivate()
+                log("Affichage du menu contextuel demandé à Qt")
+                QTimer.singleShot(
+                    MENU_VISIBILITY_CHECK_DELAY_MS,
+                    verify_menu_visibility,
+                )
+            except Exception:
+                logger.exception("Affichage Qt du menu contextuel impossible")
+                cleanup_menu()
+
+        def verify_menu_visibility():
+            if self._active_menu is not menu:
+                return
+            if menu.isVisible():
+                log("Menu contextuel visible")
+                return
+            log(
+                "Le menu contextuel n’est pas devenu visible",
+                logging.ERROR,
+            )
+            cleanup_menu()
+
+        def popup_when_application_is_active(poll_number=0):
+            if self._closed or self._active_menu is not menu:
+                return
+            if current_application_is_active():
+                log("SuperMenu est active : présentation du menu")
+                popup_menu()
+                return
+            if poll_number < MENU_ACTIVATION_MAX_POLLS:
+                QTimer.singleShot(
+                    MENU_ACTIVATION_POLL_MS,
+                    lambda: popup_when_application_is_active(poll_number + 1),
+                )
+                return
+
+            forced = activate_current_application(force=True)
+            log(
+                "Activation de compatibilité demandée à macOS"
+                if forced
+                else "Activation de compatibilité refusée par macOS",
+                logging.WARNING,
+            )
+            QTimer.singleShot(MENU_FORCED_ACTIVATION_DELAY_MS, popup_menu)
+
         menu.triggered.connect(handle_action)
+        menu.aboutToShow.connect(lambda: log("Signal Qt : menu prêt à apparaître"))
         menu.aboutToHide.connect(lambda: QTimer.singleShot(0, cleanup_menu))
-        menu.popup(QCursor.pos())
+        activation_requested = activate_current_application()
+        log(
+            "Demande d’activation moderne envoyée à macOS"
+            if activation_requested
+            else "Demande d’activation macOS indisponible",
+            logging.INFO if activation_requested else logging.WARNING,
+        )
+        QTimer.singleShot(0, popup_when_application_is_active)
 
     def show_custom_mode(self) -> None:
         target = PasteTarget.capture()
@@ -214,8 +323,16 @@ class ContextMenuManager(QObject):
             )
             self._send_request(prompt, content, target=target)
 
+        def raise_prompt_dialog():
+            if self._prompt_dialog is not dialog or not dialog.isVisible():
+                return
+            dialog.raise_()
+            dialog.activateWindow()
+
         dialog.finished.connect(finish_prompt)
+        activate_current_application()
         dialog.open()
+        QTimer.singleShot(60, raise_prompt_dialog)
 
     def _prepare_response_window(
         self,

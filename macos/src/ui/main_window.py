@@ -43,6 +43,7 @@ from src.utils import updater as app_updater
 from src.utils.hotkey_manager import HotkeyRecorderDialog
 from src.utils.paths import resource_path, user_config_dir, user_log_dir
 from src.utils.logger import log
+from src.utils.window_target import activate_current_application
 from src.utils.permissions import (
     accessibility_is_trusted,
     current_permission_status,
@@ -1006,6 +1007,7 @@ class MainWindow(QMainWindow):
             self.show_main_window()
 
     def show_main_window(self):
+        activate_current_application()
         self.refresh_permission_status()
         self.show()
         self.raise_()

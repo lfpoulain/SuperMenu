@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 import sys
 
-from PySide6.QtCore import QCoreApplication, QTimer
+from PySide6.QtCore import QCoreApplication, QObject, QTimer, Slot
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication
 
+from src.config.build_info import APP_VERSION
 from src.config.settings import Settings
 from src.ui.main_window import MainWindow
 from src.ui.theme_manager import ThemeManager
@@ -18,17 +19,19 @@ from src.utils.hotkey_manager import (
     HotkeyService,
     PromptHotkeyManager,
 )
-from src.utils.logger import install_crash_reporting, log
+from src.utils.logger import LOG_FILE, install_crash_reporting, log, logger
 from src.utils.permissions import automation_permissions_are_trusted
 
 
-class SuperMenu:
+class SuperMenu(QObject):
     def __init__(self):
         install_crash_reporting()
+        log(f"Démarrage de SuperMenu macOS {APP_VERSION} — journal : {LOG_FILE}")
         QCoreApplication.setOrganizationName("SuperMenu")
         QCoreApplication.setApplicationName("SuperMenu")
 
         self.app = QApplication(sys.argv)
+        super().__init__()
         self.app.setQuitOnLastWindowClosed(False)
         self.main_window = None
         self._instance_server = None
@@ -84,7 +87,7 @@ class SuperMenu:
         if self.main_window is None:
             return
         if not self.main_window.setup_tray_icon():
-            logging.warning("La barre des menus est indisponible.")
+            logger.warning("La barre des menus est indisponible.")
             self.main_window.show_main_window()
         elif not automation_permissions_are_trusted():
             self.main_window.show_permission_setup()
@@ -92,23 +95,35 @@ class SuperMenu:
             self.main_window.hide()
         self.main_window.schedule_startup_update_check()
 
+    @Slot()
     def show_context_menu(self):
+        log(
+            "Raccourci délivré au thread Qt : menu principal "
+            f"({self.hotkey_manager.hotkey})"
+        )
         try:
             self.context_menu_manager.show_menu()
         except Exception as exc:
-            logging.exception("Ouverture du menu impossible : %s", exc)
+            logger.exception("Ouverture du menu impossible : %s", exc)
 
+    @Slot()
     def show_custom_mode(self):
+        log(
+            "Raccourci délivré au thread Qt : mode personnalisé "
+            f"({self.custom_hotkey_manager.hotkey})"
+        )
         try:
             self.context_menu_manager.show_custom_mode()
         except Exception as exc:
-            logging.exception("Ouverture du mode personnalisé impossible : %s", exc)
+            logger.exception("Ouverture du mode personnalisé impossible : %s", exc)
 
+    @Slot(str)
     def run_prompt_hotkey(self, prompt_id):
+        log("Raccourci délivré au thread Qt : prompt direct")
         try:
             self.context_menu_manager.run_prompt_hotkey(prompt_id)
         except Exception as exc:
-            logging.exception("Exécution du prompt impossible : %s", exc)
+            logger.exception("Exécution du prompt impossible : %s", exc)
 
     def _ensure_single_instance(self):
         server_name = "SuperMenuMacSingleInstance"

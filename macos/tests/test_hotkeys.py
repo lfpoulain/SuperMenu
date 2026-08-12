@@ -1,8 +1,12 @@
+import src.utils.hotkey_manager as hotkey_module
 from src.utils.hotkey_manager import (
     HotkeyManager,
     HotkeyService,
+    _PersistentGlobalHotKeys,
+    _modifier_labels,
     normalize_hotkey,
 )
+from PySide6.QtCore import Qt
 
 
 class FakePersistentListener:
@@ -71,6 +75,28 @@ def test_option_alias_and_function_key_are_supported():
     assert normalized == "<alt>+<f12>"
 
 
+def test_less_than_shortcut_is_parsed_without_being_truncated():
+    normalized, error = normalize_hotkey("Cmd+Shift+<")
+
+    assert error == ""
+    assert normalized == "<cmd>+<shift>+<"
+
+
+def test_qt_macos_modifier_swap_is_mapped_to_physical_keys():
+    command = _modifier_labels(
+        Qt.KeyboardModifier.ControlModifier
+        | Qt.KeyboardModifier.ShiftModifier,
+        macos=True,
+    )
+    control = _modifier_labels(
+        Qt.KeyboardModifier.MetaModifier,
+        macos=True,
+    )
+
+    assert command == ["Cmd", "Shift"]
+    assert control == ["Ctrl"]
+
+
 def test_hotkey_requires_a_modifier():
     normalized, error = normalize_hotkey("K")
     assert normalized is None
@@ -132,6 +158,20 @@ def test_conflicting_hotkey_update_is_atomic():
     assert "déjà utilisé" in custom.last_register_error
 
 
+def test_identical_less_than_shortcuts_are_reported_as_a_conflict():
+    FakePersistentListener.instances = []
+    settings = HotkeySettingsStub()
+    settings.main = "Cmd+Shift+<"
+    settings.custom = "Cmd+Shift+<"
+    service = HotkeyService(listener_factory=FakePersistentListener)
+    main = HotkeyManager(settings, service=service)
+    custom = HotkeyManager(settings, custom_hotkey=True, service=service)
+
+    assert main.registered is True
+    assert custom.registered is False
+    assert "déjà utilisé" in custom.last_register_error
+
+
 def test_listener_is_suspended_without_being_destroyed():
     FakePersistentListener.instances = []
     service = HotkeyService(listener_factory=FakePersistentListener)
@@ -143,3 +183,24 @@ def test_listener_is_suspended_without_being_destroyed():
 
     assert listener.suspended is False
     assert listener.stop_calls == 0
+
+
+def test_disabled_macos_event_tap_is_reenabled_in_place(monkeypatch):
+    enabled = []
+    listener = _PersistentGlobalHotKeys()
+    listener._event_tap = object()
+    event = object()
+
+    monkeypatch.setattr(hotkey_module.sys, "platform", "darwin")
+    monkeypatch.setattr(hotkey_module, "_DISABLED_EVENT_TAP_TYPES", {99})
+    monkeypatch.setattr(
+        hotkey_module,
+        "CGEventTapEnable",
+        lambda tap, state: enabled.append((tap, state)),
+    )
+
+    returned = listener._handler(None, 99, event, None)
+
+    assert returned is event
+    assert enabled == [(listener._event_tap, True)]
+    assert listener.tap_reenable_count == 1

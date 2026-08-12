@@ -9,13 +9,13 @@ from dataclasses import dataclass
 
 try:
     from AppKit import (
-        NSApplicationActivateAllWindows,
+        NSApplication,
         NSApplicationActivateIgnoringOtherApps,
         NSRunningApplication,
         NSWorkspace,
     )
 except ImportError:  # Allows static tests on non-macOS hosts.
-    NSApplicationActivateAllWindows = 0
+    NSApplication = None
     NSApplicationActivateIgnoringOtherApps = 0
     NSRunningApplication = None
     NSWorkspace = None
@@ -28,6 +28,61 @@ def _frontmost_application():
         return NSWorkspace.sharedWorkspace().frontmostApplication()
     except Exception:
         return None
+
+
+def _shared_application():
+    if NSApplication is None:
+        return None
+    try:
+        return NSApplication.sharedApplication()
+    except Exception:
+        return None
+
+
+def current_application_is_active() -> bool:
+    """Return whether AppKit currently considers SuperMenu active."""
+    application = _shared_application()
+    if application is not None:
+        try:
+            return bool(application.isActive())
+        except Exception:
+            pass
+    if NSRunningApplication is None:
+        return False
+    try:
+        current = NSRunningApplication.currentApplication()
+        return bool(current is not None and current.isActive())
+    except Exception:
+        return False
+
+
+def activate_current_application(*, force: bool = False) -> bool:
+    """Request SuperMenu activation, preferring Apple's cooperative API."""
+    application = _shared_application()
+    if application is not None:
+        try:
+            if application.isActive():
+                return True
+            modern_activate = getattr(application, "activate", None)
+            if not force and callable(modern_activate):
+                modern_activate()
+                return True
+        except Exception:
+            pass
+
+    if NSRunningApplication is None:
+        return False
+    try:
+        current = NSRunningApplication.currentApplication()
+        if current is None or current.isTerminated():
+            return False
+        return bool(
+            current.activateWithOptions_(
+                NSApplicationActivateIgnoringOtherApps
+            )
+        )
+    except Exception:
+        return False
 
 
 @dataclass(frozen=True)
@@ -66,6 +121,8 @@ class PasteTarget:
         if NSRunningApplication is None:
             return False
         try:
+            if self.is_current():
+                return True
             application = NSRunningApplication.runningApplicationWithProcessIdentifier_(
                 self.process_id
             )
@@ -75,16 +132,36 @@ class PasteTarget:
                 current_bundle = str(application.bundleIdentifier() or "")
                 if current_bundle != self.bundle_identifier:
                     return False
-            options = (
-                NSApplicationActivateIgnoringOtherApps
-                | NSApplicationActivateAllWindows
-            )
+
+            cooperative = False
+            own_application = _shared_application()
+            if own_application is not None:
+                yield_activation = getattr(
+                    own_application,
+                    "yieldActivationToApplication_",
+                    None,
+                )
+                if callable(yield_activation) and own_application.isActive():
+                    yield_activation(application)
+                    cooperative = True
+
+            options = 0 if cooperative else NSApplicationActivateIgnoringOtherApps
             if not application.activateWithOptions_(options):
                 return False
-            for _attempt in range(5):
+            for _attempt in range(6):
                 time.sleep(0.05)
                 if self.is_current():
                     return True
+
+            # Compatibility fallback for a target that did not honor the
+            # cooperative request (notably on older macOS releases).
+            if cooperative and application.activateWithOptions_(
+                NSApplicationActivateIgnoringOtherApps
+            ):
+                for _attempt in range(4):
+                    time.sleep(0.05)
+                    if self.is_current():
+                        return True
             return False
         except Exception:
             return False

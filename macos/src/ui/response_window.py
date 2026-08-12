@@ -5,7 +5,6 @@
 Fenêtre de réponse modernisée avec pyqtdarktheme
 """
 
-import logging
 import re
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, 
@@ -14,6 +13,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer, Signal
 from src.utils.text_inserter import TextInserter
+from src.utils.logger import logger
+from src.utils.window_target import activate_current_application
 
 class ResponseWindow(QWidget):
     """Window to display API responses"""
@@ -184,8 +185,8 @@ class ResponseWindow(QWidget):
 
     def present(self):
         """Afficher la fenêtre de réponse de manière fiable."""
+        activate_current_application()
         self._show_normal()
-        QApplication.processEvents()
         self._raise_to_front()
         QTimer.singleShot(75, self._raise_to_front)
         QTimer.singleShot(200, self._raise_to_front)
@@ -317,8 +318,8 @@ class ResponseWindow(QWidget):
                     "⚠️ Insertion annulée : la cible a changé"
                 )
                 self.status_label.setProperty("status", "warning")
-        except Exception as e:
-            logging.error(f"Erreur lors du collage: {e}")
+        except Exception:
+            logger.exception("Erreur lors du collage")
     
     def retry_request(self):
         """Retry the API request"""

@@ -17,6 +17,7 @@ CRASH_FILE = LOG_DIR / "native-crash.log"
 
 logger = logging.getLogger("SuperMenu.macOS")
 logger.setLevel(logging.INFO)
+logger.propagate = False
 
 if not logger.handlers:
     formatter = logging.Formatter(
@@ -39,6 +40,8 @@ if not logger.handlers:
 
 def log(message: str, level: int = logging.INFO) -> None:
     logger.log(level, message)
+    for handler in logger.handlers:
+        handler.flush()
 
 
 _crash_reporting_installed = False
