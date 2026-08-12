@@ -3,6 +3,9 @@ from src.utils import window_target
 
 def test_current_application_activation_uses_macos_activation_options(monkeypatch):
     calls = []
+    # Force the legacy fallback even when this test runs on a real Mac where
+    # NSApplication is available and would otherwise take the modern path.
+    monkeypatch.setattr(window_target, "NSApplication", None)
 
     class FakeApplication:
         @staticmethod
@@ -58,6 +61,7 @@ def test_current_application_prefers_modern_self_activation(monkeypatch):
 
 
 def test_current_application_activation_fails_safely_without_appkit(monkeypatch):
+    monkeypatch.setattr(window_target, "NSApplication", None)
     monkeypatch.setattr(window_target, "NSRunningApplication", None)
 
     assert window_target.activate_current_application() is False
