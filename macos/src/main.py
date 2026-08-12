@@ -72,7 +72,7 @@ class SuperMenu:
             logging.warning("La barre des menus est indisponible.")
             self.main_window.show_main_window()
         elif not automation_permissions_are_trusted():
-            self.main_window.show_main_window()
+            self.main_window.show_permission_setup()
         else:
             self.main_window.hide()
         self.main_window.schedule_startup_update_check()

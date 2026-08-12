@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from PySide6.QtCore import QThread, QUrl, Qt, Signal
+from PySide6.QtCore import QThread, QTimer, QUrl, Qt, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -44,6 +44,7 @@ from src.utils.hotkey_manager import HotkeyRecorderDialog
 from src.utils.paths import resource_path, user_config_dir, user_log_dir
 from src.utils.permissions import (
     accessibility_is_trusted,
+    current_permission_status,
     input_monitoring_is_trusted,
     open_accessibility_settings,
     open_input_monitoring_settings,
@@ -92,40 +93,47 @@ class MainWindow(QMainWindow):
         self._quitting = False
         self._loading_prompt = False
         self._update_worker = None
+        self._last_permission_state = None
 
         self.setWindowTitle("SuperMenu - Configuration")
-        self.setMinimumSize(880, 680)
-        self.resize(980, 760)
+        self.setMinimumSize(900, 800)
+        self.resize(1000, 820)
         self.setWindowIcon(QIcon(resource_path("resources", "icons", "icon.png")))
 
         root = QWidget()
         root_layout = QVBoxLayout(root)
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._create_prompts_tab(), "Prompts")
-        self.tabs.addTab(self._create_settings_tab(), "Réglages")
-        self.tabs.addTab(self._create_about_tab(), "À propos")
+        self.tabs.addTab(self._create_prompts_tab(), "📝 Prompts")
+        self.tabs.addTab(self._create_settings_tab(), "⚙️ Paramètres")
+        self.tabs.addTab(self._create_about_tab(), "ℹ️ À propos")
         root_layout.addWidget(self.tabs)
 
         buttons = QHBoxLayout()
         buttons.addStretch()
-        save_button = QPushButton("Enregistrer")
+        save_button = QPushButton("💾 Enregistrer")
         save_button.setDefault(True)
         save_button.clicked.connect(self.save_settings)
         buttons.addWidget(save_button)
-        close_button = QPushButton("Fermer")
+        close_button = QPushButton("❌ Fermer")
         close_button.clicked.connect(self.hide)
         buttons.addWidget(close_button)
         root_layout.addLayout(buttons)
         self.setCentralWidget(root)
 
+        self._permission_timer = QTimer(self)
+        self._permission_timer.setInterval(1500)
+        self._permission_timer.timeout.connect(self.refresh_permission_status)
+        self._permission_timer.start()
+
     def _create_prompts_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(0)
         splitter.setChildrenCollapsible(False)
 
         left = QWidget()
-        left.setMinimumWidth(260)
+        left.setFixedWidth(300)
         left_layout = QVBoxLayout(left)
         self.prompt_search = QLineEdit()
         self.prompt_search.setPlaceholderText("Rechercher un prompt…")
@@ -139,37 +147,46 @@ class MainWindow(QMainWindow):
             QAbstractItemView.DragDropMode.InternalMove
         )
         self.prompt_list.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.prompt_list.setDropIndicatorShown(True)
+        self.prompt_list.setSpacing(6)
+        self.prompt_list.setStyleSheet(
+            "QListWidget { border-radius: 6px; border: 1px solid rgba(52, 152, 219, 0.3); }"
+            "QListWidget:focus { border: 2px solid #3498db; }"
+            "QListWidget::item { padding: 8px; border-left: 3px solid transparent; }"
+            "QListWidget::item:hover { border-left: 3px solid #64B5F6; background-color: rgba(100, 181, 246, 0.10); }"
+            "QListWidget::item:selected { border-left: 3px solid #64B5F6; background-color: rgba(100, 181, 246, 0.18); }"
+        )
         self.prompt_list.currentItemChanged.connect(self._load_selected_prompt)
         self.prompt_list.model().rowsMoved.connect(self._save_prompt_order)
         left_layout.addWidget(self.prompt_list)
         prompt_buttons = QHBoxLayout()
-        add_button = QPushButton("Ajouter")
+        add_button = QPushButton("➕ Ajouter")
         add_button.clicked.connect(self.add_prompt)
         prompt_buttons.addWidget(add_button)
-        delete_button = QPushButton("Supprimer")
+        delete_button = QPushButton("🗑️ Supprimer")
         delete_button.clicked.connect(self.delete_prompt)
         prompt_buttons.addWidget(delete_button)
         left_layout.addLayout(prompt_buttons)
         transfer_buttons = QHBoxLayout()
-        import_button = QPushButton("Importer")
+        import_button = QPushButton("📥 Importer")
         import_button.clicked.connect(self.import_prompts)
         transfer_buttons.addWidget(import_button)
-        export_button = QPushButton("Exporter")
+        export_button = QPushButton("📤 Exporter")
         export_button.clicked.connect(self.export_prompts)
         transfer_buttons.addWidget(export_button)
         left_layout.addLayout(transfer_buttons)
 
         right = QWidget()
         right_layout = QVBoxLayout(right)
-        form_group = QGroupBox("Édition du prompt")
+        form_group = QGroupBox("✏️ Éditer le prompt")
         form = QFormLayout(form_group)
         self.prompt_name = QLineEdit()
-        form.addRow("Nom affiché", self.prompt_name)
+        form.addRow("🏷️ Nom affiché :", self.prompt_name)
         self.prompt_instruction = QTextEdit()
         self.prompt_instruction.setMinimumHeight(180)
-        form.addRow("Instruction", self.prompt_instruction)
+        form.addRow("📝 Prompt :", self.prompt_instruction)
         self.prompt_status = QLineEdit()
-        form.addRow("Message d’attente", self.prompt_status)
+        form.addRow("⏳ Message d’attente :", self.prompt_status)
         self.prompt_direct = QCheckBox(
             "Insérer directement la réponse dans l’application cible"
         )
@@ -184,9 +201,9 @@ class MainWindow(QMainWindow):
         clear_button = QPushButton("Effacer")
         clear_button.clicked.connect(self.prompt_hotkey.clear)
         hotkey_row.addWidget(clear_button)
-        form.addRow("Raccourci direct", hotkey_row)
+        form.addRow("⌨️ Raccourci direct :", hotkey_row)
         right_layout.addWidget(form_group)
-        save_prompt_button = QPushButton("Enregistrer le prompt")
+        save_prompt_button = QPushButton("💾 Enregistrer le prompt")
         save_prompt_button.clicked.connect(self.save_current_prompt)
         right_layout.addWidget(save_prompt_button)
         right_layout.addStretch()
@@ -206,7 +223,7 @@ class MainWindow(QMainWindow):
         content = QWidget()
         layout = QVBoxLayout(content)
 
-        api_group = QGroupBox("OpenAI")
+        api_group = QGroupBox("🤖 Configuration OpenAI")
         api_form = QFormLayout(api_group)
         self.api_key = QLineEdit(self.settings.get_api_key())
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
@@ -221,7 +238,7 @@ class MainWindow(QMainWindow):
         api_form.addRow("Effort de raisonnement", self.reasoning_combo)
         layout.addWidget(api_group)
 
-        endpoint_group = QGroupBox("Modèle local ou endpoint personnalisé")
+        endpoint_group = QGroupBox("🔌 Endpoint personnalisé")
         endpoint_form = QFormLayout(endpoint_group)
         self.use_custom_endpoint = QCheckBox("Utiliser cet endpoint")
         self.use_custom_endpoint.setChecked(self.settings.get_use_custom_endpoint())
@@ -247,7 +264,7 @@ class MainWindow(QMainWindow):
         endpoint_form.addRow("Effort de raisonnement", self.custom_reasoning)
         layout.addWidget(endpoint_group)
 
-        shortcuts_group = QGroupBox("Raccourcis et autorisation")
+        shortcuts_group = QGroupBox("⌨️ Raccourcis clavier")
         shortcuts_form = QFormLayout(shortcuts_group)
         main_row = QHBoxLayout()
         self.main_hotkey = QLineEdit(self.settings.get_hotkey())
@@ -265,23 +282,57 @@ class MainWindow(QMainWindow):
         custom_record.clicked.connect(self.record_custom_hotkey)
         custom_row.addWidget(custom_record)
         shortcuts_form.addRow("Mode personnalisé", custom_row)
-        permission_row = QHBoxLayout()
-        self.permission_status = QLabel()
-        permission_row.addWidget(self.permission_status)
-        permission_row.addStretch()
-        request_button = QPushButton("Demander")
-        request_button.clicked.connect(self.request_accessibility_permission)
-        permission_row.addWidget(request_button)
-        open_button = QPushButton("Accessibilité…")
-        open_button.clicked.connect(open_accessibility_settings)
-        permission_row.addWidget(open_button)
-        input_button = QPushButton("Entrée…")
-        input_button.clicked.connect(open_input_monitoring_settings)
-        permission_row.addWidget(input_button)
-        shortcuts_form.addRow("Autorisations macOS", permission_row)
         layout.addWidget(shortcuts_group)
 
-        general_group = QGroupBox("Interface et mises à jour")
+        permissions_group = QGroupBox("🔐 Autorisations macOS")
+        permissions_layout = QVBoxLayout(permissions_group)
+        explanation = QLabel(
+            "SuperMenu utilise Accessibilité pour Copier/Coller et "
+            "Surveillance de l’entrée pour détecter ses raccourcis globaux."
+        )
+        explanation.setWordWrap(True)
+        permissions_layout.addWidget(explanation)
+
+        accessibility_row = QHBoxLayout()
+        self.accessibility_status = QLabel()
+        accessibility_row.addWidget(self.accessibility_status)
+        accessibility_row.addStretch()
+        self.accessibility_button = QPushButton("Configurer Accessibilité…")
+        self.accessibility_button.clicked.connect(
+            self.request_accessibility_permission
+        )
+        accessibility_row.addWidget(self.accessibility_button)
+        permissions_layout.addLayout(accessibility_row)
+
+        input_row = QHBoxLayout()
+        self.input_monitoring_status = QLabel()
+        input_row.addWidget(self.input_monitoring_status)
+        input_row.addStretch()
+        self.input_monitoring_button = QPushButton(
+            "Configurer Surveillance de l’entrée…"
+        )
+        self.input_monitoring_button.clicked.connect(
+            self.request_input_monitoring_permission
+        )
+        input_row.addWidget(self.input_monitoring_button)
+        permissions_layout.addLayout(input_row)
+
+        status_row = QHBoxLayout()
+        self.hotkey_service_status = QLabel()
+        self.hotkey_service_status.setWordWrap(True)
+        status_row.addWidget(self.hotkey_service_status, 1)
+        recheck_button = QPushButton("🔄 Revérifier")
+        recheck_button.clicked.connect(
+            lambda: self.refresh_permission_status(force_reload=True)
+        )
+        status_row.addWidget(recheck_button)
+        quit_button = QPushButton("Quitter pour appliquer")
+        quit_button.clicked.connect(self.quit_application)
+        status_row.addWidget(quit_button)
+        permissions_layout.addLayout(status_row)
+        layout.addWidget(permissions_group)
+
+        general_group = QGroupBox("🎨 Interface et mises à jour")
         general_form = QFormLayout(general_group)
         self.theme_combo = NoWheelComboBox()
         for key, label in ThemeManager.get_theme_names().items():
@@ -521,28 +572,98 @@ class MainWindow(QMainWindow):
             self.custom_hotkey.setText(self.settings.get_custom_hotkey())
 
     def request_accessibility_permission(self):
+        """Request control access and always reveal the matching settings pane."""
         accessibility_is_trusted(prompt=True)
-        input_monitoring_is_trusted(prompt=True)
-        self.refresh_permission_status()
-        if accessibility_is_trusted() and input_monitoring_is_trusted():
-            if self.hotkey_manager:
-                self.hotkey_manager.register_hotkey()
-            if self.custom_hotkey_manager:
-                self.custom_hotkey_manager.register_hotkey()
-            self._refresh_prompt_hotkeys()
+        open_accessibility_settings()
+        QTimer.singleShot(800, self.refresh_permission_status)
 
-    def refresh_permission_status(self):
-        accessibility = accessibility_is_trusted()
-        input_monitoring = input_monitoring_is_trusted()
-        trusted = accessibility and input_monitoring
-        self.permission_status.setText(
-            "Accessibilité : "
-            f"{'OK' if accessibility else 'à autoriser'} · Entrée : "
-            f"{'OK' if input_monitoring else 'à autoriser'}"
+    def request_input_monitoring_permission(self):
+        """Request global keyboard monitoring and reveal its settings pane."""
+        input_monitoring_is_trusted(prompt=True)
+        open_input_monitoring_settings()
+        QTimer.singleShot(800, self.refresh_permission_status)
+
+    @staticmethod
+    def _set_status_label(label, text, granted):
+        label.setText(text)
+        label.setProperty("status", "success" if granted else "warning")
+        label.style().unpolish(label)
+        label.style().polish(label)
+
+    def _reload_all_hotkeys(self):
+        results = []
+        for manager in (self.hotkey_manager, self.custom_hotkey_manager):
+            if manager is not None:
+                results.append(manager.register_hotkey())
+        if self.prompt_hotkey_manager is not None:
+            prompt_ok, _errors = self.prompt_hotkey_manager.refresh_hotkeys()
+            results.append(prompt_ok)
+        return all(results) if results else True
+
+    def refresh_permission_status(self, force_reload=False):
+        status = current_permission_status()
+        state = (status.accessibility, status.input_monitoring)
+
+        self._set_status_label(
+            self.accessibility_status,
+            "✅ Accessibilité autorisée"
+            if status.accessibility
+            else "⚠️ Accessibilité manquante",
+            status.accessibility,
         )
-        self.permission_status.setProperty("status", "success" if trusted else "warning")
-        self.permission_status.style().unpolish(self.permission_status)
-        self.permission_status.style().polish(self.permission_status)
+        self._set_status_label(
+            self.input_monitoring_status,
+            "✅ Surveillance de l’entrée autorisée"
+            if status.input_monitoring
+            else "⚠️ Surveillance de l’entrée manquante",
+            status.input_monitoring,
+        )
+        self.accessibility_button.setEnabled(not status.accessibility)
+        self.input_monitoring_button.setEnabled(not status.input_monitoring)
+
+        permissions_changed = (
+            self._last_permission_state is not None
+            and state != self._last_permission_state
+        )
+        should_reload = status.all_granted and (
+            force_reload or permissions_changed
+        )
+        hotkeys_ok = True
+        if should_reload:
+            hotkeys_ok = self._reload_all_hotkeys()
+
+        if not status.all_granted:
+            missing = " et ".join(status.missing_labels)
+            message = (
+                f"⚠️ Raccourcis inactifs : autorise {missing}. "
+                "Si SuperMenu n’apparaît pas, ajoute SuperMenu.app avec le bouton +."
+            )
+            granted = False
+        elif hotkeys_ok and all(
+            manager is None or manager.registered
+            for manager in (self.hotkey_manager, self.custom_hotkey_manager)
+        ):
+            message = "✅ Raccourcis globaux actifs"
+            granted = True
+        else:
+            errors = [
+                manager.last_register_error
+                for manager in (self.hotkey_manager, self.custom_hotkey_manager)
+                if manager is not None and manager.last_register_error
+            ]
+            detail = errors[0] if errors else "redémarrage requis"
+            message = (
+                "⚠️ Autorisations accordées, mais les raccourcis ne sont "
+                f"pas encore actifs ({detail}). Quitte puis relance SuperMenu."
+            )
+            granted = False
+        self._set_status_label(
+            self.hotkey_service_status,
+            message,
+            granted,
+        )
+        self._last_permission_state = state
+        return status
 
     def _validate_endpoint_settings(self):
         if not self.use_custom_endpoint.isChecked():
@@ -614,6 +735,9 @@ class MainWindow(QMainWindow):
         update_action = QAction("Rechercher une mise à jour", self)
         update_action.triggered.connect(lambda: self.check_for_updates(False))
         menu.addAction(update_action)
+        permission_action = QAction("Autorisations macOS…", self)
+        permission_action.triggered.connect(self.show_permission_setup)
+        menu.addAction(permission_action)
         menu.addSeparator()
         quit_action = QAction("Quitter", self)
         quit_action.triggered.connect(self.quit_application)
@@ -633,6 +757,10 @@ class MainWindow(QMainWindow):
         self.show()
         self.raise_()
         self.activateWindow()
+
+    def show_permission_setup(self):
+        self.tabs.setCurrentIndex(1)
+        self.show_main_window()
 
     def schedule_startup_update_check(self):
         today = date.today().isoformat()

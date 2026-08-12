@@ -252,6 +252,13 @@ class HotkeyManager(QObject):
         try:
             self._listener = GlobalHotKeys({normalized: self._on_hotkey_triggered})
             self._listener.start()
+            self._listener.wait()
+            if not self._listener.is_alive():
+                self._listener = None
+                self._last_register_error = (
+                    "Le service de raccourcis macOS n’a pas pu démarrer"
+                )
+                return False
             self.registered = True
             self._last_register_error = ""
             log(f"Raccourci enregistré : {self.hotkey}")
@@ -297,6 +304,10 @@ class HotkeyManager(QObject):
 
     def close(self) -> None:
         self.unregister_hotkey()
+
+    @property
+    def last_register_error(self) -> str:
+        return self._last_register_error
 
 
 class PromptHotkeyManager(QObject):
@@ -349,6 +360,12 @@ class PromptHotkeyManager(QObject):
         try:
             self._listener = GlobalHotKeys(mapping)
             self._listener.start()
+            self._listener.wait()
+            if not self._listener.is_alive():
+                self._listener = None
+                self._errors["registration"] = (
+                    "Le service de raccourcis macOS n’a pas pu démarrer"
+                )
         except Exception as exc:
             self._errors["registration"] = str(exc)
         return not self._errors, dict(self._errors)
