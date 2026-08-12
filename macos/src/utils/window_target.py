@@ -30,18 +30,18 @@ def _frontmost_application():
         return None
 
 
-def _shared_application():
-    if NSApplication is None:
+def _shared_application(application_class):
+    if application_class is None:
         return None
     try:
-        return NSApplication.sharedApplication()
+        return application_class.sharedApplication()
     except Exception:
         return None
 
 
 def current_application_is_active() -> bool:
     """Return whether AppKit currently considers SuperMenu active."""
-    application = _shared_application()
+    application = _shared_application(NSApplication)
     if application is not None:
         try:
             return bool(application.isActive())
@@ -56,9 +56,15 @@ def current_application_is_active() -> bool:
         return False
 
 
-def activate_current_application(*, force: bool = False) -> bool:
-    """Request SuperMenu activation, preferring Apple's cooperative API."""
-    application = _shared_application()
+def _activate_current_application(
+    application_class,
+    running_application_class,
+    legacy_activation_option,
+    *,
+    force: bool = False,
+) -> bool:
+    """Implementation with explicit native adapters for deterministic tests."""
+    application = _shared_application(application_class)
     if application is not None:
         try:
             if application.isActive():
@@ -70,19 +76,29 @@ def activate_current_application(*, force: bool = False) -> bool:
         except Exception:
             pass
 
-    if NSRunningApplication is None:
+    if running_application_class is None:
         return False
     try:
-        current = NSRunningApplication.currentApplication()
+        current = running_application_class.currentApplication()
         if current is None or current.isTerminated():
             return False
         return bool(
             current.activateWithOptions_(
-                NSApplicationActivateIgnoringOtherApps
+                legacy_activation_option
             )
         )
     except Exception:
         return False
+
+
+def activate_current_application(*, force: bool = False) -> bool:
+    """Request SuperMenu activation, preferring Apple's cooperative API."""
+    return _activate_current_application(
+        NSApplication,
+        NSRunningApplication,
+        NSApplicationActivateIgnoringOtherApps,
+        force=force,
+    )
 
 
 @dataclass(frozen=True)
@@ -134,7 +150,7 @@ class PasteTarget:
                     return False
 
             cooperative = False
-            own_application = _shared_application()
+            own_application = _shared_application(NSApplication)
             if own_application is not None:
                 yield_activation = getattr(
                     own_application,

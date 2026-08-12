@@ -1,11 +1,8 @@
 from src.utils import window_target
 
 
-def test_current_application_activation_uses_macos_activation_options(monkeypatch):
+def test_current_application_activation_uses_macos_activation_options():
     calls = []
-    # Force the legacy fallback even when this test runs on a real Mac where
-    # NSApplication is available and would otherwise take the modern path.
-    monkeypatch.setattr(window_target, "NSApplication", None)
 
     class FakeApplication:
         @staticmethod
@@ -22,22 +19,15 @@ def test_current_application_activation_uses_macos_activation_options(monkeypatc
         def currentApplication():
             return FakeApplication()
 
-    monkeypatch.setattr(
-        window_target,
-        "NSRunningApplication",
+    assert window_target._activate_current_application(
+        None,
         FakeRunningApplication,
-    )
-    monkeypatch.setattr(
-        window_target,
-        "NSApplicationActivateIgnoringOtherApps",
         2,
-    )
-
-    assert window_target.activate_current_application() is True
+    ) is True
     assert calls == [2]
 
 
-def test_current_application_prefers_modern_self_activation(monkeypatch):
+def test_current_application_prefers_modern_self_activation():
     calls = []
 
     class FakeApplication:
@@ -54,17 +44,20 @@ def test_current_application_prefers_modern_self_activation(monkeypatch):
         def sharedApplication():
             return FakeApplication()
 
-    monkeypatch.setattr(window_target, "NSApplication", FakeNSApplication)
-
-    assert window_target.activate_current_application() is True
+    assert window_target._activate_current_application(
+        FakeNSApplication,
+        None,
+        0,
+    ) is True
     assert calls == ["activate"]
 
 
-def test_current_application_activation_fails_safely_without_appkit(monkeypatch):
-    monkeypatch.setattr(window_target, "NSApplication", None)
-    monkeypatch.setattr(window_target, "NSRunningApplication", None)
-
-    assert window_target.activate_current_application() is False
+def test_current_application_activation_fails_safely_without_appkit():
+    assert window_target._activate_current_application(
+        None,
+        None,
+        0,
+    ) is False
 
 
 def test_paste_target_yields_before_cooperative_activation(monkeypatch):
