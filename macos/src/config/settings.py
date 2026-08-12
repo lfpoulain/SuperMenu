@@ -7,7 +7,6 @@ import logging
 import uuid
 from pathlib import Path
 
-import keyring
 from PySide6.QtCore import QSettings
 
 from src.api.model_capabilities import normalize_reasoning_option
@@ -25,7 +24,7 @@ from src.utils.paths import settings_file
 CUSTOM_REASONING_EFFORTS = ["none", "low", "medium", "high"]
 OLLAMA_GPT_OSS_THINK_EFFORTS = ["low", "medium", "high"]
 UPDATE_CHANNELS = ("stable", "beta")
-KEYRING_SERVICE = "SuperMenu macOS"
+API_KEY_SETTING = "openai_api_key"
 
 
 def _normalize_update_channel(value) -> str:
@@ -148,6 +147,7 @@ class Settings:
         defaults = {
             "hotkey": self.default_hotkey,
             "custom_hotkey": self.default_custom_hotkey,
+            API_KEY_SETTING: "",
             "model": self.default_model,
             "openai_reasoning_effort": self.default_reasoning_effort,
             "custom_reasoning_effort": self.default_custom_reasoning_effort,
@@ -166,21 +166,10 @@ class Settings:
         self.settings.sync()
 
     def get_api_key(self) -> str:
-        try:
-            return keyring.get_password(KEYRING_SERVICE, "openai_api_key") or ""
-        except Exception as exc:
-            log(f"Lecture de la clé API impossible : {exc}", logging.WARNING)
-            return ""
+        return str(self.settings.value(API_KEY_SETTING, "") or "").strip()
 
     def set_api_key(self, api_key: str) -> None:
-        value = str(api_key or "").strip()
-        if value:
-            keyring.set_password(KEYRING_SERVICE, "openai_api_key", value)
-            return
-        try:
-            keyring.delete_password(KEYRING_SERVICE, "openai_api_key")
-        except keyring.errors.PasswordDeleteError:
-            pass
+        self.settings.setValue(API_KEY_SETTING, str(api_key or "").strip())
 
     def get_model(self) -> str:
         model = normalize_openai_model(self.settings.value("model"))
@@ -399,3 +388,10 @@ class Settings:
 
     def sync(self) -> None:
         self.settings.sync()
+        try:
+            Path(self.config_path).chmod(0o600)
+        except OSError as exc:
+            log(
+                f"Impossible de restreindre les permissions de configuration : {exc}",
+                logging.WARNING,
+            )

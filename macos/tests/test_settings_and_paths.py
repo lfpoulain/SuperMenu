@@ -28,8 +28,19 @@ def test_settings_use_macos_defaults(tmp_path, monkeypatch):
     assert "screenshot" not in settings.settings.allKeys()
 
 
+def test_api_key_is_stored_in_the_private_macos_config(tmp_path):
+    config_path = tmp_path / "settings.ini"
+    settings = Settings(config_path=str(config_path))
+
+    settings.set_api_key("sk-local-test")
+    settings.sync()
+
+    reloaded = Settings(config_path=str(config_path))
+    assert reloaded.get_api_key() == "sk-local-test"
+    assert "sk-local-test" in config_path.read_text(encoding="utf-8")
+
+
 def test_packaged_resource_smoke_status():
     status = packaged_resource_status()
     assert status["ok"] is True
     assert Path(status["icon"]).is_file()
-

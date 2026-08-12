@@ -37,6 +37,12 @@ l’application packagée, c’est `SuperMenu.app` qu’il faudra autoriser. Ces
 droits servent uniquement aux raccourcis globaux et aux commandes Copier/Coller.
 Aucun droit Microphone ou Enregistrement de l’écran n’est utilisé.
 
+La version macOS n’utilise pas le Trousseau afin d’éviter ses demandes lors
+des builds de test non signés. La clé API est enregistrée dans
+`~/Library/Application Support/SuperMenu/SuperMenu.ini`, dont l’accès est
+limité au compte utilisateur. Elle devra être saisie une première fois après
+le passage depuis une version qui utilisait le Trousseau.
+
 ## Valider la source
 
 ```bash

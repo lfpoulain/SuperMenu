@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSplitter,
+    QStyle,
     QSystemTrayIcon,
     QTabWidget,
     QTextEdit,
@@ -72,6 +73,33 @@ class UpdateCheckWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class CustomModelsWorker(QThread):
+    finished_ok = Signal(list)
+    failed = Signal(str)
+
+    def __init__(self, endpoint: str, api_key: str | None, endpoint_type: str):
+        super().__init__()
+        self.endpoint = endpoint
+        self.api_key = api_key
+        self.endpoint_type = endpoint_type
+
+    def run(self):
+        try:
+            from src.api.openai_client import OpenAIClient
+
+            success, result = OpenAIClient.fetch_available_models(
+                self.endpoint,
+                self.api_key,
+                endpoint_type=self.endpoint_type,
+            )
+            if success:
+                self.finished_ok.emit(result)
+            else:
+                self.failed.emit(str(result))
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class MainWindow(QMainWindow):
     """Edit prompts and settings while the app lives in the menu bar."""
 
@@ -93,6 +121,7 @@ class MainWindow(QMainWindow):
         self._quitting = False
         self._loading_prompt = False
         self._update_worker = None
+        self._custom_models_worker = None
         self._last_permission_state = None
 
         self.setWindowTitle("SuperMenu - Configuration")
@@ -223,26 +252,43 @@ class MainWindow(QMainWindow):
         content = QWidget()
         layout = QVBoxLayout(content)
 
-        api_group = QGroupBox("🤖 Configuration OpenAI")
-        api_form = QFormLayout(api_group)
+        endpoint_toggle = QCheckBox(
+            "Activer un endpoint personnalisé (ex: Ollama / LM Studio)"
+        )
+        endpoint_toggle.setChecked(self.settings.get_use_custom_endpoint())
+        endpoint_toggle.toggled.connect(self.toggle_custom_endpoint)
+        self.use_custom_endpoint = endpoint_toggle
+        layout.addWidget(endpoint_toggle)
+
+        api_group = QGroupBox("OpenAI")
+        api_layout = QVBoxLayout(api_group)
+        self.openai_group = api_group
+        api_layout.addWidget(QLabel("Clé API :"))
         self.api_key = QLineEdit(self.settings.get_api_key())
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key.setPlaceholderText("sk-…")
-        api_form.addRow("Clé API", self.api_key)
+        api_layout.addWidget(self.api_key)
+        api_layout.addWidget(QLabel("Modèle :"))
         self.model_combo = NoWheelComboBox()
         self.model_combo.addItems(AVAILABLE_MODELS)
         self.model_combo.setCurrentText(self.settings.get_model())
         self.model_combo.currentTextChanged.connect(self._refresh_reasoning_options)
-        api_form.addRow("Modèle", self.model_combo)
+        api_layout.addWidget(self.model_combo)
+        api_layout.addWidget(QLabel("Raisonnement :"))
         self.reasoning_combo = NoWheelComboBox()
-        api_form.addRow("Effort de raisonnement", self.reasoning_combo)
+        api_layout.addWidget(self.reasoning_combo)
         layout.addWidget(api_group)
 
-        endpoint_group = QGroupBox("🔌 Endpoint personnalisé")
-        endpoint_form = QFormLayout(endpoint_group)
-        self.use_custom_endpoint = QCheckBox("Utiliser cet endpoint")
-        self.use_custom_endpoint.setChecked(self.settings.get_use_custom_endpoint())
-        endpoint_form.addRow("", self.use_custom_endpoint)
+        endpoint_group = QGroupBox("Endpoint personnalisé (Ollama, etc.)")
+        endpoint_layout = QVBoxLayout(endpoint_group)
+        self.custom_group = endpoint_group
+        endpoint_layout.addWidget(
+            QLabel("URL de l’endpoint (ex: http://localhost:11434) :")
+        )
+        self.custom_endpoint = QLineEdit(self.settings.get_custom_endpoint())
+        self.custom_endpoint.setPlaceholderText("http://localhost:11434")
+        endpoint_layout.addWidget(self.custom_endpoint)
+        endpoint_layout.addWidget(QLabel("Type d’endpoint :"))
         self.endpoint_type = NoWheelComboBox()
         self.endpoint_type.addItem("Ollama", "ollama")
         self.endpoint_type.addItem("LM Studio", "lmstudio")
@@ -250,18 +296,29 @@ class MainWindow(QMainWindow):
             self.settings.get_custom_endpoint_type()
         )
         self.endpoint_type.setCurrentIndex(max(0, type_index))
-        endpoint_form.addRow("Type", self.endpoint_type)
-        self.custom_endpoint = QLineEdit(self.settings.get_custom_endpoint())
-        self.custom_endpoint.setPlaceholderText("http://localhost:11434")
-        endpoint_form.addRow("Adresse", self.custom_endpoint)
-        self.custom_model = QLineEdit(self.settings.get_custom_model())
-        endpoint_form.addRow("Modèle", self.custom_model)
+        endpoint_layout.addWidget(self.endpoint_type)
+        endpoint_layout.addWidget(QLabel("Modèle :"))
+        custom_model_row = QHBoxLayout()
+        self.custom_model = NoWheelComboBox()
+        self.custom_model.setEditable(True)
+        self.custom_model.setPlaceholderText("Sélectionnez ou entrez un modèle")
+        saved_custom_model = self.settings.get_custom_model()
+        if saved_custom_model:
+            self.custom_model.addItem(saved_custom_model)
+            self.custom_model.setCurrentText(saved_custom_model)
+        custom_model_row.addWidget(self.custom_model, 1)
+        refresh_models = QPushButton("Actualiser")
+        refresh_models.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+        refresh_models.clicked.connect(self.refresh_custom_models)
+        custom_model_row.addWidget(refresh_models)
+        endpoint_layout.addLayout(custom_model_row)
+        endpoint_layout.addWidget(QLabel("Raisonnement / think :"))
         self.custom_reasoning = NoWheelComboBox()
         self.custom_reasoning.addItems(CUSTOM_REASONING_EFFORTS)
         self.custom_reasoning.setCurrentText(
             self.settings.get_custom_reasoning_effort()
         )
-        endpoint_form.addRow("Effort de raisonnement", self.custom_reasoning)
+        endpoint_layout.addWidget(self.custom_reasoning)
         layout.addWidget(endpoint_group)
 
         shortcuts_group = QGroupBox("⌨️ Raccourcis clavier")
@@ -354,6 +411,7 @@ class MainWindow(QMainWindow):
         scroll.setWidget(content)
         container_layout.addWidget(scroll)
         self._refresh_reasoning_options(self.settings.get_model())
+        self.toggle_custom_endpoint()
         self.refresh_permission_status()
         return container
 
@@ -560,6 +618,51 @@ class MainWindow(QMainWindow):
         self.reasoning_combo.addItems(get_reasoning_efforts_for_model(model))
         self.reasoning_combo.setCurrentText(current)
 
+    def toggle_custom_endpoint(self, *_args):
+        """Show the same OpenAI/custom endpoint switch used by Windows."""
+        use_custom = self.use_custom_endpoint.isChecked()
+        self.openai_group.setVisible(not use_custom)
+        self.custom_group.setVisible(use_custom)
+
+    def refresh_custom_models(self, _checked=False):
+        if self._custom_models_worker and self._custom_models_worker.isRunning():
+            return
+        endpoint = self.custom_endpoint.text().strip()
+        valid, message = Validators.validate_url(endpoint)
+        if not valid:
+            QMessageBox.warning(self, "Endpoint invalide", message)
+            return
+        api_key = self.api_key.text().strip() or None
+        self._custom_models_worker = CustomModelsWorker(
+            endpoint,
+            api_key,
+            self.endpoint_type.currentData(),
+        )
+        self._custom_models_worker.finished_ok.connect(
+            self._on_custom_models_loaded
+        )
+        self._custom_models_worker.failed.connect(
+            self._on_custom_models_failed
+        )
+        self._custom_models_worker.start()
+
+    def _on_custom_models_loaded(self, models):
+        current = self.custom_model.currentText().strip()
+        self.custom_model.clear()
+        self.custom_model.addItems(models)
+        if current:
+            self.custom_model.setCurrentText(current)
+        elif models:
+            self.custom_model.setCurrentIndex(0)
+        QMessageBox.information(
+            self,
+            "Modèles récupérés",
+            f"{len(models)} modèle(s) trouvé(s) sur le serveur.",
+        )
+
+    def _on_custom_models_failed(self, message):
+        QMessageBox.warning(self, "Récupération impossible", str(message))
+
     def record_main_hotkey(self):
         if self.hotkey_manager and self.hotkey_manager.show_hotkey_recorder(self):
             self.main_hotkey.setText(self.settings.get_hotkey())
@@ -604,18 +707,28 @@ class MainWindow(QMainWindow):
         status = current_permission_status()
         state = (status.accessibility, status.input_monitoring)
 
-        self._set_status_label(
-            self.accessibility_status,
+        accessibility_text = (
             "✅ Accessibilité autorisée"
             if status.accessibility
-            else "⚠️ Accessibilité manquante",
+            else "⚠️ Accessibilité manquante"
+        )
+        if not status.accessibility_check_available:
+            accessibility_text = "⚠️ État Accessibilité non lisible"
+        self._set_status_label(
+            self.accessibility_status,
+            accessibility_text,
             status.accessibility,
         )
-        self._set_status_label(
-            self.input_monitoring_status,
+        input_text = (
             "✅ Surveillance de l’entrée autorisée"
             if status.input_monitoring
-            else "⚠️ Surveillance de l’entrée manquante",
+            else "⚠️ Surveillance de l’entrée manquante"
+        )
+        if not status.input_monitoring_check_available:
+            input_text = "⚠️ État Surveillance de l’entrée non lisible"
+        self._set_status_label(
+            self.input_monitoring_status,
+            input_text,
             status.input_monitoring,
         )
         self.accessibility_button.setEnabled(not status.accessibility)
@@ -625,26 +738,34 @@ class MainWindow(QMainWindow):
             self._last_permission_state is not None
             and state != self._last_permission_state
         )
-        should_reload = status.all_granted and (
-            force_reload or permissions_changed
-        )
+        should_reload = force_reload or permissions_changed
         hotkeys_ok = True
         if should_reload:
             hotkeys_ok = self._reload_all_hotkeys()
 
-        if not status.all_granted:
+        hotkey_managers = [
+            manager
+            for manager in (self.hotkey_manager, self.custom_hotkey_manager)
+            if manager is not None
+        ]
+        listeners_registered = bool(hotkey_managers) and all(
+            manager.registered for manager in hotkey_managers
+        )
+        if listeners_registered and hotkeys_ok:
+            message = "✅ Raccourcis globaux actifs"
+            if not status.all_granted:
+                message += (
+                    " — la lecture de l’état macOS reste incomplète ; "
+                    "vérifie Accessibilité avant le premier copier-coller."
+                )
+            granted = True
+        elif not status.all_granted:
             missing = " et ".join(status.missing_labels)
             message = (
                 f"⚠️ Raccourcis inactifs : autorise {missing}. "
                 "Si SuperMenu n’apparaît pas, ajoute SuperMenu.app avec le bouton +."
             )
             granted = False
-        elif hotkeys_ok and all(
-            manager is None or manager.registered
-            for manager in (self.hotkey_manager, self.custom_hotkey_manager)
-        ):
-            message = "✅ Raccourcis globaux actifs"
-            granted = True
         else:
             errors = [
                 manager.last_register_error
@@ -672,7 +793,9 @@ class MainWindow(QMainWindow):
         if not valid:
             QMessageBox.warning(self, "Endpoint invalide", message)
             return False
-        valid, message = Validators.validate_model_name(self.custom_model.text())
+        valid, message = Validators.validate_model_name(
+            self.custom_model.currentText()
+        )
         if not valid:
             QMessageBox.warning(self, "Modèle invalide", message)
             return False
@@ -684,11 +807,7 @@ class MainWindow(QMainWindow):
         current_prompt = self.prompt_list.currentItem()
         if current_prompt is not None and not self.save_current_prompt(False):
             return False
-        try:
-            self.settings.set_api_key(self.api_key.text())
-        except Exception as exc:
-            QMessageBox.warning(self, "Trousseau macOS", str(exc))
-            return False
+        self.settings.set_api_key(self.api_key.text())
         model = self.model_combo.currentText()
         self.settings.set_model(model)
         self.settings.set_openai_reasoning_effort(
@@ -697,7 +816,7 @@ class MainWindow(QMainWindow):
         self.settings.set_use_custom_endpoint(self.use_custom_endpoint.isChecked())
         self.settings.set_custom_endpoint(self.custom_endpoint.text())
         self.settings.set_custom_endpoint_type(self.endpoint_type.currentData())
-        self.settings.set_custom_model(self.custom_model.text())
+        self.settings.set_custom_model(self.custom_model.currentText())
         self.settings.set_custom_reasoning_effort(
             self.custom_reasoning.currentText()
         )

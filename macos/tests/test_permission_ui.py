@@ -84,3 +84,39 @@ def test_granted_permissions_reload_hotkeys(window, monkeypatch):
     assert window.custom_hotkey_manager.registered is True
     assert "actifs" in window.hotkey_service_status.text()
 
+
+def test_custom_endpoint_switch_uses_windows_style_on_off_display(window):
+    window.use_custom_endpoint.setChecked(False)
+    assert window.openai_group.isHidden() is False
+    assert window.custom_group.isHidden() is True
+
+    window.use_custom_endpoint.setChecked(True)
+    assert window.openai_group.isHidden() is True
+    assert window.custom_group.isHidden() is False
+
+
+def test_recheck_attempts_hotkeys_even_when_permission_api_reports_false(
+    window,
+    monkeypatch,
+):
+    class HotkeyManagerStub:
+        registered = False
+        last_register_error = ""
+
+        def register_hotkey(self):
+            self.registered = True
+            return True
+
+    window.hotkey_manager = HotkeyManagerStub()
+    window.custom_hotkey_manager = HotkeyManagerStub()
+    monkeypatch.setattr(
+        main_window_module,
+        "current_permission_status",
+        lambda: PermissionStatus(False, False),
+    )
+
+    window.refresh_permission_status(force_reload=True)
+
+    assert window.hotkey_manager.registered is True
+    assert window.custom_hotkey_manager.registered is True
+    assert "actifs" in window.hotkey_service_status.text()

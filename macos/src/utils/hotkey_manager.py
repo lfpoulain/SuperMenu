@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-import sys
 
 from pynput.keyboard import GlobalHotKeys
 from PySide6.QtCore import QCoreApplication, QObject, Signal, Qt
@@ -19,10 +18,6 @@ from PySide6.QtWidgets import (
 )
 
 from src.utils.logger import log
-from src.utils.permissions import (
-    accessibility_is_trusted,
-    input_monitoring_is_trusted,
-)
 
 
 _MODIFIER_ALIASES = {
@@ -243,12 +238,6 @@ class HotkeyManager(QObject):
         if error:
             self._last_register_error = error
             return False
-        if sys.platform == "darwin" and not accessibility_is_trusted():
-            self._last_register_error = "Autorisation Accessibilité requise"
-            return False
-        if sys.platform == "darwin" and not input_monitoring_is_trusted():
-            self._last_register_error = "Autorisation Surveillance de l’entrée requise"
-            return False
         try:
             self._listener = GlobalHotKeys({normalized: self._on_hotkey_triggered})
             self._listener.start()
@@ -349,14 +338,6 @@ class PromptHotkeyManager(QObject):
             )
         if not mapping:
             return True, {}
-        if sys.platform == "darwin" and not accessibility_is_trusted():
-            self._errors["permissions"] = "Autorisation Accessibilité requise"
-            return False, dict(self._errors)
-        if sys.platform == "darwin" and not input_monitoring_is_trusted():
-            self._errors["permissions"] = (
-                "Autorisation Surveillance de l’entrée requise"
-            )
-            return False, dict(self._errors)
         try:
             self._listener = GlobalHotKeys(mapping)
             self._listener.start()
