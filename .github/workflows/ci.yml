@@ -18,6 +18,9 @@ jobs:
   tests:
     name: Python ${{ matrix.python-version }}
     runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: win32
     strategy:
       fail-fast: false
       matrix:
@@ -33,8 +36,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
+            win32/requirements.txt
+            win32/requirements-dev.txt
 
       - name: Install dependencies
         shell: powershell

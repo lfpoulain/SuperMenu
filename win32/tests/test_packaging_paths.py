@@ -42,6 +42,8 @@ def test_installer_does_not_duplicate_one_file_resources():
     assert 'Source: "bin\\*"' not in content
     assert 'Source: "resources\\*"' not in content
     assert "MyOutputBaseFilename" in content
+    assert "LicenseFile=..\\LICENSE" in content
+    assert (Path(paths.application_base_dir()).parent / "LICENSE").is_file()
 
 
 def test_release_version_and_default_channel_are_valid():
@@ -54,7 +56,7 @@ def test_release_version_and_default_channel_are_valid():
 
 
 def test_release_workflows_keep_ci_beta_and_stable_separate():
-    workflows = Path(paths.resource_path(".github", "workflows"))
+    workflows = Path(paths.application_base_dir()).parent / ".github" / "workflows"
     ci = (workflows / "ci.yml").read_text(encoding="utf-8")
     beta = (workflows / "beta-release.yml").read_text(encoding="utf-8")
     stable = (workflows / "stable-release.yml").read_text(encoding="utf-8")
@@ -70,3 +72,17 @@ def test_release_workflows_keep_ci_beta_and_stable_separate():
     assert "immutableCreate: true" in stable
     assert "updateOnlyUnreleased: true" in stable
     assert "update-stable.json" in stable
+
+
+def test_macos_pull_requests_build_a_test_dmg():
+    workflow = (
+        Path(paths.application_base_dir()).parent
+        / ".github"
+        / "workflows"
+        / "macos-ci.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "pull_request:" in workflow
+    assert "build-dmg:" in workflow
+    assert "scripts/build_dmg.sh" in workflow
+    assert "macos/dist/SuperMenu-*-macOS.dmg" in workflow

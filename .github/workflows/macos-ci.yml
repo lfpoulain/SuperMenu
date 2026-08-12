@@ -1,0 +1,87 @@
+name: macOS CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: macos
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            macos/requirements.txt
+            macos/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Validate source
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m compileall -q src run.py
+          python -m pytest -q
+          python -m flake8 src tests run.py --select=F,E9
+          python run.py --smoke-test
+
+  build-dmg:
+    needs: test
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: macos
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            macos/requirements.txt
+            macos/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Build app and DMG
+        run: |
+          chmod +x scripts/*.sh
+          scripts/build_dmg.sh
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v6
+        with:
+          name: SuperMenu-${{ runner.arch }}-macOS
+          path: macos/dist/SuperMenu-*-macOS.dmg
+          if-no-files-found: error
+          retention-days: 14

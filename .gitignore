@@ -11,6 +11,8 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+macos/resources/icons/app_icon.icns
+macos/.test-state/
 downloads/
 eggs/
 .eggs/
@@ -27,6 +29,7 @@ share/python-wheels/
 MANIFEST
 venv/
 *.exe
+!win32/bin/ffmpeg.exe
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

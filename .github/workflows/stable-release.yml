@@ -15,6 +15,9 @@ concurrency:
 jobs:
   build-and-publish-stable:
     runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: win32
 
     steps:
       - name: Checkout release tag
@@ -51,8 +54,8 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
+            win32/requirements.txt
+            win32/requirements-dev.txt
 
       - name: Install dependencies
         shell: powershell
@@ -125,10 +128,10 @@ jobs:
         with:
           name: SuperMenu-${{ env.APP_VERSION }}
           path: |
-            dist/SuperMenu.exe
-            SuperMenu_Setup.exe
-            update-stable.json
-            SHA256SUMS.txt
+            win32/dist/SuperMenu.exe
+            win32/SuperMenu_Setup.exe
+            win32/update-stable.json
+            win32/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
 
@@ -144,10 +147,10 @@ jobs:
           updateOnlyUnreleased: true
           artifactErrorsFailBuild: true
           artifacts: |
-            dist/SuperMenu.exe
-            SuperMenu_Setup.exe
-            update-stable.json
-            SHA256SUMS.txt
+            win32/dist/SuperMenu.exe
+            win32/SuperMenu_Setup.exe
+            win32/update-stable.json
+            win32/SHA256SUMS.txt
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
             Première release officielle du canal Stable de SuperMenu.
