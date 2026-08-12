@@ -164,6 +164,7 @@ class Settings:
             if not self.settings.contains(key):
                 self.settings.setValue(key, value)
         self.settings.sync()
+        self._secure_config_file()
 
     def get_api_key(self) -> str:
         return str(self.settings.value(API_KEY_SETTING, "") or "").strip()
@@ -388,6 +389,9 @@ class Settings:
 
     def sync(self) -> None:
         self.settings.sync()
+        self._secure_config_file()
+
+    def _secure_config_file(self) -> None:
         try:
             Path(self.config_path).chmod(0o600)
         except OSError as exc:

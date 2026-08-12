@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
-    QDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -43,6 +42,7 @@ from src.ui.theme_manager import ThemeManager
 from src.utils import updater as app_updater
 from src.utils.hotkey_manager import HotkeyRecorderDialog
 from src.utils.paths import resource_path, user_config_dir, user_log_dir
+from src.utils.logger import log
 from src.utils.permissions import (
     accessibility_is_trusted,
     current_permission_status,
@@ -118,10 +118,12 @@ class MainWindow(QMainWindow):
         self.custom_hotkey_manager = custom_hotkey_manager
         self.prompt_hotkey_manager = prompt_hotkey_manager
         self.tray_icon = None
+        self.tray_menu = None
         self._quitting = False
         self._loading_prompt = False
         self._update_worker = None
         self._custom_models_worker = None
+        self._hotkey_dialog = None
         self._last_permission_state = None
 
         self.setWindowTitle("SuperMenu - Configuration")
@@ -501,6 +503,7 @@ class MainWindow(QMainWindow):
             if prompt_id in prompts:
                 prompts[prompt_id]["position"] = (index + 1) * 10
         self.settings.set_prompts(prompts)
+        self.settings.sync()
 
     def add_prompt(self):
         prompt_id = self.settings.add_prompt(
@@ -510,6 +513,7 @@ class MainWindow(QMainWindow):
             "Traitement en cours…",
             position=(self.prompt_list.count() + 1) * 10,
         )
+        self.settings.sync()
         self._reload_prompts(prompt_id)
         self.prompt_name.selectAll()
         self.prompt_name.setFocus()
@@ -525,6 +529,7 @@ class MainWindow(QMainWindow):
         ) != QMessageBox.StandardButton.Yes:
             return
         self.settings.delete_prompt(item.data(Qt.ItemDataRole.UserRole))
+        self.settings.sync()
         self._reload_prompts()
         self._refresh_prompt_hotkeys()
 
@@ -539,11 +544,22 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
+        previous_prompts = self.settings.get_prompts()
         try:
             count = self.settings.import_prompts(path)
         except Exception as exc:
             QMessageBox.warning(self, "Import impossible", str(exc))
             return
+        if self.prompt_hotkey_manager is not None:
+            valid, errors = self.prompt_hotkey_manager.validate_prompts(
+                self.settings.get_prompts()
+            )
+            if not valid:
+                self.settings.set_prompts(previous_prompts)
+                self.settings.sync()
+                message = next(iter(errors.values()), "Conflit de raccourci")
+                QMessageBox.warning(self, "Import impossible", message)
+                return
         self._reload_prompts()
         self._refresh_prompt_hotkeys()
         QMessageBox.information(
@@ -587,6 +603,24 @@ class MainWindow(QMainWindow):
             return False
         prompt_id = item.data(Qt.ItemDataRole.UserRole)
         prompt = self.settings.get_prompt(prompt_id) or {}
+        candidate_prompts = self.settings.get_prompts()
+        candidate_prompts[prompt_id] = {
+            "name": name,
+            "prompt": instruction,
+            "status": self.prompt_status.text().strip()
+            or "Traitement en cours…",
+            "insert_directly": self.prompt_direct.isChecked(),
+            "position": prompt.get("position", 999),
+            "hotkey": self.prompt_hotkey.text().strip(),
+        }
+        if self.prompt_hotkey_manager is not None:
+            valid, errors = self.prompt_hotkey_manager.validate_prompts(
+                candidate_prompts
+            )
+            if not valid:
+                message = next(iter(errors.values()), "Conflit de raccourci")
+                QMessageBox.warning(self, "Raccourci invalide", message)
+                return False
         try:
             self.settings.update_prompt(
                 prompt_id,
@@ -608,9 +642,7 @@ class MainWindow(QMainWindow):
         return True
 
     def record_prompt_hotkey(self):
-        dialog = HotkeyRecorderDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.prompt_hotkey.setText(dialog.recorded_hotkey)
+        self._open_hotkey_recorder(self.prompt_hotkey.setText)
 
     def _refresh_reasoning_options(self, model):
         current = self.settings.get_openai_reasoning_effort(model)
@@ -632,10 +664,9 @@ class MainWindow(QMainWindow):
         if not valid:
             QMessageBox.warning(self, "Endpoint invalide", message)
             return
-        api_key = self.api_key.text().strip() or None
         self._custom_models_worker = CustomModelsWorker(
             endpoint,
-            api_key,
+            None,
             self.endpoint_type.currentData(),
         )
         self._custom_models_worker.finished_ok.connect(
@@ -644,9 +675,19 @@ class MainWindow(QMainWindow):
         self._custom_models_worker.failed.connect(
             self._on_custom_models_failed
         )
-        self._custom_models_worker.start()
+        worker = self._custom_models_worker
+        worker.finished.connect(
+            lambda current=worker: self._custom_models_worker_finished(current)
+        )
+        worker.start()
 
     def _on_custom_models_loaded(self, models):
+        worker = self._custom_models_worker
+        if worker is None or (
+            worker.endpoint != self.custom_endpoint.text().strip()
+            or worker.endpoint_type != self.endpoint_type.currentData()
+        ):
+            return
         current = self.custom_model.currentText().strip()
         self.custom_model.clear()
         self.custom_model.addItems(models)
@@ -661,18 +702,86 @@ class MainWindow(QMainWindow):
         )
 
     def _on_custom_models_failed(self, message):
+        worker = self._custom_models_worker
+        if worker is None or (
+            worker.endpoint != self.custom_endpoint.text().strip()
+            or worker.endpoint_type != self.endpoint_type.currentData()
+        ):
+            return
         QMessageBox.warning(self, "Récupération impossible", str(message))
 
+    def _custom_models_worker_finished(self, worker):
+        if self._custom_models_worker is worker:
+            self._custom_models_worker = None
+        worker.deleteLater()
+
     def record_main_hotkey(self):
-        if self.hotkey_manager and self.hotkey_manager.show_hotkey_recorder(self):
-            self.main_hotkey.setText(self.settings.get_hotkey())
+        if self.hotkey_manager:
+            self._open_hotkey_recorder(
+                lambda hotkey: self._apply_recorded_hotkey(
+                    self.hotkey_manager,
+                    self.main_hotkey,
+                    hotkey,
+                )
+            )
 
     def record_custom_hotkey(self):
-        if (
-            self.custom_hotkey_manager
-            and self.custom_hotkey_manager.show_hotkey_recorder(self)
+        if self.custom_hotkey_manager:
+            self._open_hotkey_recorder(
+                lambda hotkey: self._apply_recorded_hotkey(
+                    self.custom_hotkey_manager,
+                    self.custom_hotkey,
+                    hotkey,
+                )
+            )
+
+    def _open_hotkey_recorder(self, on_recorded):
+        if self._hotkey_dialog is not None:
+            self._hotkey_dialog.raise_()
+            self._hotkey_dialog.activateWindow()
+            return
+        service = None
+        for manager in (
+            self.hotkey_manager,
+            self.custom_hotkey_manager,
+            self.prompt_hotkey_manager,
         ):
-            self.custom_hotkey.setText(self.settings.get_custom_hotkey())
+            if manager is not None:
+                service = manager.service
+                break
+        if service is not None:
+            service.suspend()
+        dialog = HotkeyRecorderDialog(self)
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self._hotkey_dialog = dialog
+
+        def finish_recording(result):
+            recorded = dialog.recorded_hotkey
+            self._hotkey_dialog = None
+            if (
+                result == HotkeyRecorderDialog.DialogCode.Accepted
+                and recorded
+            ):
+                on_recorded(recorded)
+            dialog.deleteLater()
+            if service is not None:
+                # Let macOS deliver every modifier release before listening
+                # again, preventing a just-recorded shortcut from firing.
+                QTimer.singleShot(200, service.resume)
+
+        dialog.finished.connect(finish_recording)
+        dialog.open()
+
+    def _apply_recorded_hotkey(self, manager, field, hotkey):
+        if manager.set_hotkey(hotkey):
+            field.setText(hotkey)
+            self.settings.sync()
+            return
+        QMessageBox.warning(
+            self,
+            "Raccourci non enregistré",
+            manager.last_register_error,
+        )
 
     def request_accessibility_permission(self):
         """Request control access and always reveal the matching settings pane."""
@@ -738,7 +847,21 @@ class MainWindow(QMainWindow):
             self._last_permission_state is not None
             and state != self._last_permission_state
         )
-        should_reload = force_reload or permissions_changed
+        services = {
+            manager.service
+            for manager in (
+                self.hotkey_manager,
+                self.custom_hotkey_manager,
+                self.prompt_hotkey_manager,
+            )
+            if manager is not None and hasattr(manager, "service")
+        }
+        service_needs_recovery = status.all_granted and any(
+            not service.running for service in services
+        )
+        should_reload = (
+            force_reload or permissions_changed or service_needs_recovery
+        )
         hotkeys_ok = True
         if should_reload:
             hotkeys_ok = self._reload_all_hotkeys()
@@ -751,7 +874,12 @@ class MainWindow(QMainWindow):
         listeners_registered = bool(hotkey_managers) and all(
             manager.registered for manager in hotkey_managers
         )
-        if listeners_registered and hotkeys_ok:
+        prompt_errors = (
+            getattr(self.prompt_hotkey_manager, "errors", {})
+            if self.prompt_hotkey_manager is not None
+            else {}
+        )
+        if listeners_registered and hotkeys_ok and not prompt_errors:
             message = "✅ Raccourcis globaux actifs"
             if not status.all_granted:
                 message += (
@@ -772,6 +900,7 @@ class MainWindow(QMainWindow):
                 for manager in (self.hotkey_manager, self.custom_hotkey_manager)
                 if manager is not None and manager.last_register_error
             ]
+            errors.extend(str(error) for error in prompt_errors.values() if error)
             detail = errors[0] if errors else "redémarrage requis"
             message = (
                 "⚠️ Autorisations accordées, mais les raccourcis ne sont "
@@ -831,7 +960,11 @@ class MainWindow(QMainWindow):
 
     def _refresh_prompt_hotkeys(self):
         if self.prompt_hotkey_manager:
-            self.prompt_hotkey_manager.refresh_hotkeys()
+            success, errors = self.prompt_hotkey_manager.refresh_hotkeys()
+            if not success:
+                log(f"Raccourcis de prompts invalides : {errors}")
+            return success, errors
+        return True, {}
 
     def setup_tray_icon(self):
         if self.tray_icon is not None:
@@ -841,7 +974,7 @@ class MainWindow(QMainWindow):
         icon = QIcon(resource_path("resources", "icons", "icon.png"))
         tray = QSystemTrayIcon(icon, self)
         tray.setToolTip("SuperMenu")
-        menu = QMenu()
+        menu = QMenu(self)
         open_action = QAction("Ouvrir SuperMenu", self)
         open_action.triggered.connect(self.show_main_window)
         menu.addAction(open_action)
@@ -865,6 +998,7 @@ class MainWindow(QMainWindow):
         tray.activated.connect(self._tray_activated)
         tray.show()
         self.tray_icon = tray
+        self.tray_menu = menu
         return True
 
     def _tray_activated(self, reason):

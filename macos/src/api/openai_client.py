@@ -92,6 +92,7 @@ class OpenAIClient(QObject):
         self.settings = settings
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self._closing = threading.Event()
         
         # Déterminer le modèle à utiliser
         self.use_custom_endpoint = settings.get_use_custom_endpoint()
@@ -106,6 +107,7 @@ class OpenAIClient(QObject):
         self._lmstudio_reasoning_options = None
         self._lmstudio_reasoning_default = None
         self._lmstudio_compat_url = ""
+        self._capabilities_lock = threading.Lock()
         
         # Si on utilise un endpoint personnalisé et qu'on a un custom_model dans les settings, l'utiliser
         if self.use_custom_endpoint:
@@ -165,40 +167,48 @@ class OpenAIClient(QObject):
 
     def _ensure_lmstudio_model_capabilities(self, timeout=10):
         """Cache the reasoning controls advertised for the selected LM Studio model."""
-        if not self.use_lmstudio_api or self._lmstudio_catalog_checked:
+        if not self.use_lmstudio_api:
             return
-
-        self._lmstudio_catalog_checked = True
-        try:
-            headers = self._build_headers()
-            base_url = _models_base_url(self.custom_endpoint, False)
-            response = requests.get(
-                f"{base_url}/api/v1/models",
-                headers=headers,
-                timeout=timeout,
-            )
-            if response.status_code != 200:
+        with self._capabilities_lock:
+            if self._lmstudio_catalog_checked:
                 return
+            self._lmstudio_catalog_checked = True
+            try:
+                headers = self._build_headers()
+                base_url = _models_base_url(self.custom_endpoint, False)
+                response = requests.get(
+                    f"{base_url}/api/v1/models",
+                    headers=headers,
+                    timeout=timeout,
+                )
+                if response.status_code != 200:
+                    return
 
-            payload = response.json()
-            if not isinstance(payload, dict):
-                return
-            selected = None
-            for model_details in parse_lmstudio_model_catalog(payload):
-                if self.model in model_details["identifiers"]:
-                    selected = model_details
-                    break
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    return
+                selected = None
+                for model_details in parse_lmstudio_model_catalog(payload):
+                    if self.model in model_details["identifiers"]:
+                        selected = model_details
+                        break
 
-            if selected is None:
-                return
-            self._lmstudio_reasoning_supported = selected["reasoning_supported"]
-            self._lmstudio_reasoning_options = selected["reasoning_options"]
-            self._lmstudio_reasoning_default = selected["reasoning_default"]
-        except (requests.RequestException, ValueError, TypeError) as e:
-            log(
-                f"Impossible de lire les capacités LM Studio: {e}",
-                logging.DEBUG,
-            )
+                if selected is None:
+                    return
+                self._lmstudio_reasoning_supported = selected[
+                    "reasoning_supported"
+                ]
+                self._lmstudio_reasoning_options = selected[
+                    "reasoning_options"
+                ]
+                self._lmstudio_reasoning_default = selected[
+                    "reasoning_default"
+                ]
+            except (requests.RequestException, ValueError, TypeError) as e:
+                log(
+                    f"Impossible de lire les capacités LM Studio: {e}",
+                    logging.DEBUG,
+                )
 
     def _build_lmstudio_reasoning_value(self):
         """Translate SuperMenu's effort into the selected model's native option."""
@@ -225,36 +235,38 @@ class OpenAIClient(QObject):
 
     def _ensure_ollama_model_capabilities(self, timeout=10):
         """Cache Ollama's advertised capabilities for the selected model."""
-        if not self.use_ollama_api or self._ollama_capabilities_checked:
+        if not self.use_ollama_api:
             return
-
-        self._ollama_capabilities_checked = True
-        try:
-            base_url = _models_base_url(self.custom_endpoint, True)
-            response = requests.post(
-                f"{base_url}/api/show",
-                headers=self._build_headers(),
-                data=json.dumps({"model": self.model, "verbose": False}),
-                timeout=timeout,
-            )
-            if response.status_code != 200:
+        with self._capabilities_lock:
+            if self._ollama_capabilities_checked:
                 return
+            self._ollama_capabilities_checked = True
+            try:
+                base_url = _models_base_url(self.custom_endpoint, True)
+                response = requests.post(
+                    f"{base_url}/api/show",
+                    headers=self._build_headers(),
+                    data=json.dumps({"model": self.model, "verbose": False}),
+                    timeout=timeout,
+                )
+                if response.status_code != 200:
+                    return
 
-            payload = response.json()
-            if not isinstance(payload, dict):
-                return
-            capabilities = payload.get("capabilities", [])
-            if isinstance(capabilities, list):
-                self._ollama_capabilities = {
-                    str(capability).strip().lower()
-                    for capability in capabilities
-                    if str(capability).strip()
-                }
-        except (requests.RequestException, ValueError, TypeError) as e:
-            log(
-                f"Impossible de lire les capacités Ollama: {e}",
-                logging.DEBUG,
-            )
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    return
+                capabilities = payload.get("capabilities", [])
+                if isinstance(capabilities, list):
+                    self._ollama_capabilities = {
+                        str(capability).strip().lower()
+                        for capability in capabilities
+                        if str(capability).strip()
+                    }
+            except (requests.RequestException, ValueError, TypeError) as e:
+                log(
+                    f"Impossible de lire les capacités Ollama: {e}",
+                    logging.DEBUG,
+                )
 
     def _get_provider_reasoning_effort(self):
         """Read the reasoning setting for the active provider."""
@@ -556,6 +568,9 @@ class OpenAIClient(QObject):
         """Envoie une requête à l'API OpenAI en arrière-plan"""
         request_id = request_id or uuid.uuid4().hex
 
+        if self._closing.is_set():
+            return request_id
+
         if self.use_custom_endpoint and (not self.custom_endpoint or not self.model):
             message = (
                 "Configuration personnalisée incomplète. "
@@ -615,6 +630,8 @@ class OpenAIClient(QObject):
         request_url = api_url or self.api_url
         
         for attempt in range(self.max_retries):
+            if self._closing.is_set():
+                raise RuntimeError("Client fermé")
             try:
                 response = requests.post(
                     request_url,
@@ -795,20 +812,23 @@ class OpenAIClient(QObject):
                 
                 # Route every completion through the Qt thread. Direct insertion
                 # must not manipulate focus or the clipboard from this worker.
-                self._internal_finished.emit(
-                    request_id,
-                    response_content,
-                    insert_directly,
-                    target,
-                )
+                if not self._closing.is_set():
+                    self._internal_finished.emit(
+                        request_id,
+                        response_content,
+                        insert_directly,
+                        target,
+                    )
             else:
                 # Gérer l'erreur via signal interne thread-safe
                 error_message = f"Erreur {response.status_code}: {response.text}"
-                self._internal_error.emit(request_id, error_message)
+                if not self._closing.is_set():
+                    self._internal_error.emit(request_id, error_message)
         
         except Exception as e:
             # Gérer l'exception via signal interne thread-safe
-            self._internal_error.emit(request_id, f"Erreur: {str(e)}")
+            if not self._closing.is_set():
+                self._internal_error.emit(request_id, f"Erreur: {str(e)}")
         
 
     @Slot(str, str, bool, object)
@@ -831,6 +851,10 @@ class OpenAIClient(QObject):
             self.request_error.emit(error_message)
         except Exception as e:
             log(f"Error emitting error signal: {e}", logging.ERROR)
+
+    def close(self):
+        """Prevent background requests from emitting into a closing Qt app."""
+        self._closing.set()
     
     def _build_request_data(self, prompt, content):
         """Build a text-only request for the configured provider."""
@@ -894,7 +918,9 @@ class OpenAIClient(QObject):
         """
         headers = {"Content-Type": "application/json"}
 
-        if not self.use_custom_endpoint or (self.use_custom_endpoint and self.api_key):
+        # The saved credential is specifically the OpenAI key. Never forward
+        # it to a user-configured Ollama or LM Studio server.
+        if not self.use_custom_endpoint and self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         return headers
@@ -947,7 +973,7 @@ class OpenAIClient(QObject):
         """Return the model IDs exposed by a custom endpoint."""
         success, result = OpenAIClient.fetch_available_model_details(
             endpoint_url,
-            api_key=api_key,
+            api_key=None,
             timeout=timeout,
             endpoint_type=endpoint_type,
         )
@@ -962,9 +988,6 @@ class OpenAIClient(QObject):
         """Récupère la liste des modèles disponibles depuis un endpoint compatible OpenAI."""
         try:
             headers = {"Content-Type": "application/json"}
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-
             endpoint_type = (endpoint_type or "").strip().lower()
             is_ollama = endpoint_type == "ollama" or (
                 endpoint_type != "lmstudio" and _looks_like_ollama_endpoint(endpoint_url)

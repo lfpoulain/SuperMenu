@@ -46,3 +46,14 @@ def test_lm_studio_payload_is_text_only():
     assert data["input"] == "Explique\n\nUn texte"
     assert isinstance(data["input"], str)
 
+
+def test_openai_key_is_never_forwarded_to_custom_endpoint():
+    client = OpenAIClient(DummySettings("ollama"), api_key="secret-openai-key")
+
+    assert "Authorization" not in client._build_headers()
+
+
+def test_openai_key_is_sent_only_to_openai():
+    client = OpenAIClient(DummySettings(), api_key="secret-openai-key")
+
+    assert client._build_headers()["Authorization"] == "Bearer secret-openai-key"

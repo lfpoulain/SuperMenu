@@ -9,7 +9,7 @@ import uuid
 from pynput.keyboard import Controller, Key
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtGui import QCursor
-from PySide6.QtWidgets import QApplication, QMenu
+from PySide6.QtWidgets import QMenu
 
 from src.api.openai_client import OpenAIClient
 from src.ui.prompt_dialog import PromptDialog
@@ -40,6 +40,9 @@ class ContextMenuManager(QObject):
         self._active_response_request_id = None
         self._retired_clients = []
         self._menu_open = False
+        self._active_menu = None
+        self._prompt_dialog = None
+        self._closed = False
         self._connect_api_client(self.api_client)
 
     def _create_api_client(self):
@@ -106,35 +109,45 @@ class ContextMenuManager(QObject):
                 ClipboardManager.restore_if_unchanged(snapshot, expected)
 
     def show_menu(self) -> None:
-        if self._menu_open:
+        if self._closed or self._menu_open:
             return
         target = PasteTarget.capture()
         selected_text = self._try_get_selected_text(target)
         menu = QMenu()
         self._menu_open = True
-        try:
-            for prompt_id, prompt in sorted(
-                self.settings.get_prompts().items(),
-                key=lambda item: item[1].get("position", 999),
-            ):
-                action = menu.addAction(prompt["name"])
-                action.setEnabled(bool(selected_text))
-                action.setData(("prompt", prompt_id))
-            menu.addSeparator()
-            custom_action = menu.addAction("Mode personnalisé")
-            custom_action.setData(("custom", None))
-            chosen = menu.exec(QCursor.pos())
-        finally:
+        self._active_menu = menu
+        for prompt_id, prompt in sorted(
+            self.settings.get_prompts().items(),
+            key=lambda item: item[1].get("position", 999),
+        ):
+            action = menu.addAction(prompt["name"])
+            action.setEnabled(bool(selected_text))
+            action.setData(("prompt", prompt_id))
+        menu.addSeparator()
+        custom_action = menu.addAction("Mode personnalisé")
+        custom_action.setData(("custom", None))
+
+        def cleanup_menu():
+            if self._active_menu is not menu:
+                return
+            self._active_menu = None
             self._menu_open = False
             menu.deleteLater()
 
-        if chosen is None:
-            return
-        action_kind, prompt_id = chosen.data()
-        if action_kind == "prompt":
-            self._handle_prompt(prompt_id, selected_text, target)
-        else:
-            self._handle_custom(selected_text, target)
+        def handle_action(chosen):
+            data = chosen.data()
+            cleanup_menu()
+            if self._closed or not data:
+                return
+            action_kind, prompt_id = data
+            if action_kind == "prompt":
+                self._handle_prompt(prompt_id, selected_text, target)
+            else:
+                self._handle_custom(selected_text, target)
+
+        menu.triggered.connect(handle_action)
+        menu.aboutToHide.connect(lambda: QTimer.singleShot(0, cleanup_menu))
+        menu.popup(QCursor.pos())
 
     def show_custom_mode(self) -> None:
         target = PasteTarget.capture()
@@ -173,20 +186,36 @@ class ContextMenuManager(QObject):
         )
 
     def _handle_custom(self, selected_text: str, target) -> None:
+        if self._closed:
+            return
+        if self._prompt_dialog is not None:
+            self._prompt_dialog.raise_()
+            self._prompt_dialog.activateWindow()
+            return
         dialog = PromptDialog(selected_text or "", None)
-        if dialog.exec() != PromptDialog.Accepted:
-            return
-        prompt = dialog.get_prompt()
-        if not prompt:
-            return
-        content = selected_text or ""
-        self._prepare_response_window(
-            "Traitement en cours…",
-            prompt,
-            content,
-            target,
-        )
-        self._send_request(prompt, content, target=target)
+        self._prompt_dialog = dialog
+
+        def finish_prompt(result):
+            prompt = dialog.get_prompt()
+            self._prompt_dialog = None
+            dialog.deleteLater()
+            if (
+                self._closed
+                or result != PromptDialog.DialogCode.Accepted
+                or not prompt
+            ):
+                return
+            content = selected_text or ""
+            self._prepare_response_window(
+                "Traitement en cours…",
+                prompt,
+                content,
+                target,
+            )
+            self._send_request(prompt, content, target=target)
+
+        dialog.finished.connect(finish_prompt)
+        dialog.open()
 
     def _prepare_response_window(
         self,
@@ -216,6 +245,8 @@ class ContextMenuManager(QObject):
         direct_status=None,
     ) -> str:
         request_id = uuid.uuid4().hex
+        if self._closed:
+            return request_id
         client = self.api_client
         indicator = None
         if insert_directly:
@@ -244,6 +275,8 @@ class ContextMenuManager(QObject):
         return request_id
 
     def on_request_started_scoped(self, request_id, insert_directly) -> None:
+        if self._closed:
+            return
         if not insert_directly and request_id == self._active_response_request_id:
             self.response_window.set_loading(True)
 
@@ -254,6 +287,8 @@ class ContextMenuManager(QObject):
         insert_directly,
         target,
     ) -> None:
+        if self._closed:
+            return
         request = self._pending_requests.pop(request_id, None)
         if request is None:
             return
@@ -281,6 +316,8 @@ class ContextMenuManager(QObject):
         self._release_retired_client_if_idle(client)
 
     def on_request_error_scoped(self, request_id, error) -> None:
+        if self._closed:
+            return
         request = self._pending_requests.pop(request_id, None)
         if request is None:
             return
@@ -299,6 +336,8 @@ class ContextMenuManager(QObject):
         self._release_retired_client_if_idle(request["client"])
 
     def on_retry_requested(self) -> None:
+        if self._closed:
+            return
         prompt, content = self.response_window.get_last_request()
         if prompt is not None:
             self._send_request(prompt, content or "")
@@ -312,6 +351,7 @@ class ContextMenuManager(QObject):
         ):
             return
         self._disconnect_api_client(client)
+        client.close()
         try:
             self._retired_clients.remove(client)
         except ValueError:
@@ -326,4 +366,28 @@ class ContextMenuManager(QObject):
         self._release_retired_client_if_idle(previous)
 
     def close(self) -> None:
-        QApplication.processEvents()
+        if self._closed:
+            return
+        self._closed = True
+        if self._active_menu is not None:
+            active_menu = self._active_menu
+            self._active_menu = None
+            active_menu.close()
+            active_menu.deleteLater()
+        if self._prompt_dialog is not None:
+            self._prompt_dialog.reject()
+            self._prompt_dialog = None
+        clients = {self.api_client, *self._retired_clients}
+        for request in self._pending_requests.values():
+            indicator = request.get("indicator")
+            if indicator is not None:
+                indicator.close()
+            clients.add(request.get("client"))
+        self._pending_requests.clear()
+        self._retired_clients.clear()
+        for client in clients:
+            if client is None:
+                continue
+            self._disconnect_api_client(client)
+            client.close()
+        self.response_window.close()

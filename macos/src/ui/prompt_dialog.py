@@ -103,14 +103,3 @@ class PromptDialog(QDialog):
     def get_prompt(self):
         """Récupérer le prompt saisi"""
         return self.prompt_input.toPlainText().strip()
-    
-    @staticmethod
-    def show_prompt_dialog(selected_text, parent=None):
-        """Méthode statique pour afficher le dialogue et récupérer le prompt"""
-        dialog = PromptDialog(selected_text, parent)
-        result = dialog.exec()
-        
-        if result == QDialog.Accepted:
-            return dialog.prompt_input.toPlainText().strip()
-        
-        return None

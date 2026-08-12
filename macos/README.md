@@ -37,11 +37,21 @@ l’application packagée, c’est `SuperMenu.app` qu’il faudra autoriser. Ces
 droits servent uniquement aux raccourcis globaux et aux commandes Copier/Coller.
 Aucun droit Microphone ou Enregistrement de l’écran n’est utilisé.
 
+Tous les raccourcis partagent un seul écouteur macOS persistant. Modifier un
+raccourci ou revérifier les autorisations met à jour ses liaisons sans arrêter
+ni recréer le tap clavier natif.
+
 La version macOS n’utilise pas le Trousseau afin d’éviter ses demandes lors
 des builds de test non signés. La clé API est enregistrée dans
 `~/Library/Application Support/SuperMenu/SuperMenu.ini`, dont l’accès est
 limité au compte utilisateur. Elle devra être saisie une première fois après
 le passage depuis une version qui utilisait le Trousseau.
+
+## Diagnostic
+
+Les journaux sont conservés dans `~/Library/Logs/SuperMenu`. Le fichier
+`supermenu.log` contient les erreurs Python et `native-crash.log` conserve une
+trace des crashs natifs éventuels. Ils ne contiennent pas la clé API.
 
 ## Valider la source
 

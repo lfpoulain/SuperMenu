@@ -13,12 +13,18 @@ from src.config.settings import Settings
 from src.ui.main_window import MainWindow
 from src.ui.theme_manager import ThemeManager
 from src.utils.context_menu import ContextMenuManager
-from src.utils.hotkey_manager import HotkeyManager, PromptHotkeyManager
+from src.utils.hotkey_manager import (
+    HotkeyManager,
+    HotkeyService,
+    PromptHotkeyManager,
+)
+from src.utils.logger import install_crash_reporting, log
 from src.utils.permissions import automation_permissions_are_trusted
 
 
 class SuperMenu:
     def __init__(self):
+        install_crash_reporting()
         QCoreApplication.setOrganizationName("SuperMenu")
         QCoreApplication.setApplicationName("SuperMenu")
 
@@ -27,6 +33,7 @@ class SuperMenu:
         self.main_window = None
         self._instance_server = None
         self._should_exit = False
+        self._services_closed = False
 
         if not self._ensure_single_instance():
             self._should_exit = True
@@ -34,12 +41,20 @@ class SuperMenu:
 
         self.settings = Settings()
         self.context_menu_manager = ContextMenuManager(self.settings)
-        self.hotkey_manager = HotkeyManager(self.settings)
+        self.hotkey_service = HotkeyService()
+        self.hotkey_manager = HotkeyManager(
+            self.settings,
+            service=self.hotkey_service,
+        )
         self.custom_hotkey_manager = HotkeyManager(
             self.settings,
             custom_hotkey=True,
+            service=self.hotkey_service,
         )
-        self.prompt_hotkey_manager = PromptHotkeyManager(self.settings)
+        self.prompt_hotkey_manager = PromptHotkeyManager(
+            self.settings,
+            service=self.hotkey_service,
+        )
 
         self.hotkey_manager.hotkey_triggered.connect(self.show_context_menu)
         self.custom_hotkey_manager.custom_hotkey_triggered.connect(
@@ -112,7 +127,11 @@ class SuperMenu:
         if not self._instance_server.listen(server_name):
             QLocalServer.removeServer(server_name)
             if not self._instance_server.listen(server_name):
-                return True
+                log(
+                    "Impossible de garantir l’instance unique ; démarrage annulé.",
+                    logging.ERROR,
+                )
+                return False
         self._instance_server.newConnection.connect(self._on_instance_connection)
         return True
 
@@ -131,6 +150,9 @@ class SuperMenu:
             socket.disconnectFromServer()
 
     def _close_services(self):
+        if self._services_closed:
+            return
+        self._services_closed = True
         if self.context_menu_manager:
             self.context_menu_manager.close()
         for manager in (
@@ -139,6 +161,7 @@ class SuperMenu:
             self.prompt_hotkey_manager,
         ):
             manager.close()
+        self.hotkey_service.close()
 
 
 if __name__ == "__main__":

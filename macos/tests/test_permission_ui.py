@@ -1,5 +1,6 @@
 import pytest
 from PySide6.QtWidgets import QApplication
+from PySide6.QtTest import QTest
 
 from src.config.settings import Settings
 from src.ui import main_window as main_window_module
@@ -120,3 +121,46 @@ def test_recheck_attempts_hotkeys_even_when_permission_api_reports_false(
     assert window.hotkey_manager.registered is True
     assert window.custom_hotkey_manager.registered is True
     assert "actifs" in window.hotkey_service_status.text()
+
+
+def test_hotkey_recorder_is_async_and_keeps_main_window_open(window, qt_app):
+    class ServiceStub:
+        def __init__(self):
+            self.suspended = False
+
+        def suspend(self):
+            self.suspended = True
+
+        def resume(self):
+            self.suspended = False
+
+    class ManagerStub:
+        last_register_error = ""
+
+        def __init__(self):
+            self.service = ServiceStub()
+            self.saved = None
+
+        def set_hotkey(self, hotkey):
+            self.saved = hotkey
+            return True
+
+    manager = ManagerStub()
+    window.hotkey_manager = manager
+    window.show()
+    qt_app.processEvents()
+
+    window.record_main_hotkey()
+    dialog = window._hotkey_dialog
+
+    assert dialog is not None
+    assert manager.service.suspended is True
+    dialog.recorded_hotkey = "Cmd+Option+K"
+    dialog.accept()
+    qt_app.processEvents()
+
+    assert manager.saved == "Cmd+Option+K"
+    assert window.isVisible() is True
+    assert window._hotkey_dialog is None
+    QTest.qWait(250)
+    assert manager.service.suspended is False

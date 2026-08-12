@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 
-from pynput.keyboard import GlobalHotKeys
-from PySide6.QtCore import QCoreApplication, QObject, Signal, Qt
+from pynput.keyboard import GlobalHotKeys, HotKey
+from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QPushButton,
     QVBoxLayout,
 )
@@ -74,6 +74,12 @@ def normalize_hotkey(hotkey: str) -> tuple[str | None, str]:
     if key_token.lower() in _MODIFIER_ALIASES:
         return None, "Le raccourci doit contenir une touche"
     key_lower = key_token.lower()
+    if "cmd" in seen and key_lower == "q":
+        return None, "Cmd+Q est réservé à la fermeture de macOS"
+    if seen == {"cmd"} and key_lower in {"h", "m", "w"}:
+        return None, "Ce raccourci est réservé à la gestion des fenêtres macOS"
+    if seen == {"cmd"} and key_lower == "space":
+        return None, "Cmd+Space est réservé à Spotlight"
     if key_lower in _SPECIAL_KEYS:
         key = f"<{_SPECIAL_KEYS[key_lower]}>"
     elif re.fullmatch(r"f(?:[1-9]|1[0-9]|2[0-4])", key_lower):
@@ -115,13 +121,6 @@ class HotkeyRecorderDialog(QDialog):
         buttons.addWidget(cancel_button)
         buttons.addWidget(self.ok_button)
         layout.addLayout(buttons)
-
-    def showEvent(self, event):
-        try:
-            self.grabKeyboard()
-        except Exception:
-            pass
-        super().showEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent):
         if event.isAutoRepeat():
@@ -195,29 +194,210 @@ class HotkeyRecorderDialog(QDialog):
         self.current_hotkey_label.setText(hotkey)
         self.ok_button.setEnabled(True)
 
-    def closeEvent(self, event):
+
+class _PersistentGlobalHotKeys(GlobalHotKeys):
+    """One event tap whose bindings can be replaced without restarting it."""
+
+    def __init__(self):
+        self._bindings_lock = threading.RLock()
+        self._suspended = False
+        self._binding_specs = {}
+        super().__init__({})
+
+    def replace_bindings(self, bindings):
+        binding_specs = dict(bindings)
+        parsed = tuple(
+            HotKey(HotKey.parse(shortcut), callback)
+            for shortcut, callback in binding_specs.items()
+        )
+        with self._bindings_lock:
+            self._binding_specs = binding_specs
+            self._hotkeys = parsed
+
+    def set_suspended(self, suspended):
+        with self._bindings_lock:
+            self._suspended = bool(suspended)
+            # Recreate the state machines so no modifier remains logically
+            # pressed when recording ends or bindings change.
+            if not self._suspended:
+                self._hotkeys = tuple(
+                    HotKey(HotKey.parse(shortcut), callback)
+                    for shortcut, callback in self._binding_specs.items()
+                )
+
+    def _on_press(self, key, injected=False):
+        if injected:
+            return
+        with self._bindings_lock:
+            if self._suspended:
+                return
+            canonical = self.canonical(key)
+            for hotkey in self._hotkeys:
+                hotkey.press(canonical)
+
+    def _on_release(self, key, injected=False):
+        if injected:
+            return
+        with self._bindings_lock:
+            if self._suspended:
+                return
+            canonical = self.canonical(key)
+            for hotkey in self._hotkeys:
+                hotkey.release(canonical)
+
+
+class HotkeyService:
+    """Own the sole process-wide macOS keyboard listener."""
+
+    def __init__(self, listener_factory=_PersistentGlobalHotKeys):
+        self._listener_factory = listener_factory
+        self._listener = None
+        self._owner_bindings = {}
+        self._lock = threading.RLock()
+        self._closed = False
+        self._suspended = False
+        self._last_error = ""
+
+    @staticmethod
+    def _combined_bindings(owner_bindings):
+        combined = {}
+        owners_by_shortcut = {}
+        for owner, bindings in owner_bindings.items():
+            for shortcut, callback in bindings.items():
+                if shortcut in combined:
+                    other = owners_by_shortcut[shortcut]
+                    raise ValueError(
+                        "Ce raccourci est déjà utilisé "
+                        f"par {other} et ne peut pas être attribué à {owner}."
+                    )
+                combined[shortcut] = callback
+                owners_by_shortcut[shortcut] = owner
+        return combined
+
+    def replace_owner_bindings(self, owner, bindings):
+        """Atomically replace one owner's bindings without stopping the tap."""
         try:
-            self.releaseKeyboard()
-        except Exception:
-            pass
-        super().closeEvent(event)
+            # Parse before changing live state so invalid input is atomic too.
+            for shortcut in bindings:
+                HotKey.parse(shortcut)
+            with self._lock:
+                candidate = dict(self._owner_bindings)
+                if bindings:
+                    candidate[str(owner)] = dict(bindings)
+                else:
+                    candidate.pop(str(owner), None)
+                combined = self._combined_bindings(candidate)
+                self._owner_bindings = candidate
+                listener = self._listener
+                if listener is not None and listener.is_alive():
+                    listener.replace_bindings(combined)
+            if combined and not self.ensure_started():
+                return False, self._last_error
+            self._last_error = ""
+            return True, ""
+        except Exception as exc:
+            self._last_error = str(exc)
+            log(f"Configuration des raccourcis impossible : {exc}", logging.ERROR)
+            return False, self._last_error
+
+    def validate_owner_bindings(self, owner, bindings):
+        try:
+            for shortcut in bindings:
+                HotKey.parse(shortcut)
+            with self._lock:
+                candidate = dict(self._owner_bindings)
+                if bindings:
+                    candidate[str(owner)] = dict(bindings)
+                else:
+                    candidate.pop(str(owner), None)
+                self._combined_bindings(candidate)
+            return True, ""
+        except Exception as exc:
+            return False, str(exc)
+
+    def ensure_started(self):
+        """Start only when absent or dead; never recycle a healthy event tap."""
+        with self._lock:
+            if self._closed:
+                self._last_error = "Le service de raccourcis est fermé"
+                return False
+            if self._listener is not None and self._listener.is_alive():
+                return True
+            try:
+                combined = self._combined_bindings(self._owner_bindings)
+                listener = self._listener_factory()
+                listener.replace_bindings(combined)
+                listener.set_suspended(self._suspended)
+                listener.start()
+                listener.wait()
+                if not listener.is_alive():
+                    self._last_error = (
+                        "Le service de raccourcis macOS n’a pas pu démarrer"
+                    )
+                    return False
+                self._listener = listener
+                self._last_error = ""
+                log("Service global de raccourcis démarré")
+                return True
+            except Exception as exc:
+                self._listener = None
+                self._last_error = str(exc)
+                log(
+                    f"Démarrage du service de raccourcis impossible : {exc}",
+                    logging.ERROR,
+                )
+                return False
+
+    def suspend(self):
+        with self._lock:
+            self._suspended = True
+            if self._listener is not None and self._listener.is_alive():
+                self._listener.set_suspended(True)
+
+    def resume(self):
+        with self._lock:
+            self._suspended = False
+            if self._listener is not None and self._listener.is_alive():
+                self._listener.set_suspended(False)
+
+    @property
+    def running(self):
+        with self._lock:
+            return bool(self._listener and self._listener.is_alive())
+
+    @property
+    def last_error(self):
+        return self._last_error
+
+    def close(self):
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            listener = self._listener
+            self._listener = None
+        if listener is not None:
+            try:
+                listener.stop()
+                listener.join(timeout=1.0)
+            except Exception as exc:
+                log(f"Arrêt du service de raccourcis incomplet : {exc}", logging.WARNING)
 
 
 class HotkeyManager(QObject):
     hotkey_triggered = Signal()
     custom_hotkey_triggered = Signal()
 
-    def __init__(self, settings, custom_hotkey: bool = False):
+    def __init__(self, settings, custom_hotkey: bool = False, service=None):
         super().__init__()
         self.settings = settings
         self.custom_hotkey = custom_hotkey
         self.hotkey = ""
-        self.registered = False
-        self._listener = None
+        self.service = service or HotkeyService()
+        self._owns_service = service is None
+        self._owner = "mode personnalisé" if custom_hotkey else "menu principal"
+        self._binding_active = False
         self._last_register_error = ""
-        app = QCoreApplication.instance()
-        if app is not None:
-            app.aboutToQuit.connect(self.close)
         self.register_hotkey()
 
     def _get_configured_hotkey(self) -> str:
@@ -232,67 +412,53 @@ class HotkeyManager(QObject):
             self.settings.set_hotkey(hotkey)
 
     def register_hotkey(self) -> bool:
-        self.unregister_hotkey()
         self.hotkey = self._get_configured_hotkey()
         normalized, error = normalize_hotkey(self.hotkey)
         if error:
             self._last_register_error = error
             return False
-        try:
-            self._listener = GlobalHotKeys({normalized: self._on_hotkey_triggered})
-            self._listener.start()
-            self._listener.wait()
-            if not self._listener.is_alive():
-                self._listener = None
-                self._last_register_error = (
-                    "Le service de raccourcis macOS n’a pas pu démarrer"
-                )
-                return False
-            self.registered = True
-            self._last_register_error = ""
+        success, error = self.service.replace_owner_bindings(
+            self._owner,
+            {normalized: self._on_hotkey_triggered},
+        )
+        self._binding_active = success
+        self._last_register_error = error
+        if success:
             log(f"Raccourci enregistré : {self.hotkey}")
-            return True
-        except Exception as exc:
-            self._listener = None
-            self._last_register_error = str(exc)
-            log(f"Impossible d'enregistrer {self.hotkey}: {exc}", logging.ERROR)
-            return False
+        return success
 
     def unregister_hotkey(self) -> None:
-        listener = self._listener
-        self._listener = None
-        self.registered = False
-        if listener is not None:
-            try:
-                listener.stop()
-            except Exception:
-                pass
+        self.service.replace_owner_bindings(self._owner, {})
+        self._binding_active = False
 
     def _on_hotkey_triggered(self) -> None:
-        if self.custom_hotkey:
-            self.custom_hotkey_triggered.emit()
-        else:
-            self.hotkey_triggered.emit()
+        try:
+            if self.custom_hotkey:
+                self.custom_hotkey_triggered.emit()
+            else:
+                self.hotkey_triggered.emit()
+        except RuntimeError as exc:
+            log(f"Signal de raccourci ignoré pendant la fermeture : {exc}")
 
-    def show_hotkey_recorder(self, parent=None) -> bool:
+    def set_hotkey(self, hotkey):
         previous = self._get_configured_hotkey()
-        dialog = HotkeyRecorderDialog(parent)
-        if dialog.exec() != QDialog.Accepted or not dialog.recorded_hotkey:
-            return False
-        self._set_configured_hotkey(dialog.recorded_hotkey)
+        self._set_configured_hotkey(hotkey)
         if self.register_hotkey():
             return True
+        attempted_error = self._last_register_error
         self._set_configured_hotkey(previous)
         self.register_hotkey()
-        QMessageBox.warning(
-            parent,
-            "Raccourci non enregistré",
-            self._last_register_error,
-        )
+        self._last_register_error = attempted_error
         return False
 
     def close(self) -> None:
         self.unregister_hotkey()
+        if self._owns_service:
+            self.service.close()
+
+    @property
+    def registered(self):
+        return self._binding_active and self.service.running
 
     @property
     def last_register_error(self) -> str:
@@ -302,14 +468,14 @@ class HotkeyManager(QObject):
 class PromptHotkeyManager(QObject):
     prompt_hotkey_triggered = Signal(str)
 
-    def __init__(self, settings):
+    def __init__(self, settings, service=None):
         super().__init__()
         self.settings = settings
-        self._listener = None
+        self.service = service or HotkeyService()
+        self._owns_service = service is None
+        self._owner = "raccourcis des prompts"
+        self._binding_active = False
         self._errors = {}
-        app = QCoreApplication.instance()
-        if app is not None:
-            app.aboutToQuit.connect(self.close)
         self.refresh_hotkeys()
 
     @property
@@ -317,7 +483,6 @@ class PromptHotkeyManager(QObject):
         return dict(self._errors)
 
     def refresh_hotkeys(self):
-        self.unregister_hotkeys()
         self._errors = {}
         mapping = {}
         for prompt_id, prompt in sorted(
@@ -331,34 +496,55 @@ class PromptHotkeyManager(QObject):
             if error:
                 self._errors[prompt_id] = error
                 continue
+            if normalized in mapping:
+                self._errors[prompt_id] = (
+                    "Ce raccourci est déjà utilisé par un autre prompt."
+                )
+                continue
             mapping[normalized] = (
-                lambda selected_prompt_id=prompt_id: self.prompt_hotkey_triggered.emit(
+                lambda selected_prompt_id=prompt_id: self._emit_prompt_hotkey(
                     selected_prompt_id
                 )
             )
-        if not mapping:
-            return True, {}
-        try:
-            self._listener = GlobalHotKeys(mapping)
-            self._listener.start()
-            self._listener.wait()
-            if not self._listener.is_alive():
-                self._listener = None
-                self._errors["registration"] = (
-                    "Le service de raccourcis macOS n’a pas pu démarrer"
-                )
-        except Exception as exc:
-            self._errors["registration"] = str(exc)
+        success, error = self.service.replace_owner_bindings(self._owner, mapping)
+        self._binding_active = success and bool(mapping)
+        if not success:
+            self._errors["registration"] = error
         return not self._errors, dict(self._errors)
 
+    def _emit_prompt_hotkey(self, prompt_id):
+        try:
+            self.prompt_hotkey_triggered.emit(prompt_id)
+        except RuntimeError as exc:
+            log(f"Raccourci de prompt ignoré pendant la fermeture : {exc}")
+
+    def validate_prompts(self, prompts):
+        mapping = {}
+        errors = {}
+        for prompt_id, prompt in prompts.items():
+            hotkey = str(prompt.get("hotkey", "") or "").strip()
+            if not hotkey:
+                continue
+            normalized, error = normalize_hotkey(hotkey)
+            if error:
+                errors[prompt_id] = error
+                continue
+            if normalized in mapping:
+                errors[prompt_id] = (
+                    "Ce raccourci est déjà utilisé par un autre prompt."
+                )
+                continue
+            mapping[normalized] = lambda: None
+        if errors:
+            return False, errors
+        success, error = self.service.validate_owner_bindings(self._owner, mapping)
+        return success, {} if success else {"registration": error}
+
     def unregister_hotkeys(self) -> None:
-        listener = self._listener
-        self._listener = None
-        if listener is not None:
-            try:
-                listener.stop()
-            except Exception:
-                pass
+        self.service.replace_owner_bindings(self._owner, {})
+        self._binding_active = False
 
     def close(self) -> None:
         self.unregister_hotkeys()
+        if self._owns_service:
+            self.service.close()
