@@ -78,6 +78,11 @@ def test_release_workflows_keep_ci_beta_and_stable_separate():
     assert "tag: beta" in beta
     assert "SuperMenu_Beta_Setup.exe" in beta
     assert "update-beta.json" in beta
+    assert "git tag --force beta $env:BUILD_COMMIT" in beta
+    assert "git push --force origin refs/tags/beta" in beta
+    assert beta.index("Publish rolling beta prerelease") < beta.index(
+        "Align rolling beta tag with published commit"
+    )
     assert 'tags:\n      - "v*.*.*"' in stable
     assert "immutableCreate: true" in stable
     assert "updateOnlyUnreleased: true" in stable

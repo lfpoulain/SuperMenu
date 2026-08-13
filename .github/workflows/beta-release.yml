@@ -172,3 +172,9 @@ jobs:
             Commit: ${{ env.BUILD_COMMIT }}
 
             Cette version est une prérelease destinée aux tests. Pour la version recommandée, utilisez la dernière release stable.
+
+      - name: Align rolling beta tag with published commit
+        shell: powershell
+        run: |
+          git tag --force beta $env:BUILD_COMMIT
+          git push --force origin refs/tags/beta
