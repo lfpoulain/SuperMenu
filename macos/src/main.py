@@ -102,6 +102,15 @@ class SuperMenu(QObject):
             f"({self.hotkey_manager.hotkey})"
         )
         try:
+            # Activating SuperMenu is required for a reliable Qt popup on
+            # macOS, but AppKit also orders the application's main/key window
+            # to the front. Remove the configuration window from the screen
+            # first so the global shortcut presents only the prompt menu.
+            if self.main_window is not None and self.main_window.isVisible():
+                self.main_window.hide()
+                log(
+                    "Fenêtre de configuration masquée avant le menu global"
+                )
             self.context_menu_manager.show_menu()
         except Exception as exc:
             logger.exception("Ouverture du menu impossible : %s", exc)
