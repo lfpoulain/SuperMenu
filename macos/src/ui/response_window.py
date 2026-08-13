@@ -76,6 +76,7 @@ class ResponseWindow(QWidget):
         self.think_visible = False
         self.paste_target = None
         self._pending_paste_text = None
+        self._active_text_inserter = None
     
     def create_title_bar(self):
         """Create the title bar"""
@@ -306,20 +307,52 @@ class ResponseWindow(QWidget):
             self.status_label.setProperty("status", "error")
     
     def _paste_text(self):
-        """Paste through the safe target and clipboard guard."""
+        """Paste after macOS asynchronously reactivates the captured target."""
         try:
             text = self._pending_paste_text
             self._pending_paste_text = None
             if not text:
                 return
-            if not TextInserter().insert_text(text, target=self.paste_target):
+            self.write_button.setEnabled(False)
+            inserter = TextInserter()
+            self._active_text_inserter = inserter
+
+            def insertion_finished(success, reason):
+                self._active_text_inserter = None
+                self.write_button.setEnabled(True)
+                if success:
+                    return
                 self.show()
+                messages = {
+                    "target_unavailable": (
+                        "⚠️ L’application cible n’est plus disponible"
+                    ),
+                    "activation_failed": (
+                        "⚠️ Impossible de réactiver l’application cible"
+                    ),
+                    "target_changed": (
+                        "⚠️ Insertion annulée : l’application active a changé"
+                    ),
+                    "clipboard_failed": "⚠️ Presse-papiers indisponible",
+                    "paste_failed": "⚠️ Commande Coller impossible",
+                }
                 self.status_label.setText(
-                    "⚠️ Insertion annulée : la cible a changé"
+                    messages.get(reason, "⚠️ Insertion impossible")
                 )
                 self.status_label.setProperty("status", "warning")
+
+            inserter.insert_text_async(
+                text,
+                self.paste_target,
+                insertion_finished,
+            )
         except Exception:
             logger.exception("Erreur lors du collage")
+            self._active_text_inserter = None
+            self.write_button.setEnabled(True)
+            self.show()
+            self.status_label.setText("⚠️ Erreur interne pendant l’insertion")
+            self.status_label.setProperty("status", "error")
     
     def retry_request(self):
         """Retry the API request"""

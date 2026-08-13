@@ -129,51 +129,83 @@ class PasteTarget:
         if application is None:
             return False
         try:
-            return int(application.processIdentifier()) == self.process_id
+            if int(application.processIdentifier()) != self.process_id:
+                return False
+            if self.bundle_identifier:
+                return (
+                    str(application.bundleIdentifier() or "")
+                    == self.bundle_identifier
+                )
+            return True
         except Exception:
             return False
 
-    def activate_and_verify(self) -> bool:
+    def _running_application(self):
         if NSRunningApplication is None:
-            return False
+            return None
         try:
-            if self.is_current():
-                return True
             application = NSRunningApplication.runningApplicationWithProcessIdentifier_(
                 self.process_id
             )
             if application is None or application.isTerminated():
-                return False
+                return None
             if self.bundle_identifier:
                 current_bundle = str(application.bundleIdentifier() or "")
                 if current_bundle != self.bundle_identifier:
-                    return False
+                    return None
+            return application
+        except Exception:
+            return None
 
-            cooperative = False
-            own_application = _shared_application(NSApplication)
-            if own_application is not None:
-                yield_activation = getattr(
-                    own_application,
-                    "yieldActivationToApplication_",
-                    None,
+    def request_activation(self, *, force: bool = False) -> bool:
+        """Validate the captured identity and ask macOS to foreground it."""
+        if self.is_current():
+            return True
+        application = self._running_application()
+        if application is None:
+            return False
+        if not force:
+            try:
+                own_application = _shared_application(NSApplication)
+                if own_application is not None:
+                    yield_activation = getattr(
+                        own_application,
+                        "yieldActivationToApplication_",
+                        None,
+                    )
+                    if callable(yield_activation) and own_application.isActive():
+                        yield_activation(application)
+                        if application.activateWithOptions_(0):
+                            return True
+            except Exception:
+                # The compatibility activation below is still safe because
+                # the PID and bundle identifier have already been validated.
+                pass
+
+        # Compatibility path for older macOS versions, or when the
+        # cooperative request was declined despite a still-valid target.
+        try:
+            return bool(
+                application.activateWithOptions_(
+                    NSApplicationActivateIgnoringOtherApps
                 )
-                if callable(yield_activation) and own_application.isActive():
-                    yield_activation(application)
-                    cooperative = True
+            )
+        except Exception:
+            return False
 
-            options = 0 if cooperative else NSApplicationActivateIgnoringOtherApps
-            if not application.activateWithOptions_(options):
+    def activate_and_verify(self) -> bool:
+        """Synchronous compatibility helper for non-Qt call sites."""
+        try:
+            if self.is_current():
+                return True
+            if not self.request_activation():
                 return False
             for _attempt in range(6):
                 time.sleep(0.05)
                 if self.is_current():
                     return True
 
-            # Compatibility fallback for a target that did not honor the
-            # cooperative request (notably on older macOS releases).
-            if cooperative and application.activateWithOptions_(
-                NSApplicationActivateIgnoringOtherApps
-            ):
+            if self.request_activation(force=True):
                 for _attempt in range(4):
                     time.sleep(0.05)
                     if self.is_current():

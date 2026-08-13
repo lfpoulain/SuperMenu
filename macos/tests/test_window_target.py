@@ -122,3 +122,85 @@ def test_paste_target_yields_before_cooperative_activation(monkeypatch):
         ("yield", target_application),
         ("activate", 0),
     ]
+
+
+def test_paste_target_force_falls_back_when_cooperative_activation_is_rejected(
+    monkeypatch,
+):
+    calls = []
+
+    class OwnApplication:
+        @staticmethod
+        def isActive():
+            return True
+
+        @staticmethod
+        def yieldActivationToApplication_(_application):
+            calls.append("yield")
+
+    class FakeNSApplication:
+        @staticmethod
+        def sharedApplication():
+            return OwnApplication()
+
+    class TargetApplication:
+        @staticmethod
+        def isTerminated():
+            return False
+
+        @staticmethod
+        def bundleIdentifier():
+            return "com.example.target"
+
+        @staticmethod
+        def activateWithOptions_(options):
+            calls.append(("activate", options))
+            return options == 2
+
+    class FakeRunningApplication:
+        @staticmethod
+        def runningApplicationWithProcessIdentifier_(_process_id):
+            return TargetApplication()
+
+    monkeypatch.setattr(window_target, "NSApplication", FakeNSApplication)
+    monkeypatch.setattr(
+        window_target,
+        "NSRunningApplication",
+        FakeRunningApplication,
+    )
+    monkeypatch.setattr(
+        window_target,
+        "NSApplicationActivateIgnoringOtherApps",
+        2,
+    )
+    monkeypatch.setattr(window_target.PasteTarget, "is_current", lambda _self: False)
+    target = window_target.PasteTarget(
+        process_id=42,
+        bundle_identifier="com.example.target",
+    )
+
+    assert target.request_activation() is True
+    assert calls == ["yield", ("activate", 0), ("activate", 2)]
+
+
+def test_paste_target_rejects_reused_pid_with_a_different_bundle(monkeypatch):
+    class FrontmostApplication:
+        @staticmethod
+        def processIdentifier():
+            return 42
+
+        @staticmethod
+        def bundleIdentifier():
+            return "com.example.other"
+
+    monkeypatch.setattr(
+        window_target,
+        "_frontmost_application",
+        lambda: FrontmostApplication(),
+    )
+    target = window_target.PasteTarget(
+        process_id=42,
+        bundle_identifier="com.example.original",
+    )
+
+    assert target.is_current() is False
