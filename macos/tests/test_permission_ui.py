@@ -164,3 +164,19 @@ def test_hotkey_recorder_is_async_and_keeps_main_window_open(window, qt_app):
     assert window._hotkey_dialog is None
     QTest.qWait(250)
     assert manager.service.suspended is False
+
+
+def test_prompt_menu_can_be_opened_without_global_hotkey(window):
+    class ContextMenuStub:
+        def __init__(self):
+            self.calls = 0
+
+        def show_menu(self):
+            self.calls += 1
+
+    manager = ContextMenuStub()
+    window.context_menu_manager = manager
+
+    window.show_prompt_menu()
+
+    assert manager.calls == 1

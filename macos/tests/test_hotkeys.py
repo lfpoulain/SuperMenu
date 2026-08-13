@@ -1,4 +1,3 @@
-import src.utils.hotkey_manager as hotkey_module
 from src.utils.hotkey_manager import (
     HotkeyManager,
     HotkeyService,
@@ -97,6 +96,11 @@ def test_qt_macos_modifier_swap_is_mapped_to_physical_keys():
     assert control == ["Ctrl"]
 
 
+def test_persistent_listener_does_not_override_private_darwin_callbacks():
+    assert "_handler" not in _PersistentGlobalHotKeys.__dict__
+    assert "_create_event_tap" not in _PersistentGlobalHotKeys.__dict__
+
+
 def test_hotkey_requires_a_modifier():
     normalized, error = normalize_hotkey("K")
     assert normalized is None
@@ -183,24 +187,3 @@ def test_listener_is_suspended_without_being_destroyed():
 
     assert listener.suspended is False
     assert listener.stop_calls == 0
-
-
-def test_disabled_macos_event_tap_is_reenabled_in_place(monkeypatch):
-    enabled = []
-    listener = _PersistentGlobalHotKeys()
-    listener._event_tap = object()
-    event = object()
-
-    monkeypatch.setattr(hotkey_module.sys, "platform", "darwin")
-    monkeypatch.setattr(hotkey_module, "_DISABLED_EVENT_TAP_TYPES", {99})
-    monkeypatch.setattr(
-        hotkey_module,
-        "CGEventTapEnable",
-        lambda tap, state: enabled.append((tap, state)),
-    )
-
-    returned = listener._handler(None, 99, event, None)
-
-    assert returned is event
-    assert enabled == [(listener._event_tap, True)]
-    assert listener.tap_reenable_count == 1

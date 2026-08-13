@@ -21,30 +21,6 @@ from PySide6.QtWidgets import (
 from src.utils.logger import log
 
 
-try:
-    from Quartz import (
-        CGEventTapEnable,
-        CGEventTapIsEnabled,
-        kCGEventTapDisabledByTimeout,
-        kCGEventTapDisabledByUserInput,
-    )
-except ImportError:  # Allows static tests on non-macOS hosts.
-    CGEventTapEnable = None
-    CGEventTapIsEnabled = None
-    kCGEventTapDisabledByTimeout = None
-    kCGEventTapDisabledByUserInput = None
-
-
-_DISABLED_EVENT_TAP_TYPES = frozenset(
-    event_type
-    for event_type in (
-        kCGEventTapDisabledByTimeout,
-        kCGEventTapDisabledByUserInput,
-    )
-    if event_type is not None
-)
-
-
 _MODIFIER_ALIASES = {
     "cmd": "cmd",
     "command": "cmd",
@@ -245,47 +221,7 @@ class _PersistentGlobalHotKeys(GlobalHotKeys):
         self._bindings_lock = threading.RLock()
         self._suspended = False
         self._binding_specs = {}
-        self._event_tap = None
-        self._tap_reenable_count = 0
         super().__init__({})
-
-    def _create_event_tap(self):
-        tap = super()._create_event_tap()
-        self._event_tap = tap
-        return tap
-
-    def _handler(self, *args):
-        if (
-            sys.platform == "darwin"
-            and len(args) == 4
-            and args[1] in _DISABLED_EVENT_TAP_TYPES
-        ):
-            _proxy, _event_type, event, _refcon = args
-            tap = self._event_tap
-            if tap is not None and CGEventTapEnable is not None:
-                CGEventTapEnable(tap, True)
-                self._tap_reenable_count += 1
-            return event
-        return super()._handler(*args)
-
-    def ensure_event_tap_enabled(self):
-        """Recover a native tap disabled by macOS without restarting it."""
-        if CGEventTapEnable is None or CGEventTapIsEnabled is None:
-            return True
-        tap = self._event_tap
-        if tap is None:
-            return False
-        try:
-            if not CGEventTapIsEnabled(tap):
-                CGEventTapEnable(tap, True)
-                self._tap_reenable_count += 1
-            return bool(CGEventTapIsEnabled(tap))
-        except Exception:
-            return False
-
-    @property
-    def tap_reenable_count(self):
-        return self._tap_reenable_count
 
     def replace_bindings(self, bindings):
         binding_specs = dict(bindings)
@@ -340,24 +276,6 @@ class HotkeyService:
         self._closed = False
         self._suspended = False
         self._last_error = ""
-        self._reported_tap_reenable_count = 0
-
-    def _listener_is_healthy(self, listener) -> bool:
-        if listener is None or not listener.is_alive():
-            return False
-        ensure_enabled = getattr(listener, "ensure_event_tap_enabled", None)
-        if callable(ensure_enabled) and not ensure_enabled():
-            self._last_error = "Le tap clavier natif macOS est désactivé"
-            return False
-        recovery_count = int(getattr(listener, "tap_reenable_count", 0) or 0)
-        if recovery_count > self._reported_tap_reenable_count:
-            self._reported_tap_reenable_count = recovery_count
-            log(
-                "Tap clavier macOS réactivé automatiquement "
-                f"({recovery_count} récupération(s))",
-                logging.WARNING,
-            )
-        return True
 
     @staticmethod
     def _combined_bindings(owner_bindings):
@@ -426,15 +344,11 @@ class HotkeyService:
             if self._closed:
                 self._last_error = "Le service de raccourcis est fermé"
                 return False
-            if self._listener is not None:
-                if self._listener_is_healthy(self._listener):
-                    return True
-                if self._listener.is_alive():
-                    return False
+            if self._listener is not None and self._listener.is_alive():
+                return True
             try:
                 combined = self._combined_bindings(self._owner_bindings)
                 listener = self._listener_factory()
-                self._reported_tap_reenable_count = 0
                 listener.replace_bindings(combined)
                 listener.set_suspended(self._suspended)
                 listener.start()
@@ -472,7 +386,7 @@ class HotkeyService:
     @property
     def running(self):
         with self._lock:
-            return self._listener_is_healthy(self._listener)
+            return bool(self._listener and self._listener.is_alive())
 
     @property
     def last_error(self):

@@ -342,6 +342,9 @@ class MainWindow(QMainWindow):
         custom_record.clicked.connect(self.record_custom_hotkey)
         custom_row.addWidget(custom_record)
         shortcuts_form.addRow("Mode personnalisé", custom_row)
+        test_menu_button = QPushButton("Afficher le menu des prompts")
+        test_menu_button.clicked.connect(self.show_prompt_menu)
+        shortcuts_form.addRow("Test sans raccourci", test_menu_button)
         layout.addWidget(shortcuts_group)
 
         permissions_group = QGroupBox("🔐 Autorisations macOS")
@@ -979,6 +982,9 @@ class MainWindow(QMainWindow):
         open_action = QAction("Ouvrir SuperMenu", self)
         open_action.triggered.connect(self.show_main_window)
         menu.addAction(open_action)
+        prompt_menu_action = QAction("Afficher le menu des prompts", self)
+        prompt_menu_action.triggered.connect(self.show_prompt_menu)
+        menu.addAction(prompt_menu_action)
         response_action = QAction("Afficher la dernière réponse", self)
         response_action.triggered.connect(
             lambda: self.context_menu_manager
@@ -1012,6 +1018,14 @@ class MainWindow(QMainWindow):
         self.show()
         self.raise_()
         self.activateWindow()
+
+    def show_prompt_menu(self):
+        """Open the prompt menu from Qt, independently of global hotkeys."""
+        if self.context_menu_manager is None:
+            log("Test du menu impossible : gestionnaire indisponible")
+            return
+        log("Ouverture manuelle du menu des prompts")
+        self.context_menu_manager.show_menu()
 
     def show_permission_setup(self):
         self.tabs.setCurrentIndex(1)

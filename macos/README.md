@@ -39,10 +39,10 @@ Aucun droit Microphone ou Enregistrement de l’écran n’est utilisé.
 
 Tous les raccourcis partagent un seul écouteur macOS persistant. Modifier un
 raccourci ou revérifier les autorisations met à jour ses liaisons sans arrêter
-ni recréer le tap clavier natif. Si Quartz désactive temporairement ce tap,
-SuperMenu le réactive en place comme le prévoit Core Graphics. L’enregistreur
-tient également compte de l’inversion Command/Control appliquée par défaut par
-Qt sur macOS : les noms affichés correspondent donc aux touches physiques.
+ni recréer le tap clavier natif. SuperMenu s’appuie directement sur le listener
+macOS standard de `pynput`, sans surcharger ses callbacks Darwin privés.
+L’enregistreur tient compte de l’inversion Command/Control appliquée par défaut
+par Qt sur macOS : les noms affichés correspondent donc aux touches physiques.
 
 L’affichage des fenêtres demande d’abord l’activation moderne et coopérative
 d’AppKit. L’ancienne activation forcée n’est utilisée qu’en repli de
@@ -61,6 +61,10 @@ Les journaux sont conservés dans `~/Library/Logs/SuperMenu`. Le fichier
 thread Qt, activation macOS et affichage du menu) ainsi que les erreurs Python.
 `native-crash.log` conserve une trace des crashs natifs éventuels. Aucun de ces
 fichiers ne contient la clé API, le texte sélectionné ou le contenu des prompts.
+
+Le menu des prompts peut aussi être ouvert depuis l’icône SuperMenu dans la
+barre des menus ou depuis **Paramètres > Test sans raccourci**. Ce chemin permet
+de vérifier séparément l’affichage du menu et l’écoute du raccourci global.
 
 Les doublons de raccourcis sont comparés après normalisation. Par exemple,
 `Command+Shift+<` et `Cmd+Shift+<` sont considérés comme le même raccourci et le
