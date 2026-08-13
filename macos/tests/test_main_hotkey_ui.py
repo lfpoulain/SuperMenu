@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
+from PySide6.QtWidgets import QSystemTrayIcon
+
 from src.main import SuperMenu
+from src.ui.main_window import MainWindow
 
 
 class FakeMainWindow:
@@ -48,3 +51,19 @@ def test_global_menu_does_not_touch_already_hidden_configuration_window():
 
     assert application.main_window.hide_calls == 0
     assert application.context_menu_manager.show_calls == 1
+
+
+def test_tray_click_does_not_open_configuration_window():
+    window = SimpleNamespace(show_main_window_calls=0)
+    window.show_main_window = lambda: setattr(
+        window,
+        "show_main_window_calls",
+        window.show_main_window_calls + 1,
+    )
+
+    MainWindow._tray_activated(
+        window,
+        QSystemTrayIcon.ActivationReason.Trigger,
+    )
+
+    assert window.show_main_window_calls == 0

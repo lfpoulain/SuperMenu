@@ -1010,7 +1010,10 @@ class MainWindow(QMainWindow):
 
     def _tray_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            self.show_main_window()
+            # On macOS, clicking a status item already opens the QMenu assigned
+            # with setContextMenu(). Showing the configuration window here as
+            # well makes both interfaces appear for the same click.
+            log("Clic sur l’icône de barre des menus : menu natif affiché")
 
     def show_main_window(self):
         activate_current_application()
