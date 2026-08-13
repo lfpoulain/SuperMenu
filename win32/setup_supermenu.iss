@@ -1,6 +1,8 @@
 #define MyAppName "SuperMenu"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1"
+  #define VersionFile FileOpen("VERSION")
+  #define MyAppVersion Trim(FileRead(VersionFile))
+  #expr FileClose(VersionFile)
 #endif
 #ifndef MyOutputBaseFilename
   #define MyOutputBaseFilename "SuperMenu_Setup"
@@ -48,7 +50,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "startup"; Description: "Démarrer SuperMenu avec Windows"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-; Le bundle PyInstaller one-file contient déjà FFmpeg et les ressources.
+; Le bundle PyInstaller one-file contient déjà les ressources.
 Source: "dist\SuperMenu.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
@@ -65,6 +67,10 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 [UninstallRun]
 ; Fermer l'application si elle est en cours d'exécution (sinon l'exécutable peut rester verrouillé)
 Filename: "cmd.exe"; Parameters: "/c for /l %%i in (1,1,10) do (taskkill /F /IM SuperMenu.exe /T >nul 2>&1 & timeout /t 1 >nul) & exit /b 0"; Flags: runhidden waituntilterminated; RunOnceId: "StopSuperMenu"
+
+[InstallDelete]
+; Nettoyer les anciens assets qui ont pu être installés hors du bundle one-file.
+Type: filesandordirs; Name: "{app}\bin"
 
 [UninstallDelete]
 

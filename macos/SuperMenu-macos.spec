@@ -4,11 +4,12 @@ from pathlib import Path
 
 
 project_dir = Path(SPECPATH)
+shared_dir = project_dir.parent / "shared"
 version = (project_dir / "VERSION").read_text(encoding="utf-8").strip()
 
 a = Analysis(
     ["run.py"],
-    pathex=[str(project_dir)],
+    pathex=[str(project_dir), str(shared_dir)],
     binaries=[],
     datas=[
         ("resources", "resources"),
@@ -69,4 +70,3 @@ app = BUNDLE(
         "NSHighResolutionCapable": True,
     },
 )
-

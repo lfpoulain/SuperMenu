@@ -15,9 +15,9 @@ from src.api.openai_client import OpenAIClient
 from src.ui.prompt_dialog import PromptDialog
 from src.ui.response_window import ResponseWindow
 from src.utils.clipboard_manager import ClipboardManager
-from src.utils.loading_indicator import SimpleLoadingIndicator
+from supermenu_core.ui.loading_indicator import SimpleLoadingIndicator
 from src.utils.logger import log, logger
-from src.utils.safe_dialogs import SafeDialogs
+from supermenu_core.ui.safe_dialogs import SafeDialogs
 from src.utils.text_inserter import TextInserter
 from src.utils.window_target import (
     PasteTarget,

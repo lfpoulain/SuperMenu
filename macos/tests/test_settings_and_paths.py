@@ -2,6 +2,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication
 
+from supermenu_core.config.prompts import default_text_prompts
 from src.config.build_info import APP_VERSION
 from src.config.settings import Settings
 from src.utils.paths import packaged_resource_status
@@ -23,7 +24,7 @@ def test_settings_use_macos_defaults(tmp_path, monkeypatch):
 
     assert settings.get_hotkey() == "Cmd+Shift+Space"
     assert settings.get_custom_hotkey() == "Cmd+Shift+M"
-    assert settings.get_prompts()
+    assert settings.get_prompts() == default_text_prompts()
     assert "audio" not in settings.settings.allKeys()
     assert "screenshot" not in settings.settings.allKeys()
 
@@ -38,6 +39,24 @@ def test_api_key_is_stored_in_the_private_macos_config(tmp_path):
     reloaded = Settings(config_path=str(config_path))
     assert reloaded.get_api_key() == "sk-local-test"
     assert "sk-local-test" in config_path.read_text(encoding="utf-8")
+
+
+def test_custom_reasoning_accepts_provider_native_options(tmp_path):
+    settings = Settings(config_path=str(tmp_path / "settings.ini"))
+
+    for option in ("on", "off", "future_tier"):
+        settings.set_custom_reasoning_effort(option)
+        assert settings.get_custom_reasoning_effort() == option
+
+
+def test_custom_endpoint_key_is_separate_from_openai_key(tmp_path):
+    settings = Settings(config_path=str(tmp_path / "settings.ini"))
+
+    settings.set_api_key("openai-secret")
+    settings.set_custom_endpoint_api_key("endpoint-secret")
+
+    assert settings.get_api_key() == "openai-secret"
+    assert settings.get_custom_endpoint_api_key() == "endpoint-secret"
 
 
 def test_packaged_resource_smoke_status():

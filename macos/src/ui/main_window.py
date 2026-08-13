@@ -1,4 +1,4 @@
-"""Configuration window for the independent macOS application."""
+"""Configuration window for the macOS application composition."""
 
 from __future__ import annotations
 
@@ -33,12 +33,16 @@ from PySide6.QtWidgets import (
 )
 
 from src.config.build_info import APP_VERSION
-from src.config.openai_models import (
+from supermenu_core.config.openai_models import (
     AVAILABLE_MODELS,
     get_reasoning_efforts_for_model,
 )
-from src.config.settings import CUSTOM_REASONING_EFFORTS
-from src.ui.theme_manager import ThemeManager
+from supermenu_core.api.model_capabilities import (
+    choose_reasoning_option,
+    normalize_reasoning_option,
+)
+from supermenu_core.config.provider_settings import CUSTOM_REASONING_EFFORTS
+from supermenu_core.ui.theme_manager import ThemeManager
 from src.utils import updater as app_updater
 from src.utils.hotkey_manager import HotkeyRecorderDialog
 from src.utils.paths import resource_path, user_config_dir, user_log_dir
@@ -51,7 +55,7 @@ from src.utils.permissions import (
     open_accessibility_settings,
     open_input_monitoring_settings,
 )
-from src.utils.validators import Validators
+from supermenu_core.utils.validators import Validators
 
 
 class NoWheelComboBox(QComboBox):
@@ -88,7 +92,7 @@ class CustomModelsWorker(QThread):
         try:
             from src.api.openai_client import OpenAIClient
 
-            success, result = OpenAIClient.fetch_available_models(
+            success, result = OpenAIClient.fetch_available_model_details(
                 self.endpoint,
                 self.api_key,
                 endpoint_type=self.endpoint_type,
@@ -124,6 +128,7 @@ class MainWindow(QMainWindow):
         self._loading_prompt = False
         self._update_worker = None
         self._custom_models_worker = None
+        self._custom_model_details = {}
         self._hotkey_dialog = None
         self._last_permission_state = None
 
@@ -291,6 +296,15 @@ class MainWindow(QMainWindow):
         self.custom_endpoint = QLineEdit(self.settings.get_custom_endpoint())
         self.custom_endpoint.setPlaceholderText("http://localhost:11434")
         endpoint_layout.addWidget(self.custom_endpoint)
+        endpoint_layout.addWidget(QLabel("Jeton de l’endpoint (optionnel) :"))
+        self.custom_endpoint_api_key = QLineEdit(
+            self.settings.get_custom_endpoint_api_key()
+        )
+        self.custom_endpoint_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.custom_endpoint_api_key.setPlaceholderText(
+            "Jeton distinct de la clé OpenAI"
+        )
+        endpoint_layout.addWidget(self.custom_endpoint_api_key)
         endpoint_layout.addWidget(QLabel("Type d’endpoint :"))
         self.endpoint_type = NoWheelComboBox()
         self.endpoint_type.addItem("Ollama", "ollama")
@@ -315,13 +329,20 @@ class MainWindow(QMainWindow):
         refresh_models.clicked.connect(self.refresh_custom_models)
         custom_model_row.addWidget(refresh_models)
         endpoint_layout.addLayout(custom_model_row)
-        endpoint_layout.addWidget(QLabel("Raisonnement / think :"))
+        self.custom_reasoning_label = QLabel("Raisonnement / think :")
+        endpoint_layout.addWidget(self.custom_reasoning_label)
         self.custom_reasoning = NoWheelComboBox()
-        self.custom_reasoning.addItems(CUSTOM_REASONING_EFFORTS)
-        self.custom_reasoning.setCurrentText(
-            self.settings.get_custom_reasoning_effort()
-        )
         endpoint_layout.addWidget(self.custom_reasoning)
+        self.custom_endpoint.textChanged.connect(
+            self._invalidate_custom_model_details
+        )
+        self.endpoint_type.currentIndexChanged.connect(
+            self._invalidate_custom_model_details
+        )
+        self.custom_model.currentTextChanged.connect(
+            self._update_custom_reasoning_options
+        )
+        self._update_custom_reasoning_options()
         layout.addWidget(endpoint_group)
 
         shortcuts_group = QGroupBox("⌨️ Raccourcis clavier")
@@ -428,7 +449,7 @@ class MainWindow(QMainWindow):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("font-size: 28px; font-weight: 600; padding: 20px;")
         layout.addWidget(title)
-        version = QLabel(f"Version {APP_VERSION} — application macOS indépendante")
+        version = QLabel(f"Version {APP_VERSION} — composition macOS")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(version)
         layout.addSpacing(20)
@@ -668,9 +689,11 @@ class MainWindow(QMainWindow):
         if not valid:
             QMessageBox.warning(self, "Endpoint invalide", message)
             return
+        self._custom_model_details = {}
+        self._update_custom_reasoning_options()
         self._custom_models_worker = CustomModelsWorker(
             endpoint,
-            None,
+            self.custom_endpoint_api_key.text().strip() or None,
             self.endpoint_type.currentData(),
         )
         self._custom_models_worker.finished_ok.connect(
@@ -685,13 +708,19 @@ class MainWindow(QMainWindow):
         )
         worker.start()
 
-    def _on_custom_models_loaded(self, models):
+    def _on_custom_models_loaded(self, model_details):
         worker = self._custom_models_worker
         if worker is None or (
             worker.endpoint != self.custom_endpoint.text().strip()
             or worker.endpoint_type != self.endpoint_type.currentData()
         ):
             return
+        self._custom_model_details = {
+            str(details["id"]): details
+            for details in model_details
+            if isinstance(details, dict) and details.get("id")
+        }
+        models = list(self._custom_model_details)
         current = self.custom_model.currentText().strip()
         self.custom_model.clear()
         self.custom_model.addItems(models)
@@ -699,11 +728,82 @@ class MainWindow(QMainWindow):
             self.custom_model.setCurrentText(current)
         elif models:
             self.custom_model.setCurrentIndex(0)
+        self._update_custom_reasoning_options()
         QMessageBox.information(
             self,
             "Modèles récupérés",
             f"{len(models)} modèle(s) trouvé(s) sur le serveur.",
         )
+
+    def _invalidate_custom_model_details(self, *_args):
+        self._custom_model_details = {}
+        self._update_custom_reasoning_options()
+
+    def _get_custom_model_details(self, model):
+        details = self._custom_model_details.get(model)
+        if details:
+            return details
+        for candidate in self._custom_model_details.values():
+            if model in candidate.get("identifiers", []):
+                return candidate
+        return None
+
+    def _update_custom_reasoning_options(self, *_args):
+        if not hasattr(self, "custom_reasoning"):
+            return
+
+        combo = self.custom_reasoning
+        previous = normalize_reasoning_option(combo.currentData())
+        if not previous:
+            previous = normalize_reasoning_option(combo.currentText())
+        preferred = previous or self.settings.get_custom_reasoning_effort()
+        endpoint_type = self.endpoint_type.currentData()
+        model = self.custom_model.currentText().strip()
+        details = self._get_custom_model_details(model)
+
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            if endpoint_type == "lmstudio" and details:
+                options = details.get("reasoning_options", [])
+                if details.get("reasoning_supported") is False:
+                    combo.addItem("Non pris en charge", "none")
+                    combo.setEnabled(False)
+                    self.custom_reasoning_label.setText(
+                        "Raisonnement / think (non pris en charge) :"
+                    )
+                    return
+                if options:
+                    selected = choose_reasoning_option(
+                        options,
+                        preferred=preferred,
+                        default=details.get("reasoning_default"),
+                    )
+                    for option in options:
+                        combo.addItem(option, option)
+                    combo.setCurrentIndex(max(0, combo.findData(selected)))
+                    combo.setEnabled(len(options) > 1)
+                    self.custom_reasoning_label.setText(
+                        "Raisonnement / think (détecté) :"
+                    )
+                    return
+
+            fallback_options = list(CUSTOM_REASONING_EFFORTS)
+            if preferred in {"off", "on"}:
+                fallback_options = ["off", "on"]
+            elif preferred and preferred not in fallback_options:
+                fallback_options.append(preferred)
+            for option in fallback_options:
+                combo.addItem(option, option)
+            selected = choose_reasoning_option(
+                fallback_options,
+                preferred=preferred,
+            )
+            combo.setCurrentIndex(max(0, combo.findData(selected)))
+            combo.setEnabled(True)
+            self.custom_reasoning_label.setText("Raisonnement / think :")
+        finally:
+            combo.blockSignals(False)
 
     def _on_custom_models_failed(self, message):
         worker = self._custom_models_worker
@@ -948,10 +1048,14 @@ class MainWindow(QMainWindow):
         )
         self.settings.set_use_custom_endpoint(self.use_custom_endpoint.isChecked())
         self.settings.set_custom_endpoint(self.custom_endpoint.text())
+        self.settings.set_custom_endpoint_api_key(
+            self.custom_endpoint_api_key.text()
+        )
         self.settings.set_custom_endpoint_type(self.endpoint_type.currentData())
         self.settings.set_custom_model(self.custom_model.currentText())
         self.settings.set_custom_reasoning_effort(
-            self.custom_reasoning.currentText()
+            self.custom_reasoning.currentData()
+            or self.custom_reasoning.currentText()
         )
         self.settings.set_theme(self.theme_combo.currentData())
         self.settings.set_update_channel(self.channel_combo.currentData())

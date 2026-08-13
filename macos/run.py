@@ -15,7 +15,10 @@ if PROJECT_DIR not in sys.path:
 
 def run_packaged_smoke_test():
     from src.config.build_info import APP_VERSION, BUILD_CHANNEL
-    from src.config.openai_models import AVAILABLE_MODELS, DEFAULT_OPENAI_MODEL
+    from supermenu_core.config.openai_models import (
+        AVAILABLE_MODELS,
+        DEFAULT_OPENAI_MODEL,
+    )
     from src.utils.paths import packaged_resource_status
     from src.utils.permissions import current_permission_status
 

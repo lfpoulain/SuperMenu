@@ -15,7 +15,9 @@ LOG_DIR = user_log_dir()
 LOG_FILE = LOG_DIR / "supermenu.log"
 CRASH_FILE = LOG_DIR / "native-crash.log"
 
-logger = logging.getLogger("SuperMenu.macOS")
+# Shared modules log under ``SuperMenu.*``. Configure the common parent so
+# platform and shared events end up in the same rotating file.
+logger = logging.getLogger("SuperMenu")
 logger.setLevel(logging.INFO)
 logger.propagate = False
 

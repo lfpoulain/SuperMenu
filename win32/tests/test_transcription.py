@@ -4,6 +4,7 @@ import pytest
 
 from src.audio.audio_config import TRANSCRIPTION_MODEL
 from src.audio.transcription import (
+    TranscriptionError,
     Transcriber,
     parse_transcription_keywords,
     parse_transcription_languages,
@@ -17,9 +18,7 @@ def _transcriber_with_fake_client(create):
     transcriber.keywords = ["SuperMenu", "PySide6"]
     transcriber.last_detected_languages = []
     transcriber.client = SimpleNamespace(
-        audio=SimpleNamespace(
-            transcriptions=SimpleNamespace(create=create)
-        )
+        audio=SimpleNamespace(transcriptions=SimpleNamespace(create=create))
     )
     return transcriber
 
@@ -54,15 +53,24 @@ def test_transcription_model_is_current_recommended_alias():
     assert TRANSCRIPTION_MODEL == "gpt-transcribe"
 
 
+def test_transcription_rejects_non_native_audio_format(tmp_path):
+    audio_path = tmp_path / "recording.audio"
+    audio_path.write_bytes(b"not-a-wave")
+
+    with pytest.raises(TranscriptionError, match="format WAV natif attendu"):
+        Transcriber._validate_audio_file(str(audio_path))
+
+
 def test_transcription_hint_parsing_is_deduplicated_and_validated():
     assert parse_transcription_languages("fr, EN; fr zh-cn") == [
         "fr",
         "en",
         "zh-cn",
     ]
-    assert parse_transcription_keywords(
-        "SuperMenu, PySide6\nSuperMenu"
-    ) == ["SuperMenu", "PySide6"]
+    assert parse_transcription_keywords("SuperMenu, PySide6\nSuperMenu") == [
+        "SuperMenu",
+        "PySide6",
+    ]
 
     with pytest.raises(ValueError, match="Code de langue invalide"):
         parse_transcription_languages("français")

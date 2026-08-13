@@ -4,26 +4,33 @@ Ce document détaille l'architecture technique de SuperMenu, expliquant comment 
 
 ## Vue d'ensemble
 
-SuperMenu est développé en Python avec le framework PySide6 (Qt) pour l'interface graphique. L'application utilise une architecture modulaire pour faciliter la maintenance et l'évolution du code.
+SuperMenu est développé en Python avec PySide6. L'application Windows est une
+composition : le métier multiplateforme vit dans `shared/supermenu_core`, tandis
+que `win32/src` porte uniquement l'application et les intégrations Windows.
 
 ```
 SuperMenu/
-├── src/                    # Code source principal
-│   ├── __main__.py         # Point d'entrée
-│   ├── main.py             # Classe principale de l'application
-│   ├── api/                # Intégration avec les API externes
-│   ├── audio/              # Gestion de l'audio et reconnaissance vocale
-│   ├── config/             # Configuration et paramètres
-│   ├── ui/                 # Interface utilisateur
-│   └── utils/              # Utilitaires divers
-├── requirements.txt        # Dépendances Python d'exécution
-├── requirements-dev.txt    # Tests, qualité et construction
-├── run.py                  # Script de lancement (développement)
-├── bin/                    # Binaries nécessaires (ex: ffmpeg.exe)
-├── resources/              # Ressources UI (icônes, etc.)
-├── dist/                   # Sortie PyInstaller (SuperMenu.exe)
-└── setup_supermenu.iss     # Script d'installation Inno Setup
+├── shared/supermenu_core/      # Cœur commun, sans API native
+│   ├── api/                    # OpenAI, Ollama, LM Studio
+│   ├── config/                 # Modèles et schémas de prompts
+│   ├── ui/                     # Widgets Qt composables
+│   └── utils/                  # Validateurs purs
+└── win32/
+    ├── src/
+    │   ├── main.py             # Composition de l'application
+    │   ├── api/                # Adaptateur multimodal du client
+    │   ├── audio/              # Enregistrement et transcription
+    │   ├── config/             # Persistance Windows
+    │   ├── ui/                 # UI Windows et capture
+    │   └── utils/              # Hotkeys, cible et presse-papiers
+    ├── requirements*.txt
+    ├── SuperMenu.spec
+    └── setup_supermenu.iss
 ```
+
+Règle de dépendance : `win32/src` peut importer `supermenu_core`, mais le cœur
+partagé ne peut importer ni `src`, ni Win32, ni AppKit. Un test architectural
+analyse tous ses imports pour garantir cette frontière.
 
 ## Composants principaux
 
@@ -33,22 +40,27 @@ SuperMenu/
 - **src/__main__.py** : Point d'entrée du package (lancement via `python -m src`)
 - **src/main.py** : Classe `SuperMenu` qui initialise l'application, les raccourcis et les gestionnaires
 
-En distribution, l'application est packagée en `SuperMenu.exe` (PyInstaller) et installée via Inno Setup. En mode one-file, les chemins de ressources (`resources/`, `bin/`) sont résolus depuis le répertoire d'extraction temporaire fourni par PyInstaller (`sys._MEIPASS`).
+En distribution, l'application est packagée en `SuperMenu.exe` (PyInstaller)
+et installée via Inno Setup. En mode one-file, les ressources sont résolues
+depuis le répertoire d'extraction temporaire fourni par PyInstaller
+(`sys._MEIPASS`).
 
-### 2. Interface utilisateur (src/ui/)
+### 2. Interface utilisateur
 
 - **main_window.py** : Fenêtre principale des paramètres
-- **response_window.py** : Fenêtre d'affichage des réponses de l'API
-- **prompt_dialog.py** : Dialogue de prompt personnalisé (texte et image)
+- **`shared/.../response_window.py`** : comportement et rendu communs de la
+  fenêtre de réponse ; `src/ui/response_window.py` ajoute la présentation Win32
+  et l'insertion native.
+- **`shared/.../prompt_dialog.py`** : dialogue Qt commun (texte et image).
 - **screen_capture.py** : Capture d'écran (plein écran ou sélection de zone) utilisée par le flux "capture"
-- **theme_manager.py** : Application du thème (sombre/clair/auto) via `pyqtdarktheme`
+- **`shared/.../theme_manager.py`** : thème sombre/clair/auto.
 
 ### 3. Utilitaires (src/utils/)
 
 - **context_menu.py** : Gestion du menu contextuel
 - **hotkey_manager.py** : Enregistrement et gestion des raccourcis clavier
 - **logger.py** : Système de journalisation
-- **loading_indicator.py** : Indicateur de chargement non bloquant
+- **`shared/.../loading_indicator.py`** : indicateur non bloquant commun.
 
 #### Hotkeys (Windows)
 
@@ -67,9 +79,11 @@ Contraintes :
 
 Le dialogue d'enregistrement d'un raccourci (`HotkeyRecorderDialog`) capture les touches via les événements Qt (pas de hook clavier global).
 
-### 4. Configuration (src/config/)
+### 4. Configuration
 
-- **settings.py** : Gestion des paramètres de l'application (via QSettings)
+- **`src/config/settings.py`** : persistance via QSettings et stockage sécurisé.
+- **`shared/supermenu_core/config`** : catalogue OpenAI, options fournisseur et
+  validation/migration des collections de prompts.
 
 ## Flux de données
 
@@ -111,10 +125,10 @@ La fenêtre de résultat n'expose plus plusieurs moteurs expérimentaux. `Respon
 
 1. L'utilisateur appuie sur le raccourci vocal (par défaut: Ctrl+Alt+²)
 2. `VoiceRecognition` affiche `RecordingDialog`, qui expose la durée, la limite, l'annulation et les états de traitement
-3. `AudioRecorder` capture en mono et produit un MP4/Opus, ou un WAV si FFmpeg est indisponible
+3. `AudioRecorder` capture en PCM mono 48 kHz et produit directement un WAV natif
 4. `Transcriber` vérifie le format, la taille maximale de 25 Mo et appelle `/v1/audio/transcriptions` avec `gpt-transcribe`
 5. Les champs OpenAI actuels sont utilisés : `languages`, `keywords` et `prompt`; la réponse JSON est lue via son champ `text`
-6. L'encodage, le réseau et le nettoyage restent hors du thread Qt; des signaux mettent l'interface à jour
+6. La finalisation WAV, le réseau et le nettoyage restent hors du thread Qt; des signaux mettent l'interface à jour
 7. L'action **Écrire à la voix** transmet la transcription à une `ResponseWindow` autonome, sans ancienne requête réessayable, puis laisse l'utilisateur choisir **Copier** ou **Écrire**
 8. Un prompt vocal combine la transcription avec son instruction et respecte son option `insert_directly`
 9. Les fichiers audio temporaires et les ressources PyAudio sont nettoyés dans tous les chemins de sortie
@@ -151,7 +165,8 @@ Emplacements par défaut :
 
 ## Système de thèmes
 
-Le système de thèmes est implémenté via `src/ui/theme_manager.py` :
+Le système de thèmes commun est implémenté via
+`shared/supermenu_core/ui/theme_manager.py` :
 
 1. Thèmes disponibles : `dark`, `light`, `auto`
 2. Application via `ThemeManager.apply_theme(app, theme)`
@@ -170,7 +185,9 @@ L'architecture de SuperMenu a été conçue pour faciliter l'ajout de nouvelles 
 
 Le fichier `VERSION` contient la prochaine version stable sous la forme `MAJOR.MINOR.PATCH`. Les workflows injectent la version et le canal dans `src/config/build_info.py` avant le packaging :
 
-- **CI** (`ci.yml`) : tests sur Python 3.10 et 3.12 pour les pull requests et les pushs sur `main`; aucune publication.
+- **CI** (`ci.yml`) : tests Windows sur Python 3.10 et 3.12, tests macOS
+  sur Python 3.12 et construction d'un DMG de test pour les pull requests et
+  les pushs sur `main`; aucune publication.
 - **Beta** (`beta-release.yml`) : exécution après la réussite du workflow CI d'un push sur `main`, ou lancement manuel depuis `main`; version `VERSION-beta.RUN_NUMBER`, tag roulant `beta`, prérelease GitHub, installateur `SuperMenu_Beta_Setup.exe` et checksums SHA-256.
 - **Stable** (`stable-release.yml`) : déclenchement uniquement par un tag exact `vMAJOR.MINOR.PATCH`; le tag doit correspondre à `VERSION`, la release n'est jamais remplacée et devient la release GitHub `Latest`.
 
@@ -194,16 +211,23 @@ Le choix du canal est conservé dans `QSettings`; un build beta neuf sélectionn
 
 ### Sécurité
 
-- Stockage sécurisé des clés API via `keyring`
-- La clé API n'est pas loggée
+- Stockage sécurisé et séparé de la clé OpenAI et du jeton d'endpoint via
+  `keyring`
+- Aucun credential n'est loggé ni envoyé à un autre fournisseur
 - Nettoyage des fichiers temporaires SuperMenu (captures) limité au dossier temporaire
 
 ---
 
 Ce document est destiné aux développeurs souhaitant comprendre l'architecture de SuperMenu ou contribuer au projet. Pour des informations sur l'utilisation de l'application, consultez le [Guide d'utilisation](GUIDE_UTILISATION.md).
 
-- `OpenAIClient` (`src/api/openai_client.py`) : Gère les requêtes mono-tour, leur envoi et le traitement initial des réponses. OpenAI utilise Chat Completions avec les capacités déclarées du modèle. LM Studio utilise prioritairement `/api/v1/chat`, lit `/api/v1/models` pour traduire le raisonnement selon le modèle et retombe sur `/v1/chat/completions` si l'API native n'est pas disponible. Ollama lit `/api/show`, utilise des booléens pour les modèles hybrides et les niveaux documentés pour GPT‑OSS. Les sorties `message`, `reasoning` et `thinking` sont normalisées sans perdre une réponse placée dans le mauvais canal par le template du modèle.
-- `openai_models.py` / `Settings` (`src/config/`) : Le module pur `openai_models.py` porte la source unique des modèles OpenAI autorisés, de leurs efforts et de leurs valeurs par défaut, sans effet de bord Qt ou journalisation. `Settings` gère uniquement leur validation, leur migration et leur persistance; les efforts OpenAI et endpoint local sont enregistrés séparément.
+- `OpenAIClient` (`shared/supermenu_core/api/openai_client.py`) : gère les
+  requêtes, le raisonnement, les retries et la normalisation des réponses. Le
+  mince adaptateur `src/api/openai_client.py` active les images pour la capture
+  Windows. La clé OpenAI n'est jamais transmise implicitement à un endpoint
+  personnalisé, qui peut recevoir son propre jeton explicitement configuré.
+- `openai_models.py` / `Settings` : le catalogue partagé porte la source unique
+  des modèles autorisés ; `Settings` valide, migre et persiste les choix propres
+  à Windows.
 - `ContextMenuManager` (`src/utils/context_menu.py`) : Orchestre l'affichage du menu contextuel, la récupération du texte sélectionné, l'appel à `OpenAIClient` et l'affichage de la `ResponseWindow`. Il initialise et met à jour la configuration de `OpenAIClient` (clé API et modèle) en fonction des `Settings`.
 
 ### Flux de données (Exemple : Action sur Texte Sélectionné)

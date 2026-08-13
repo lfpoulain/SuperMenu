@@ -1,20 +1,24 @@
 # SuperMenu macOS
 
-Cette application est une adaptation macOS autonome de SuperMenu. Son code ne
-charge aucun module du sous-projet Windows. L’organisation métier reste la même :
+Cette application est la composition macOS de SuperMenu. Elle utilise
+`../shared/supermenu_core` pour le métier et les widgets Qt génériques, sans
+jamais charger le sous-projet Windows. Les intégrations AppKit, les permissions,
+le presse-papiers et l'insertion restent locales à `macos/src`.
 
 ```text
-macos/
-├── src/
-│   ├── api/       # appels OpenAI, Ollama et LM Studio
-│   ├── config/    # modèles, prompts et réglages persistants
-│   ├── ui/        # configuration, saisie et réponse
-│   └── utils/     # raccourcis, presse-papiers, permissions et insertion
-├── tests/
-├── resources/
-├── scripts/
-├── run.py
-└── SuperMenu-macos.spec
+SuperMenu/
+├── shared/supermenu_core/  # fournisseurs, modèles, prompts et UI commune
+└── macos/
+    ├── src/
+    │   ├── api/       # configuration texte du client partagé
+    │   ├── config/    # stockage et réglages propres au Mac
+    │   ├── ui/        # composition et permissions
+    │   └── utils/     # AppKit, raccourcis, cible et insertion
+    ├── tests/
+    ├── resources/
+    ├── scripts/
+    ├── run.py
+    └── SuperMenu-macos.spec
 ```
 
 ## Lancer en développement sur un Mac
@@ -29,6 +33,9 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements-dev.txt
 python run.py
 ```
+
+L'installation doit être lancée depuis `macos/` : la première ligne de
+`requirements.txt` installe alors le package local `../shared`.
 
 Au premier lancement, autorisez le processus de développement (Terminal ou
 Python) dans **Réglages Système > Confidentialité et sécurité >
@@ -50,7 +57,8 @@ d’AppKit. L’ancienne activation forcée n’est utilisée qu’en repli de
 compatibilité si macOS n’a pas honoré la demande dans le délai attendu.
 
 La version macOS n’utilise pas le Trousseau afin d’éviter ses demandes lors
-des builds de test non signés. La clé API est enregistrée dans
+des builds de test non signés. La clé OpenAI et l'éventuel jeton distinct d'un
+endpoint personnalisé sont enregistrés dans
 `~/Library/Application Support/SuperMenu/SuperMenu.ini`, dont l’accès est
 limité au compte utilisateur. Elle devra être saisie une première fois après
 le passage depuis une version qui utilisait le Trousseau.
@@ -75,11 +83,16 @@ second est refusé sans remplacer le premier.
 ## Valider la source
 
 ```bash
-python -m compileall -q src run.py
-python -m pytest -q
-python -m flake8 src tests run.py --select=F,E9
+python -m compileall -q ../shared/supermenu_core src run.py
+python -m pytest -q ../shared/tests
+python -m pytest -q tests
+python -m flake8 ../shared/supermenu_core src tests run.py --select=F,E9
 python run.py --smoke-test
 ```
+
+Le workflow CI commun exécute ces validations sur macOS, puis construit aussi
+un DMG de test. Une modification du cœur partagé doit donc rester compatible
+avec les deux plateformes avant toute publication bêta.
 
 ## Construire le `.app` et le DMG
 

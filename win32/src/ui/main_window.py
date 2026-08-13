@@ -17,19 +17,19 @@ from PySide6.QtCore import Qt, QSize, Signal, QTimer, QThread
 from PySide6.QtGui import QIcon, QAction
 
 from src.config.build_info import APP_VERSION
-from src.config.openai_models import (
+from supermenu_core.config.openai_models import (
     AVAILABLE_MODELS,
     get_reasoning_efforts_for_model,
     normalize_reasoning_effort,
 )
 from src.config.settings import CUSTOM_REASONING_EFFORTS
-from src.api.model_capabilities import (
+from supermenu_core.api.model_capabilities import (
     choose_reasoning_option,
     normalize_reasoning_option,
 )
-from src.utils.validators import Validators
+from supermenu_core.utils.validators import Validators
 from src.utils import updater as app_updater
-from src.utils.loading_indicator import SimpleLoadingIndicator
+from supermenu_core.ui.loading_indicator import SimpleLoadingIndicator
 from src.utils.hotkey_manager import HotkeyRecorderDialog
 from src.utils.paths import resource_path
 import uuid
@@ -542,6 +542,18 @@ class MainWindow(QMainWindow):
         self.custom_endpoint_input.setText(self.settings.get_custom_endpoint())
         self.custom_endpoint_input.setPlaceholderText("http://localhost:11434")
 
+        custom_endpoint_api_key_label = QLabel(
+            "Jeton de l'endpoint (optionnel) :"
+        )
+        self.custom_endpoint_api_key_input = QLineEdit()
+        self.custom_endpoint_api_key_input.setEchoMode(QLineEdit.Password)
+        self.custom_endpoint_api_key_input.setText(
+            self.settings.get_custom_endpoint_api_key()
+        )
+        self.custom_endpoint_api_key_input.setPlaceholderText(
+            "Jeton distinct de la clé OpenAI"
+        )
+
         custom_endpoint_type_label = QLabel("Type d'endpoint :")
         self.custom_endpoint_type_combo = QComboBox()
         self.custom_endpoint_type_combo.addItem("Ollama", "ollama")
@@ -566,6 +578,8 @@ class MainWindow(QMainWindow):
 
         custom_layout.addWidget(custom_endpoint_label)
         custom_layout.addWidget(self.custom_endpoint_input)
+        custom_layout.addWidget(custom_endpoint_api_key_label)
+        custom_layout.addWidget(self.custom_endpoint_api_key_input)
         custom_layout.addWidget(custom_endpoint_type_label)
         custom_layout.addWidget(self.custom_endpoint_type_combo)
         custom_layout.addWidget(custom_model_label)
@@ -846,7 +860,7 @@ class MainWindow(QMainWindow):
         
         self.theme_combo = QComboBox()
         # Importer les noms de thèmes depuis ThemeManager
-        from src.ui.theme_manager import ThemeManager
+        from supermenu_core.ui.theme_manager import ThemeManager
         theme_names = ThemeManager.get_theme_names()
         
         # Ajouter les thèmes disponibles
@@ -2533,8 +2547,8 @@ class MainWindow(QMainWindow):
             self._custom_models_progress.show()
             QApplication.processEvents()
 
-        # Récupérer les modèles
-        api_key = self.api_key_input.text().strip() if self.api_key_input.text().strip() else None
+        # Use only the credential explicitly dedicated to this endpoint.
+        api_key = self.custom_endpoint_api_key_input.text().strip() or None
         endpoint_type = self.custom_endpoint_type_combo.currentData() if self.custom_endpoint_type_combo else "ollama"
         self._custom_models_worker = _CustomModelsWorker(endpoint, api_key, endpoint_type)
         self._custom_models_worker.finished_ok.connect(self._on_custom_models_ok)
@@ -2606,6 +2620,7 @@ class MainWindow(QMainWindow):
         model = self.model_combo.currentText()
         use_custom = self.use_custom_endpoint_checkbox.isChecked()
         custom_endpoint = self.custom_endpoint_input.text().strip()
+        custom_endpoint_api_key = self.custom_endpoint_api_key_input.text().strip()
         custom_endpoint_type = self.custom_endpoint_type_combo.currentData() if self.custom_endpoint_type_combo else "ollama"
         custom_model = self.custom_model_combo.currentText().strip()
         openai_reasoning_effort = self.reasoning_effort_combo.currentText().strip()
@@ -2663,6 +2678,7 @@ class MainWindow(QMainWindow):
         self.settings.set_custom_reasoning_effort(normalized_custom_effort)
         self.settings.set_use_custom_endpoint(use_custom)
         self.settings.set_custom_endpoint(custom_endpoint)
+        self.settings.set_custom_endpoint_api_key(custom_endpoint_api_key)
         self.settings.set_custom_endpoint_type(custom_endpoint_type)
         self.settings.set_custom_model(custom_model)
         self.settings.sync()

@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication
 from src.config.build_info import APP_VERSION
 from src.config.settings import Settings
 from src.ui.main_window import MainWindow
-from src.ui.theme_manager import ThemeManager
+from supermenu_core.ui.theme_manager import ThemeManager
 from src.utils.context_menu import ContextMenuManager
 from src.utils.hotkey_manager import (
     HotkeyManager,

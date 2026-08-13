@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "supermenu-core"
+version = "0.1.0"
+description = "Shared application core for SuperMenu on macOS and Windows"
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6>=6.11,<7",
+    "requests>=2.34,<3",
+    "pyqtdarktheme==0.1.7",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["supermenu_core*"]

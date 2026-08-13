@@ -1,5 +1,5 @@
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtTest import QTest
 
 from src.config.settings import Settings
@@ -94,6 +94,36 @@ def test_custom_endpoint_switch_uses_windows_style_on_off_display(window):
     window.use_custom_endpoint.setChecked(True)
     assert window.openai_group.isHidden() is True
     assert window.custom_group.isHidden() is False
+
+
+def test_lmstudio_catalog_updates_native_reasoning_options(window, monkeypatch):
+    endpoint_index = window.endpoint_type.findData("lmstudio")
+    window.endpoint_type.setCurrentIndex(endpoint_index)
+    window.custom_model.setCurrentText("reasoning-model")
+
+    class WorkerStub:
+        endpoint = window.custom_endpoint.text().strip()
+        endpoint_type = "lmstudio"
+
+    window._custom_models_worker = WorkerStub()
+    monkeypatch.setattr(QMessageBox, "information", lambda *_args: None)
+
+    window._on_custom_models_loaded(
+        [
+            {
+                "id": "reasoning-model",
+                "identifiers": ["reasoning-model"],
+                "reasoning_supported": True,
+                "reasoning_options": ["off", "on", "future_tier"],
+                "reasoning_default": "on",
+            }
+        ]
+    )
+
+    assert [
+        window.custom_reasoning.itemData(index)
+        for index in range(window.custom_reasoning.count())
+    ] == ["off", "on", "future_tier"]
 
 
 def test_recheck_attempts_hotkeys_even_when_permission_api_reports_false(

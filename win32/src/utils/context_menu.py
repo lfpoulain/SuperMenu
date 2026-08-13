@@ -17,7 +17,7 @@ import win32con
 from pynput.keyboard import Controller, Key
 
 from src.api.openai_client import OpenAIClient
-from src.utils.safe_dialogs import SafeDialogs
+from supermenu_core.ui.safe_dialogs import SafeDialogs
 from src.ui.response_window import ResponseWindow
 from src.ui.prompt_dialog import PromptDialog
 from src.ui.screen_capture import capture_screen
@@ -25,7 +25,7 @@ from src.audio.voice_recognition import VoiceRecognition
 from src.utils.text_inserter import TextInserter
 from src.utils.logger import log
 from src.utils.clipboard_manager import ClipboardManager
-from src.utils.loading_indicator import SimpleLoadingIndicator
+from supermenu_core.ui.loading_indicator import SimpleLoadingIndicator
 from src.utils.window_target import PasteTarget
 from src.audio.audio_config import CLIPBOARD_COPY_DELAY, CLIPBOARD_RESTORE_DELAY
 
@@ -48,6 +48,7 @@ class ContextMenuManager(QObject):
         self._pending_requests = {}
         self._active_response_request_id = None
         self._retired_clients = []
+        self._closed = False
         
         # Créer un contrôleur de clavier réutilisable pour éviter les conflits
         self.keyboard = Controller()
@@ -101,6 +102,9 @@ class ContextMenuManager(QObject):
         direct_status=None,
     ):
         """Register request state before the client can emit synchronously."""
+        if self._closed:
+            return None
+
         request_id = uuid.uuid4().hex
         client = self.api_client
         direct_indicator = None
@@ -140,6 +144,7 @@ class ContextMenuManager(QObject):
         ):
             return
         self._disconnect_api_client(client)
+        client.close()
         try:
             self._retired_clients.remove(client)
         except ValueError:
@@ -147,10 +152,14 @@ class ContextMenuManager(QObject):
 
     def _present_response_window(self, force=False):
         """Afficher la fenêtre avec la stratégie hybride Qt/Win32 unique."""
+        if self._closed:
+            return
         self.response_window.present()
 
     def show_response_window(self):
         """Ouvrir manuellement la fenêtre de correction depuis l'interface."""
+        if self._closed:
+            return
         self.response_window.set_trigger_position(None)
         self._present_response_window(force=True)
 
@@ -281,6 +290,8 @@ class ContextMenuManager(QObject):
             self._finish_menu_session(menu, close_visible=True)
 
     def _begin_menu_session(self, owner_pid=None):
+        if self._closed:
+            return None
         self._recover_stale_menu_state()
         if self._is_menu_open:
             log("Demande de menu ignoree: un menu est deja ouvert", logging.DEBUG)
@@ -333,22 +344,6 @@ class ContextMenuManager(QObject):
         self._last_lbutton_down = False
         self._menu_opened_at = None
     
-    def _create_temp_api_client(self):
-        """
-        Crée un client OpenAI temporaire avec les paramètres actuels.
-        Utilisé pour les requêtes vocales où on ne veut pas interférer avec le client principal.
-        
-        Returns:
-            OpenAIClient: Un nouveau client API configuré
-        """
-        # Créer un client temporaire qui déterminera automatiquement le bon modèle
-        temp_client = OpenAIClient(
-            settings=self.settings,
-            api_key=self.settings.get_api_key()
-        )
-        
-        return temp_client
-
     def _create_voice_recognition(
         self,
         *,
@@ -387,6 +382,8 @@ class ContextMenuManager(QObject):
     
     def show_menu(self):
         """Show the context menu at the current cursor position"""
+        if self._closed:
+            return
         paste_target = PasteTarget.capture()
         owner_pid = paste_target.process_id if paste_target else self._get_foreground_pid()
         menu = self._begin_menu_session(owner_pid=owner_pid)
@@ -449,6 +446,8 @@ class ContextMenuManager(QObject):
 
     def show_custom_mode(self):
         """Ouvrir directement le mode personnalisé depuis un raccourci."""
+        if self._closed:
+            return
         self._recover_stale_menu_state()
         if self._is_menu_open:
             log("Mode personnalise ignore: un menu est deja ouvert", logging.DEBUG)
@@ -484,6 +483,8 @@ class ContextMenuManager(QObject):
     
     def show_voice_menu(self):
         """Show only the voice interaction menu at the current cursor position"""
+        if self._closed:
+            return
         paste_target = PasteTarget.capture()
         owner_pid = (
             paste_target.process_id if paste_target else self._guess_menu_owner_pid()
@@ -667,6 +668,8 @@ class ContextMenuManager(QObject):
     
     def run_prompt_hotkey(self, prompt_id):
         """Run one prompt without opening the menu, honoring its display mode."""
+        if self._closed:
+            return
         target = PasteTarget.capture()
         selected_text = self._try_get_selected_text()
         if not selected_text:
@@ -689,6 +692,8 @@ class ContextMenuManager(QObject):
         target=None,
     ):
         """Handle a menu action"""
+        if self._closed:
+            return
         # Get the selected text
         if selected_text is None:
             selected_text = self._get_selected_text()
@@ -733,6 +738,8 @@ class ContextMenuManager(QObject):
     
     def _handle_godmode_action(self, selected_text, target=None):
         """Gérer l'action GodMode"""
+        if self._closed:
+            return
         if not selected_text:
             # Ouvrir directement le dialogue de prompt personnalisé sans texte
             custom_prompt = PromptDialog.show_prompt_dialog("")
@@ -771,6 +778,8 @@ class ContextMenuManager(QObject):
     
     def _handle_screenshot_action(self):
         """Gérer l'action de capture d'écran"""
+        if self._closed:
+            return
         log("Démarrage de la capture d'écran...", logging.DEBUG)
         paste_target = PasteTarget.capture()
         
@@ -842,6 +851,8 @@ class ContextMenuManager(QObject):
     
     def _handle_voice_action(self, target=None):
         """Gérer l'action de reconnaissance vocale"""
+        if self._closed:
+            return
         try:
             # Récupérer l'index du microphone depuis les paramètres
             microphone_index = self.settings.get_microphone_index()
@@ -850,7 +861,7 @@ class ContextMenuManager(QObject):
             self.stop_voice_recognition()
 
             def show_transcription(text):
-                if not text:
+                if self._closed or not text:
                     return
                 self.response_window.set_trigger_position(QCursor.pos())
                 self.response_window.set_paste_target(target)
@@ -883,6 +894,8 @@ class ContextMenuManager(QObject):
 
     def _handle_voice_prompt_action(self, prompt_id, target=None):
         """Gérer l'action d'un prompt vocal spécifique"""
+        if self._closed:
+            return
         try:
             # Récupérer l'index du microphone depuis les paramètres
             microphone_index = self.settings.get_microphone_index()
@@ -910,6 +923,8 @@ class ContextMenuManager(QObject):
             
             # Fonction de rappel pour traiter le texte transcrit
             def process_transcription(text):
+                if self._closed:
+                    return
                 if text:
                     log(f"Transcription vocale reçue: {text[:50]}...", logging.DEBUG)
                     
@@ -935,54 +950,15 @@ class ContextMenuManager(QObject):
                         # Pas de texte sélectionné, simplement prompt + transcription
                         full_prompt = f"{prompt_text}\n\n{text}"
                     
-                    # Créer un client OpenAI temporaire pour cette requête spécifique
-                    temp_client = self._create_temp_api_client()
-
                     if insert_directly:
-                        QApplication.setOverrideCursor(Qt.WaitCursor)
-
-                        def _on_finished(response_text: str):
-                            try:
-                                try:
-                                    temp_client.request_finished.disconnect(_on_finished)
-                                    temp_client.request_error.disconnect(_on_error)
-                                except (TypeError, RuntimeError):
-                                    pass
-                                text_inserter = TextInserter()
-                                if text_inserter.insert_text(
-                                    response_text, target=target
-                                ):
-                                    log(
-                                        "Réponse insérée avec succès",
-                                        logging.INFO,
-                                    )
-                                else:
-                                    SafeDialogs.show_information(
-                                        "Insertion annulée",
-                                        "La fenêtre ou le champ cible a changé. "
-                                        "La réponse n'a pas été collée.",
-                                    )
-                            finally:
-                                QApplication.restoreOverrideCursor()
-
-                        def _on_error(error_message: str):
-                            try:
-                                try:
-                                    temp_client.request_finished.disconnect(_on_finished)
-                                    temp_client.request_error.disconnect(_on_error)
-                                except (TypeError, RuntimeError):
-                                    pass
-                                log(f"Erreur lors de la requête API: {error_message}", logging.ERROR)
-                                SafeDialogs.show_critical(
-                                    "Erreur de traitement",
-                                    f"Une erreur s'est produite lors du traitement de la réponse : {error_message}",
-                                )
-                            finally:
-                                QApplication.restoreOverrideCursor()
-
-                        temp_client.request_finished.connect(_on_finished)
-                        temp_client.request_error.connect(_on_error)
-                        temp_client.send_request(full_prompt, "", insert_directly=False, include_reasoning=False)
+                        self._send_request(
+                            full_prompt,
+                            "",
+                            True,
+                            target=target,
+                            include_reasoning=False,
+                            direct_status=f"✅ Envoyé à l'IA — {status}",
+                        )
                     else:
                         # Préparer la fenêtre de réponse
                         self.response_window.set_status(status)
@@ -1020,6 +996,8 @@ class ContextMenuManager(QObject):
     
     def _handle_voice_godmode_action(self, target=None):
         """Gérer l'action de prompt vocal personnalisé (GodMode vocal)"""
+        if self._closed:
+            return
         try:
             # Afficher une boîte de dialogue pour saisir le prompt personnalisé
             from src.ui.prompt_dialog import PromptDialog
@@ -1033,6 +1011,8 @@ class ContextMenuManager(QObject):
             
             # Fonction de rappel pour traiter le texte transcrit
             def process_transcription(text):
+                if self._closed:
+                    return
                 if text:
                     log(
                         f"Transcription vocale reçue pour prompt personnalisé: {text[:50]}...",
@@ -1108,9 +1088,13 @@ class ContextMenuManager(QObject):
     
     def on_request_started(self):
         """Handle request started signal"""
+        if self._closed:
+            return
         self.response_window.set_loading(True)
 
     def on_request_started_scoped(self, request_id, insert_directly):
+        if self._closed:
+            return
         if (
             not insert_directly
             and request_id == self._active_response_request_id
@@ -1119,12 +1103,16 @@ class ContextMenuManager(QObject):
     
     def on_request_finished(self, response):
         """Handle request finished signal"""
+        if self._closed:
+            return
         self.response_window.set_response(response)
         self.response_window.set_loading(False)
 
     def on_request_finished_scoped(
         self, request_id, response, insert_directly, target
     ):
+        if self._closed:
+            return
         request = self._pending_requests.pop(request_id, None)
         if request is None:
             return
@@ -1160,10 +1148,14 @@ class ContextMenuManager(QObject):
     
     def on_request_error(self, error):
         """Handle request error signal"""
+        if self._closed:
+            return
         self.response_window.set_response(f"Erreur: {error}")
         self.response_window.set_loading(False)
 
     def on_request_error_scoped(self, request_id, error):
+        if self._closed:
+            return
         request = self._pending_requests.pop(request_id, None)
         if request is None:
             return
@@ -1186,6 +1178,8 @@ class ContextMenuManager(QObject):
     
     def on_retry_requested(self):
         """Handle retry request from response window"""
+        if self._closed:
+            return
         prompt, content = self.response_window.get_last_request()
         if prompt is not None:
             log("Retry de la dernière requête...", logging.INFO)
@@ -1193,6 +1187,8 @@ class ContextMenuManager(QObject):
 
     def update_client_config(self):
         """Met à jour la configuration du client API avec les paramètres actuels."""
+        if self._closed:
+            return
         self.settings.sync()
         old_client = self.api_client
         if old_client is not None:
@@ -1215,3 +1211,38 @@ class ContextMenuManager(QObject):
             f"ContextMenuManager: Configuration du client API mise à jour. Endpoint: {endpoint_info}, Modèle: {model_info}",
             logging.INFO,
         )
+
+    def close(self):
+        """Stop native/UI resources and reject late API completions."""
+        if self._closed:
+            return
+        self._closed = True
+        self._menu_watchdog.stop()
+
+        if self._active_menu is not None:
+            active_menu = self._active_menu
+            self._active_menu = None
+            active_menu.close()
+            active_menu.deleteLater()
+
+        self.stop_voice_recognition()
+
+        clients = {self.api_client, *self._retired_clients}
+        for request in self._pending_requests.values():
+            indicator = request.get("indicator")
+            if indicator is not None:
+                indicator.close()
+            clients.add(request.get("client"))
+        self._pending_requests.clear()
+        self._retired_clients.clear()
+
+        for client in clients:
+            if client is None:
+                continue
+            self._disconnect_api_client(client)
+            client.close()
+
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
+        self.response_window.close()

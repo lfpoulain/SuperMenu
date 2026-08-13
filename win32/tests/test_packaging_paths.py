@@ -13,25 +13,21 @@ def test_resource_path_uses_pyinstaller_extraction_directory(monkeypatch, tmp_pa
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "_MEIPASS", str(extraction_dir), raising=False)
 
-    assert paths.resource_path("bin", "ffmpeg.exe") == os.path.join(
-        str(extraction_dir), "bin", "ffmpeg.exe"
+    assert paths.resource_path("resources", "icons", "icon.png") == os.path.join(
+        str(extraction_dir), "resources", "icons", "icon.png"
     )
 
 
-def test_packaged_smoke_check_requires_icon_and_ffmpeg(monkeypatch, tmp_path):
+def test_packaged_smoke_check_requires_the_application_icon(monkeypatch, tmp_path):
     icon = tmp_path / "resources" / "icons" / "icon.png"
-    ffmpeg = tmp_path / "bin" / "ffmpeg.exe"
     icon.parent.mkdir(parents=True)
-    ffmpeg.parent.mkdir(parents=True)
     icon.write_bytes(b"icon")
-    ffmpeg.write_bytes(b"exe")
     monkeypatch.setattr(paths, "application_base_dir", lambda: str(tmp_path))
 
     result = paths.packaged_resource_status()
 
     assert result["ok"] is True
     assert result["icon"] == str(icon)
-    assert result["ffmpeg"] == str(ffmpeg)
 
 
 def test_installer_does_not_duplicate_one_file_resources():
@@ -39,11 +35,25 @@ def test_installer_does_not_duplicate_one_file_resources():
         encoding="utf-8"
     )
 
-    assert 'Source: "bin\\*"' not in content
     assert 'Source: "resources\\*"' not in content
+    assert '[InstallDelete]' in content
+    assert 'Type: filesandordirs; Name: "{app}\\bin"' in content
     assert "MyOutputBaseFilename" in content
     assert "LicenseFile=..\\LICENSE" in content
     assert (Path(paths.application_base_dir()).parent / "LICENSE").is_file()
+
+
+def test_pyinstaller_specs_include_the_shared_package_path():
+    repository = Path(paths.application_base_dir()).parent
+    windows_spec = (repository / "win32" / "SuperMenu.spec").read_text(encoding="utf-8")
+    macos_spec = (repository / "macos" / "SuperMenu-macos.spec").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'project_dir.parent / "shared"' in windows_spec
+    assert 'project_dir.parent / "shared"' in macos_spec
+    assert "str(shared_dir)" in windows_spec
+    assert "str(shared_dir)" in macos_spec
 
 
 def test_release_version_and_default_channel_are_valid():
@@ -76,10 +86,7 @@ def test_release_workflows_keep_ci_beta_and_stable_separate():
 
 def test_macos_pull_requests_build_a_test_dmg():
     workflow = (
-        Path(paths.application_base_dir()).parent
-        / ".github"
-        / "workflows"
-        / "macos-ci.yml"
+        Path(paths.application_base_dir()).parent / ".github" / "workflows" / "ci.yml"
     ).read_text(encoding="utf-8")
 
     assert "pull_request:" in workflow

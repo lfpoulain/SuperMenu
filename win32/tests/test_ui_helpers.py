@@ -17,7 +17,7 @@ from src.utils.hotkey_manager import (
     _Win32HotkeyRegistry,
     _parse_hotkey_to_win32,
 )
-from src.utils.safe_dialogs import SafeDialogs
+from supermenu_core.ui.safe_dialogs import SafeDialogs
 from src.utils.text_inserter import TextInserter
 
 
@@ -129,6 +129,56 @@ def test_context_menu_always_presents_response_window():
     assert calls == ["present"]
 
 
+def test_context_menu_close_releases_the_shared_client_once(monkeypatch):
+    _app()
+    manager = ContextMenuManager(FakeMenuSettings())
+    close_calls = []
+    monkeypatch.setattr(manager.api_client, "close", lambda: close_calls.append(1))
+
+    manager.close()
+    manager.close()
+
+    assert close_calls == [1]
+
+
+def test_context_menu_close_survives_voice_cleanup_failure(monkeypatch):
+    _app()
+    manager = ContextMenuManager(FakeMenuSettings())
+    close_calls = []
+
+    class BrokenVoiceRecognition:
+        def cleanup(self):
+            raise RuntimeError("audio cleanup failed")
+
+    manager.voice_recognition = BrokenVoiceRecognition()
+    monkeypatch.setattr(manager.api_client, "close", lambda: close_calls.append(1))
+
+    manager.close()
+
+    assert manager.voice_recognition is None
+    assert close_calls == [1]
+
+
+def test_closed_context_menu_rejects_new_requests_and_ui(monkeypatch):
+    _app()
+    manager = ContextMenuManager(FakeMenuSettings())
+    manager.close()
+    send_calls = []
+    present_calls = []
+    monkeypatch.setattr(
+        manager.api_client,
+        "send_request",
+        lambda *args, **kwargs: send_calls.append((args, kwargs)),
+    )
+    manager.response_window.present = lambda: present_calls.append(1)
+
+    assert manager._send_request("prompt", "content") is None
+    manager.show_response_window()
+
+    assert send_calls == []
+    assert present_calls == []
+
+
 def test_context_menu_passes_transcription_settings(monkeypatch):
     _app()
     settings = FakeMenuSettings()
@@ -192,6 +242,53 @@ def test_write_by_voice_opens_response_window_instead_of_direct_paste(
     assert manager.response_window.response_text.toPlainText() == "Texte dicté"
     assert manager.response_window.paste_target is target
     assert presented == ["present"]
+
+
+def test_direct_voice_prompt_uses_tracked_request_lifecycle(monkeypatch):
+    _app()
+    settings = FakeMenuSettings()
+    settings.get_voice_prompt = lambda _prompt_id: {
+        "name": "Corriger la dictée",
+        "prompt": "Corrige :",
+        "status": "Correction en cours",
+        "insert_directly": True,
+        "include_selected_text": False,
+        "prompt_order": "prompt_transcription_selected",
+    }
+    manager = ContextMenuManager(settings)
+    captured = {}
+    requests = []
+    target = object()
+
+    class FakeVoiceRecognition:
+        def start_voice_recognition(self, insert_text=True):
+            captured["insert_text"] = insert_text
+
+        def cleanup(self):
+            pass
+
+    def fake_create_voice_recognition(**kwargs):
+        captured.update(kwargs)
+        return FakeVoiceRecognition()
+
+    monkeypatch.setattr(manager, "_create_voice_recognition", fake_create_voice_recognition)
+    monkeypatch.setattr(manager, "_send_request", lambda *args, **kwargs: requests.append((args, kwargs)))
+
+    manager._handle_voice_prompt_action("voice", target=target)
+    captured["callback"]("texte dicté")
+
+    assert captured["insert_text"] is False
+    assert requests == [
+        (
+            ("Corrige :\n\ntexte dicté", "", True),
+            {
+                "target": target,
+                "include_reasoning": False,
+                "direct_status": "✅ Envoyé à l'IA — Correction en cours",
+            },
+        )
+    ]
+    manager.close()
 
 
 def test_context_menu_releases_lock_when_build_fails():

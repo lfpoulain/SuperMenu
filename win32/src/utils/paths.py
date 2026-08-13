@@ -22,10 +22,8 @@ def resource_path(*parts: str) -> str:
 
 def packaged_resource_status() -> dict[str, object]:
     icon_path = resource_path("resources", "icons", "icon.png")
-    ffmpeg_path = resource_path("bin", "ffmpeg.exe")
     return {
-        "ok": os.path.isfile(icon_path) and os.path.isfile(ffmpeg_path),
+        "ok": os.path.isfile(icon_path),
         "base_dir": application_base_dir(),
         "icon": icon_path,
-        "ffmpeg": ffmpeg_path,
     }

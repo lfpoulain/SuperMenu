@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  tests:
-    name: Python ${{ matrix.python-version }}
+  windows-tests:
+    name: Windows / Python ${{ matrix.python-version }}
     runs-on: windows-latest
     defaults:
       run:
@@ -36,6 +36,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: |
+            shared/pyproject.toml
             win32/requirements.txt
             win32/requirements-dev.txt
 
@@ -46,10 +47,88 @@ jobs:
           python -m pip install -r requirements-dev.txt
 
       - name: Compile
-        run: python -m compileall -q src run.py
+        run: python -m compileall -q ../shared/supermenu_core src run.py
 
-      - name: Test
-        run: python -m pytest -q
+      - name: Test shared core and Windows
+        run: |
+          python -m pytest -q ../shared/tests
+          python -m pytest -q tests
 
       - name: Lint critical errors
-        run: python -m flake8 src tests run.py --select=F,E9
+        run: python -m flake8 ../shared/supermenu_core src tests run.py --select=F,E9
+
+  macos-tests:
+    name: macOS / Python 3.12
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: macos
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            shared/pyproject.toml
+            macos/requirements.txt
+            macos/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Validate source
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m compileall -q ../shared/supermenu_core src run.py
+          python -m pytest -q ../shared/tests
+          python -m pytest -q tests
+          python -m flake8 ../shared/supermenu_core src tests run.py --select=F,E9
+          python run.py --smoke-test
+
+  macos-build-dmg:
+    name: Build macOS DMG
+    needs: macos-tests
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: macos
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            shared/pyproject.toml
+            macos/requirements.txt
+            macos/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Build app and DMG
+        run: |
+          chmod +x scripts/*.sh
+          scripts/build_dmg.sh
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v6
+        with:
+          name: SuperMenu-${{ runner.arch }}-macOS
+          path: macos/dist/SuperMenu-*-macOS.dmg
+          if-no-files-found: error
+          retention-days: 14

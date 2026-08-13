@@ -60,6 +60,7 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
+            shared/pyproject.toml
             win32/requirements.txt
             win32/requirements-dev.txt
 
@@ -72,9 +73,10 @@ jobs:
       - name: Validate source
         shell: powershell
         run: |
-          python -m compileall -q src run.py
-          python -m pytest -q
-          python -m flake8 src tests run.py --select=F,E9
+          python -m compileall -q ../shared/supermenu_core src run.py
+          python -m pytest -q ../shared/tests
+          python -m pytest -q tests
+          python -m flake8 ../shared/supermenu_core src tests run.py --select=F,E9
 
       - name: Build portable executable
         shell: powershell

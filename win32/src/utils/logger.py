@@ -33,6 +33,7 @@ LOG_FILE = os.path.join(LOG_DIR, "supermenu.log")
 # Créer et configurer le logger principal
 logger = logging.getLogger("SuperMenu")
 logger.setLevel(logging.INFO)
+logger.propagate = False
 
 formatter = logging.Formatter(
     "%(asctime)s - %(levelname)s - %(message)s",

@@ -14,17 +14,8 @@ from openai import OpenAI
 from src.audio.audio_config import TRANSCRIPTION_MODEL
 from src.utils.logger import log
 
-
 MAX_TRANSCRIPTION_FILE_BYTES = 25 * 1024 * 1024
-SUPPORTED_AUDIO_EXTENSIONS = {
-    ".m4a",
-    ".mp3",
-    ".mp4",
-    ".mpeg",
-    ".mpga",
-    ".wav",
-    ".webm",
-}
+NATIVE_AUDIO_EXTENSION = ".wav"
 _LANGUAGE_CODE_PATTERN = re.compile(r"^[a-z]{2,3}(?:-[a-z]{2})?$")
 
 
@@ -114,9 +105,7 @@ class Transcriber:
     @staticmethod
     def _validate_audio_file(audio_file_path):
         if not audio_file_path or not os.path.isfile(audio_file_path):
-            raise TranscriptionError(
-                "Le fichier audio temporaire est introuvable."
-            )
+            raise TranscriptionError("Le fichier audio temporaire est introuvable.")
 
         file_size = os.path.getsize(audio_file_path)
         if file_size <= 0:
@@ -130,10 +119,10 @@ class Transcriber:
             )
 
         file_format = os.path.splitext(audio_file_path)[1].lower()
-        if file_format not in SUPPORTED_AUDIO_EXTENSIONS:
+        if file_format != NATIVE_AUDIO_EXTENSION:
             raise TranscriptionError(
-                f"Le format audio {file_format or 'inconnu'} n'est pas "
-                "accepté par l'API de transcription."
+                f"Le format audio {file_format or 'inconnu'} n'est pas le "
+                "format WAV natif attendu."
             )
         return file_size, file_format
 
@@ -219,9 +208,7 @@ class Transcriber:
                 "OpenAI n'a détecté aucune parole dans l'enregistrement."
             )
 
-        self.last_detected_languages = self._extract_detected_languages(
-            transcript
-        )
+        self.last_detected_languages = self._extract_detected_languages(transcript)
         elapsed = time.monotonic() - start_time
         language_info = (
             f", langues : {', '.join(self.last_detected_languages)}"

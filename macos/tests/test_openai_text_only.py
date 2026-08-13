@@ -26,7 +26,8 @@ class DummySettings:
 
 def test_openai_payload_is_text_only():
     client = OpenAIClient(DummySettings(), api_key="test-key")
-    data = client._build_request_data("Corrige", "Bonjour")
+    data, cleanup_path = client._build_request_data("Corrige", "Bonjour")
+    assert cleanup_path is None
     assert data["messages"] == [
         {"role": "user", "content": "Corrige\n\nBonjour"}
     ]
@@ -35,16 +36,32 @@ def test_openai_payload_is_text_only():
 
 def test_ollama_payload_is_text_only():
     client = OpenAIClient(DummySettings("ollama"), api_key=None)
-    data = client._build_request_data("Résume", "Un texte")
+    data, cleanup_path = client._build_request_data("Résume", "Un texte")
+    assert cleanup_path is None
     assert data["messages"][0]["content"] == "Résume\n\nUn texte"
     assert "images" not in data["messages"][0]
 
 
 def test_lm_studio_payload_is_text_only():
     client = OpenAIClient(DummySettings("lmstudio"), api_key=None)
-    data = client._build_request_data("Explique", "Un texte")
+    data, cleanup_path = client._build_request_data("Explique", "Un texte")
+    assert cleanup_path is None
     assert data["input"] == "Explique\n\nUn texte"
     assert isinstance(data["input"], str)
+
+
+def test_image_like_content_stays_text_on_macos():
+    client = OpenAIClient(DummySettings(), api_key="test-key")
+
+    data, cleanup_path = client._build_request_data(
+        "Analyse",
+        "data:image/png;base64,abc123",
+    )
+
+    assert cleanup_path is None
+    assert data["messages"][0]["content"] == (
+        "Analyse\n\ndata:image/png;base64,abc123"
+    )
 
 
 def test_openai_key_is_never_forwarded_to_custom_endpoint():

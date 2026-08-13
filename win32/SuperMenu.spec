@@ -1,13 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from pathlib import Path
+
+
+project_dir = Path(SPECPATH)
+shared_dir = project_dir.parent / "shared"
 
 a = Analysis(
     ['run.py'],
-    pathex=[],
+    pathex=[str(project_dir), str(shared_dir)],
     binaries=[],
     datas=[
         ('resources', 'resources'),
-        ('bin', 'bin'),
     ],
     hiddenimports=[],
     hookspath=[],

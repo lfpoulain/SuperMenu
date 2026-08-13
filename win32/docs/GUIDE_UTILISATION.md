@@ -38,15 +38,13 @@ Notes :
 
 ### Installation manuelle (pour développeurs)
 
-1. Assurez-vous d'avoir Python 3.8 ou supérieur installé
-2. **Méthode simple avec les scripts batch** :
-   - Exécutez `install.bat` pour créer automatiquement l'environnement virtuel et installer toutes les dépendances
-   - Utilisez `start_supermenu.bat` pour lancer l'application à tout moment
-3. **Méthode manuelle alternative** :
-   - Créez un environnement virtuel : `python -m venv venv`
-   - Activez l'environnement : `venv\Scripts\activate`
-   - Installez les dépendances : `pip install -r requirements-dev.txt`
-   - Lancez l'application : `python run.py`
+1. Installez Python 3.10 ou 3.12.
+2. Placez-vous dans le dossier `win32/` du dépôt.
+3. Créez un environnement : `python -m venv .venv`.
+4. Activez-le : `.venv\Scripts\activate`.
+5. Installez les dépendances et le cœur partagé :
+   `python -m pip install -r requirements-dev.txt`.
+6. Lancez l'application : `python run.py`.
 
 ## Mise à jour
 

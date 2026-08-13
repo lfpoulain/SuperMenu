@@ -3,7 +3,8 @@ import json
 import pytest
 
 from src.config import settings as settings_module
-from src.config.openai_models import (
+from supermenu_core.config.prompts import default_text_prompts
+from supermenu_core.config.openai_models import (
     AVAILABLE_MODELS,
     DEFAULT_OPENAI_MODEL,
     get_default_reasoning_effort_for_model,
@@ -61,6 +62,30 @@ def test_legacy_models_are_migrated_by_role(legacy_model, target_model):
 def test_new_install_uses_current_flagship_and_documented_effort(isolated_settings):
     assert isolated_settings.get_model() == DEFAULT_OPENAI_MODEL
     assert isolated_settings.get_openai_reasoning_effort() == "medium"
+    assert isolated_settings.get_prompts() == default_text_prompts()
+
+
+def test_custom_endpoint_key_uses_a_separate_keyring_entry(
+    isolated_settings,
+    monkeypatch,
+):
+    stored = {}
+    monkeypatch.setattr(
+        settings_module.keyring,
+        "set_password",
+        lambda service, name, value: stored.__setitem__((service, name), value),
+    )
+    monkeypatch.setattr(
+        settings_module.keyring,
+        "get_password",
+        lambda service, name: stored.get((service, name)),
+    )
+
+    isolated_settings.set_api_key("openai-secret")
+    isolated_settings.set_custom_endpoint_api_key("endpoint-secret")
+
+    assert isolated_settings.get_api_key() == "openai-secret"
+    assert isolated_settings.get_custom_endpoint_api_key() == "endpoint-secret"
 
 
 def test_legacy_reasoning_is_migrated_without_mixing_providers(isolated_settings):

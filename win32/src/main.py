@@ -24,6 +24,7 @@ class SuperMenu:
 
         self._instance_server = None
         self._should_exit = False
+        self._services_closed = False
         self._startup_tray_attempts = 0
         if not self._ensure_single_instance():
             self._should_exit = True
@@ -71,10 +72,11 @@ class SuperMenu:
         
         # Apply theme
         self.apply_theme()
+        self.app.aboutToQuit.connect(self._close_services)
     
     def apply_theme(self):
         # Importer le gestionnaire de thèmes moderne
-        from src.ui.theme_manager import ThemeManager
+        from supermenu_core.ui.theme_manager import ThemeManager
         
         # Récupérer le thème depuis les paramètres
         theme = self.settings.get_theme()
@@ -197,6 +199,20 @@ class SuperMenu:
                     self.main_window.show_main_window()
         finally:
             socket.disconnectFromServer()
+
+    def _close_services(self):
+        if self._services_closed:
+            return
+        self._services_closed = True
+        for manager in (
+            self.hotkey_manager,
+            self.voice_hotkey_manager,
+            self.screenshot_hotkey_manager,
+            self.custom_hotkey_manager,
+            self.prompt_hotkey_manager,
+        ):
+            manager.close()
+        self.context_menu_manager.close()
 
 if __name__ == "__main__":
     app = SuperMenu()

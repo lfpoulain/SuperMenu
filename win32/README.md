@@ -7,6 +7,11 @@
 
 **SuperMenu** est ton assistant IA personnel pour Windows. Accessible instantanément via un raccourci clavier, il s'intègre à n'importe quelle application pour traiter du texte, de la voix ou des images.
 
+L'application Windows compose les intégrations Win32, audio et capture avec le
+package `../shared/supermenu_core`. Le client IA, les modèles, le schéma des
+prompts et les widgets Qt génériques sont ainsi maintenus une seule fois pour
+Windows et macOS.
+
 > 💡 **Idée clé** : Ne perds plus de temps à copier-coller vers ChatGPT. SuperMenu amène l'IA directement là où tu travailles.
 
 ---
@@ -39,7 +44,9 @@
 - **Sélecteur d'Endpoint** : Choisis explicitement Ollama ou LM Studio dans les paramètres au lieu de dépendre d'une détection automatique.
 - **Interface Moderne** : Thèmes Sombre/Clair/Auto (basé sur le système).
 - **Fenêtres Fiables** : Menu Qt natif et présentation hybride Qt/Win32 pour la fenêtre de résultat, sans mode expérimental à choisir.
-- **Sécurisé** : Ta clé API est stockée dans le trousseau sécurisé de Windows (Windows Credential Locker), pas en clair.
+- **Sécurisé** : La clé OpenAI et l'éventuel jeton d'endpoint privé sont
+  séparés et stockés dans le trousseau Windows, jamais en clair ni réutilisés
+  entre fournisseurs.
 - **Mises à jour Faciles** : Système de mise à jour intégré via GitHub Releases.
 
 ---
@@ -65,7 +72,8 @@
 
 Au premier lancement (ou via l'icône dans la barre des tâches) :
 
-1. **API Key** : Rentre ta clé OpenAI (ou configure un endpoint local).
+1. **API Key** : Rentre ta clé OpenAI, ou configure un endpoint local avec son
+   propre jeton optionnel s'il est privé.
 2. **Raccourcis** : Vérifie ou modifie les raccourcis par défaut.
    - **Menu** : `Ctrl+²` (le carré, en haut à gauche du clavier AZERTY).
    - **Voix** : `Ctrl+Alt+²`.
@@ -81,7 +89,6 @@ Envie de contribuer ou de modifier le code ?
 ### Prérequis
 - Windows 10/11
 - Python 3.10+
-- [FFmpeg](https://ffmpeg.org/) (inclus dans les builds, mais requis pour le dev audio)
 
 ### Installation Dev
 
@@ -102,6 +109,18 @@ pip install -r requirements-dev.txt
 python run.py
 ```
 
+L'installation doit être lancée depuis `win32/`, car `requirements.txt`
+référence le package local `../shared`.
+
+Validation locale complète :
+
+```bash
+python -m compileall -q ../shared/supermenu_core src run.py
+python -m pytest -q ../shared/tests
+python -m pytest -q tests
+python -m flake8 ../shared/supermenu_core src tests run.py --select=F,E9
+```
+
 ### Build (Création de l'exe)
 
 ```bash
@@ -114,7 +133,9 @@ dist\SuperMenu.exe --smoke-test
 
 ### CI et publication
 
-- `../.github/workflows/ci.yml` valide chaque pull request et chaque push sur `main` avec Python 3.10 et 3.12, sans publier de release.
+- `../.github/workflows/ci.yml` valide le cœur partagé et Windows avec Python
+  3.10/3.12, valide macOS avec Python 3.12 et construit un DMG de test. Il ne
+  publie aucune release.
 - `../.github/workflows/beta-release.yml` construit la prérelease roulante `beta` après la réussite de la CI d'un push sur `main`, avec des artefacts clairement suffixés `Beta` et leurs checksums SHA-256.
 - `../.github/workflows/stable-release.yml` publie une release stable immuable uniquement lors du push d'un tag `vMAJOR.MINOR.PATCH`.
 - `VERSION` contient la prochaine version stable attendue. Le tag stable doit correspondre exactement à ce fichier.

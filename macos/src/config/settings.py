@@ -1,4 +1,4 @@
-"""Persistent settings for the independent macOS application."""
+"""Persistent settings for the macOS application composition."""
 
 from __future__ import annotations
 
@@ -9,9 +9,14 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings
 
-from src.api.model_capabilities import normalize_reasoning_option
+from supermenu_core.api.model_capabilities import normalize_reasoning_option
+from supermenu_core.config.prompts import (
+    default_text_prompts,
+    normalize_prompt_collection,
+)
+from supermenu_core.config.provider_settings import normalize_update_channel
 from src.config.build_info import BUILD_CHANNEL
-from src.config.openai_models import (
+from supermenu_core.config.openai_models import (
     DEFAULT_OPENAI_MODEL,
     get_default_reasoning_effort_for_model,
     normalize_openai_model,
@@ -21,83 +26,11 @@ from src.utils.logger import log
 from src.utils.paths import settings_file
 
 
-CUSTOM_REASONING_EFFORTS = ["none", "low", "medium", "high"]
-OLLAMA_GPT_OSS_THINK_EFFORTS = ["low", "medium", "high"]
-UPDATE_CHANNELS = ("stable", "beta")
 API_KEY_SETTING = "openai_api_key"
+CUSTOM_ENDPOINT_API_KEY_SETTING = "custom_endpoint_api_key"
 
 
-def _normalize_update_channel(value) -> str:
-    return "beta" if str(value or "").strip().lower() == "beta" else "stable"
-
-
-def _default_prompts() -> dict[str, dict]:
-    return {
-        "corriger": {
-            "name": "Corriger",
-            "prompt": "Corrige l'orthographe, la grammaire et la conjugaison de ce texte. Conserve le ton, le style et le formatage :",
-            "status": "Correction en cours…",
-            "insert_directly": False,
-            "hotkey": "",
-            "position": 10,
-        },
-        "reformuler": {
-            "name": "Reformuler",
-            "prompt": "Reformule le texte suivant pour améliorer sa clarté et sa concision tout en préservant son ton et son formatage :",
-            "status": "Reformulation en cours…",
-            "insert_directly": False,
-            "hotkey": "",
-            "position": 20,
-        },
-        "resumer": {
-            "name": "Résumer",
-            "prompt": "Résume ce qui suit en conservant les informations importantes :",
-            "status": "Résumé en cours…",
-            "insert_directly": False,
-            "hotkey": "",
-            "position": 30,
-        },
-        "expliquer": {
-            "name": "Expliquer",
-            "prompt": "Explique clairement ce qui suit :",
-            "status": "Explication en cours…",
-            "insert_directly": False,
-            "hotkey": "",
-            "position": 40,
-        },
-        "developper": {
-            "name": "Développer",
-            "prompt": "Développe l'idée suivante de manière claire et naturelle, en conservant le ton original :",
-            "status": "Développement en cours…",
-            "insert_directly": False,
-            "hotkey": "",
-            "position": 50,
-        },
-        "generer_reponse": {
-            "name": "Générer une réponse",
-            "prompt": "Rédige une réponse adaptée au message suivant, à son ton et à son niveau de formalité :",
-            "status": "Génération en cours…",
-            "insert_directly": False,
-            "hotkey": "",
-            "position": 60,
-        },
-        "traduire_en_anglais": {
-            "name": "Traduire en anglais",
-            "prompt": "Traduis précisément le texte suivant en anglais en préservant son ton et son formatage :",
-            "status": "Traduction en cours…",
-            "insert_directly": False,
-            "hotkey": "",
-            "position": 70,
-        },
-        "traduire_en_francais": {
-            "name": "Traduire en français",
-            "prompt": "Traduis précisément le texte suivant en français en préservant son ton et son formatage :",
-            "status": "Traduction en cours…",
-            "insert_directly": False,
-            "hotkey": "",
-            "position": 80,
-        },
-    }
+_normalize_update_channel = normalize_update_channel
 
 
 def _normalize_prompts(value) -> dict[str, dict]:
@@ -106,24 +39,10 @@ def _normalize_prompts(value) -> dict[str, dict]:
             value = json.loads(value)
         except json.JSONDecodeError:
             return {}
-    if not isinstance(value, dict):
+    try:
+        return normalize_prompt_collection(value)
+    except (TypeError, ValueError):
         return {}
-    normalized = {}
-    for prompt_id, prompt in value.items():
-        if not isinstance(prompt, dict):
-            continue
-        identifier = str(prompt_id or "").strip()
-        if not identifier:
-            continue
-        normalized[identifier] = {
-            "name": str(prompt.get("name") or identifier),
-            "prompt": str(prompt.get("prompt") or ""),
-            "status": str(prompt.get("status") or "Traitement en cours…"),
-            "insert_directly": bool(prompt.get("insert_directly", False)),
-            "hotkey": str(prompt.get("hotkey") or "").strip(),
-            "position": int(prompt.get("position", 999)),
-        }
-    return normalized
 
 
 class Settings:
@@ -131,7 +50,7 @@ class Settings:
         self.config_path = str(config_path or settings_file())
         Path(self.config_path).parent.mkdir(parents=True, exist_ok=True)
         self.settings = QSettings(self.config_path, QSettings.Format.IniFormat)
-        self.default_prompts = _default_prompts()
+        self.default_prompts = default_text_prompts()
         self.default_hotkey = "Cmd+Shift+Space"
         self.default_custom_hotkey = "Cmd+Shift+M"
         self.default_model = DEFAULT_OPENAI_MODEL
@@ -148,6 +67,7 @@ class Settings:
             "hotkey": self.default_hotkey,
             "custom_hotkey": self.default_custom_hotkey,
             API_KEY_SETTING: "",
+            CUSTOM_ENDPOINT_API_KEY_SETTING: "",
             "model": self.default_model,
             "openai_reasoning_effort": self.default_reasoning_effort,
             "custom_reasoning_effort": self.default_custom_reasoning_effort,
@@ -171,6 +91,17 @@ class Settings:
 
     def set_api_key(self, api_key: str) -> None:
         self.settings.setValue(API_KEY_SETTING, str(api_key or "").strip())
+
+    def get_custom_endpoint_api_key(self) -> str:
+        return str(
+            self.settings.value(CUSTOM_ENDPOINT_API_KEY_SETTING, "") or ""
+        ).strip()
+
+    def set_custom_endpoint_api_key(self, api_key: str) -> None:
+        self.settings.setValue(
+            CUSTOM_ENDPOINT_API_KEY_SETTING,
+            str(api_key or "").strip(),
+        )
 
     def get_model(self) -> str:
         model = normalize_openai_model(self.settings.value("model"))
@@ -199,15 +130,17 @@ class Settings:
         )
 
     def get_custom_reasoning_effort(self) -> str:
+        raw_value = self.settings.value("custom_reasoning_effort", "none")
         value = normalize_reasoning_option(
-            self.settings.value("custom_reasoning_effort", "none")
+            raw_value,
+            "none",
         )
-        return value if value in CUSTOM_REASONING_EFFORTS else "none"
+        if value != raw_value:
+            self.settings.setValue("custom_reasoning_effort", value)
+        return value
 
     def set_custom_reasoning_effort(self, effort) -> None:
-        normalized = normalize_reasoning_option(effort)
-        if normalized not in CUSTOM_REASONING_EFFORTS:
-            normalized = "none"
+        normalized = normalize_reasoning_option(effort, "none")
         self.settings.setValue("custom_reasoning_effort", normalized)
 
     def get_reasoning_effort(self) -> str:

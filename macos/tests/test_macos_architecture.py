@@ -3,9 +3,10 @@ from pathlib import Path
 
 MACOS_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = MACOS_ROOT / "src"
+SHARED_ROOT = MACOS_ROOT.parent / "shared" / "supermenu_core"
 
 
-def test_macos_keeps_the_windows_business_layer_shape():
+def test_macos_keeps_the_platform_composition_shape():
     assert {path.name for path in SOURCE_ROOT.iterdir() if path.is_dir()} >= {
         "api",
         "config",
@@ -16,6 +17,15 @@ def test_macos_keeps_the_windows_business_layer_shape():
     assert (SOURCE_ROOT / "ui" / "main_window.py").is_file()
     assert (SOURCE_ROOT / "utils" / "context_menu.py").is_file()
     assert (SOURCE_ROOT / "utils" / "hotkey_manager.py").is_file()
+
+
+def test_cross_platform_modules_have_one_shared_source():
+    assert (SHARED_ROOT / "api" / "openai_client.py").is_file()
+    assert (SHARED_ROOT / "config" / "openai_models.py").is_file()
+    assert (SHARED_ROOT / "ui" / "response_window.py").is_file()
+    assert not (SOURCE_ROOT / "api" / "model_capabilities.py").exists()
+    assert not (SOURCE_ROOT / "config" / "openai_models.py").exists()
+    assert not (SOURCE_ROOT / "ui" / "theme_manager.py").exists()
 
 
 def test_macos_has_no_audio_or_capture_subsystem():
@@ -31,7 +41,6 @@ def test_macos_has_no_audio_or_capture_subsystem():
         "screenshot",
         "transcription",
         "pyaudio",
-        "ffmpeg",
         "win32gui",
         "win32con",
         "pywin32",
@@ -48,4 +57,3 @@ def test_macos_does_not_import_the_windows_subproject():
         assert "win32." not in source
         assert "../win32" not in source
         assert "..\\win32" not in source
-

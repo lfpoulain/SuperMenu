@@ -1,4 +1,5 @@
 import os
+import wave
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -7,7 +8,9 @@ from PySide6.QtCore import QMimeData
 from PySide6.QtWidgets import QApplication, QComboBox, QVBoxLayout, QWidget
 
 from src.audio import audio_recorder as audio_recorder_module
+from src.audio.audio_config import CHANNELS, CHUNK_SIZE, SAMPLE_RATE
 from src.audio.audio_recorder import AudioRecorder
+from src.audio.transcription import MAX_TRANSCRIPTION_FILE_BYTES
 from src.audio.voice_recognition import RecordingDialog
 from src.config import settings as settings_module
 from src.config.settings import Settings
@@ -58,6 +61,95 @@ def test_audio_callback_never_exceeds_the_recording_limit(monkeypatch):
     assert recorder.frames == [b"first", b"second"]
     assert recorder.stop_event.is_set()
     assert status == audio_recorder_module.pyaudio.paComplete
+
+
+def test_audio_recording_always_creates_a_wav_file():
+    class FakeStream:
+        def start_stream(self):
+            pass
+
+        def is_active(self):
+            return True
+
+        def stop_stream(self):
+            pass
+
+        def close(self):
+            pass
+
+    class FakePyAudio:
+        def open(self, **_kwargs):
+            return FakeStream()
+
+    recorder = AudioRecorder.__new__(AudioRecorder)
+    recorder.input_device_index = None
+    recorder.pyaudio = FakePyAudio()
+    recorder.stream = None
+    recorder.frames = []
+    recorder.is_recording = False
+    recorder.stop_event = audio_recorder_module.threading.Event()
+    recorder.temp_files = []
+
+    recording_path = recorder.start_recording()
+
+    try:
+        assert recording_path.endswith(".wav")
+        assert os.path.isfile(recording_path)
+    finally:
+        recorder.cancel_recording()
+
+
+def test_stop_recording_writes_native_pcm_wav(tmp_path, monkeypatch):
+    class FakeStream:
+        def is_active(self):
+            return True
+
+        def stop_stream(self):
+            pass
+
+        def close(self):
+            pass
+
+    class FakePyAudio:
+        @staticmethod
+        def get_sample_size(_audio_format):
+            return 2
+
+    payload = b"\x00\x00\x10\x00\xf0\xff\x00\x00"
+    recording_path = tmp_path / "recording.wav"
+    recorder = AudioRecorder.__new__(AudioRecorder)
+    recorder.pyaudio = FakePyAudio()
+    recorder.stream = FakeStream()
+    recorder.frames = [payload[:4], payload[4:]]
+    recorder.is_recording = True
+    recorder.stop_event = audio_recorder_module.threading.Event()
+    recorder.temp_files = [str(recording_path)]
+    monkeypatch.setattr(audio_recorder_module.time, "sleep", lambda _delay: None)
+
+    result = recorder.stop_recording()
+
+    assert result == str(recording_path)
+    assert recorder.stream is None
+    with wave.open(result, "rb") as wav_file:
+        assert wav_file.getnchannels() == CHANNELS
+        assert wav_file.getsampwidth() == 2
+        assert wav_file.getframerate() == SAMPLE_RATE
+        assert wav_file.getcomptype() == "NONE"
+        assert wav_file.readframes(wav_file.getnframes()) == payload
+    assert recording_path.stat().st_size == 44 + len(payload)
+
+
+def test_maximum_native_wav_stays_below_transcription_limit():
+    sample_width = 2
+    maximum_size = (
+        44
+        + audio_recorder_module.MAX_RECORDING_CHUNKS
+        * CHUNK_SIZE
+        * CHANNELS
+        * sample_width
+    )
+
+    assert maximum_size < MAX_TRANSCRIPTION_FILE_BYTES
 
 
 def test_audio_cancel_discards_the_temporary_recording(tmp_path):
@@ -196,9 +288,9 @@ def test_import_refresh_uses_existing_prompt_loaders(monkeypatch):
     )
     monkeypatch.setattr(
         "src.ui.main_window.QMessageBox.question",
-        lambda *_args, **_kwargs: MainWindow.__dict__["QMessageBox"].Yes
-        if False
-        else 16384,
+        lambda *_args, **_kwargs: (
+            MainWindow.__dict__["QMessageBox"].Yes if False else 16384
+        ),
     )
     monkeypatch.setattr(
         "src.ui.main_window.QMessageBox.information",
@@ -277,9 +369,7 @@ def test_hotkey_reset_rolls_back_every_shortcut_on_one_conflict():
     )
 
 
-def test_main_window_constructs_without_duplicate_prompts(
-    monkeypatch, tmp_path
-):
+def test_main_window_constructs_without_duplicate_prompts(monkeypatch, tmp_path):
     _app()
     monkeypatch.setattr(
         settings_module.os.path, "expanduser", lambda _path: str(tmp_path)

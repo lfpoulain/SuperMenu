@@ -2,8 +2,9 @@
 
 ## Terminé dans la première implémentation
 
-- [x] Isoler intégralement les projets `win32/` et `macos/`.
-- [x] Reprendre la même séparation métier `api/config/ui/utils`.
+- [x] Isoler les intégrations natives de `win32/` et `macos/`.
+- [x] Mutualiser le client IA, les modèles, les prompts et les widgets Qt
+  génériques dans `shared/supermenu_core`.
 - [x] Retirer transcription, enregistrement et capture d’écran du code macOS.
 - [x] Remplacer les raccourcis système par une implémentation `pynput`/macOS.
 - [x] Remplacer la gestion de fenêtre cible par AppKit.
@@ -13,7 +14,7 @@
 - [x] Stocker la configuration dans `~/Library/Application Support/SuperMenu`.
 - [x] Stocker les journaux dans `~/Library/Logs/SuperMenu`.
 - [x] Préparer la construction native `.app` et le DMG glisser-déposer.
-- [x] Ajouter les tests macOS et l’intégration continue dédiée.
+- [x] Ajouter les tests macOS et une CI commune aux deux plateformes.
 
 ## Validation V1 sur un vrai Mac
 

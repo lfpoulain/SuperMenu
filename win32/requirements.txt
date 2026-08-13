@@ -1,4 +1,6 @@
 # Dépendances runtime validées ensemble pour les builds publiés.
+-e ../shared
+
 PySide6==6.11.1
 requests==2.34.2
 keyring==25.7.0

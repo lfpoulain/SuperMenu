@@ -24,7 +24,7 @@ from src.audio.audio_config import MAX_RECORDING_TIME
 from src.audio.audio_recorder import AudioRecorder
 from src.audio.transcription import Transcriber, TranscriptionError
 from src.utils.logger import log
-from src.utils.safe_dialogs import SafeDialogs
+from supermenu_core.ui.safe_dialogs import SafeDialogs
 from src.utils.text_inserter import TextInserter
 
 
