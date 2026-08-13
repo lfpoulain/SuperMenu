@@ -7,7 +7,7 @@ import re
 import sys
 import threading
 
-from pynput.keyboard import GlobalHotKeys, HotKey
+from pynput.keyboard import HotKey
 from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
@@ -19,6 +19,26 @@ from PySide6.QtWidgets import (
 )
 
 from src.utils.logger import log
+
+
+try:
+    from AppKit import (
+        NSEvent,
+        NSEventMaskKeyDown,
+        NSEventModifierFlagCommand,
+        NSEventModifierFlagControl,
+        NSEventModifierFlagDeviceIndependentFlagsMask,
+        NSEventModifierFlagOption,
+        NSEventModifierFlagShift,
+    )
+except ImportError:  # Allows the macOS source tests to run on other hosts.
+    NSEvent = None
+    NSEventMaskKeyDown = 0
+    NSEventModifierFlagCommand = 0
+    NSEventModifierFlagControl = 0
+    NSEventModifierFlagDeviceIndependentFlagsMask = 0
+    NSEventModifierFlagOption = 0
+    NSEventModifierFlagShift = 0
 
 
 _MODIFIER_ALIASES = {
@@ -214,61 +234,227 @@ class HotkeyRecorderDialog(QDialog):
         self.ok_button.setEnabled(True)
 
 
-class _PersistentGlobalHotKeys(GlobalHotKeys):
-    """One event tap whose bindings can be replaced without restarting it."""
+_MACOS_SPECIAL_KEY_CODES = {
+    0x24: "enter",
+    0x30: "tab",
+    0x31: "space",
+    0x33: "backspace",
+    0x35: "esc",
+    0x40: "f17",
+    0x4C: "enter",  # Numeric keypad Enter.
+    0x4F: "f18",
+    0x50: "f19",
+    0x5A: "f20",
+    0x60: "f5",
+    0x61: "f6",
+    0x62: "f7",
+    0x63: "f3",
+    0x64: "f8",
+    0x65: "f9",
+    0x67: "f11",
+    0x69: "f13",
+    0x6A: "f16",
+    0x6B: "f14",
+    0x6D: "f10",
+    0x6F: "f12",
+    0x71: "f15",
+    0x73: "home",
+    0x74: "page_up",
+    0x75: "delete",
+    0x76: "f4",
+    0x77: "end",
+    0x78: "f2",
+    0x79: "page_down",
+    0x7A: "f1",
+    0x7B: "left",
+    0x7C: "right",
+    0x7D: "down",
+    0x7E: "up",
+}
 
-    def __init__(self):
+
+def _native_binding_signature(shortcut):
+    """Return the AppKit signature for an already-normalized shortcut."""
+    HotKey.parse(shortcut)
+    parts = shortcut.split("+")
+    modifiers = frozenset(part[1:-1] for part in parts[:-1])
+    key = parts[-1]
+    if len(key) > 2 and key.startswith("<") and key.endswith(">"):
+        key = key[1:-1]
+    return modifiers, key.lower()
+
+
+class _AppKitEventAPI:
+    """Small injectable boundary around AppKit's local/global monitors."""
+
+    command_flag = NSEventModifierFlagCommand
+    control_flag = NSEventModifierFlagControl
+    option_flag = NSEventModifierFlagOption
+    shift_flag = NSEventModifierFlagShift
+    independent_flags_mask = NSEventModifierFlagDeviceIndependentFlagsMask
+
+    @staticmethod
+    def add_global_monitor(handler):
+        if NSEvent is None:
+            raise RuntimeError("AppKit est indisponible")
+        return NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(
+            NSEventMaskKeyDown,
+            handler,
+        )
+
+    @staticmethod
+    def add_local_monitor(handler):
+        if NSEvent is None:
+            raise RuntimeError("AppKit est indisponible")
+        return NSEvent.addLocalMonitorForEventsMatchingMask_handler_(
+            NSEventMaskKeyDown,
+            handler,
+        )
+
+    @staticmethod
+    def remove_monitor(monitor):
+        if NSEvent is not None:
+            NSEvent.removeMonitor_(monitor)
+
+
+class _MacOSGlobalHotKeys:
+    """Persistent native AppKit key monitor with replaceable bindings."""
+
+    def __init__(self, event_api=None):
+        self._event_api = event_api or _AppKitEventAPI()
         self._bindings_lock = threading.RLock()
+        self._bindings = {}
         self._suspended = False
-        self._binding_specs = {}
-        super().__init__({})
+        self._global_monitor = None
+        self._local_monitor = None
+        self._alive = False
 
     def replace_bindings(self, bindings):
-        binding_specs = dict(bindings)
-        parsed = tuple(
-            HotKey(HotKey.parse(shortcut), callback)
-            for shortcut, callback in binding_specs.items()
-        )
+        parsed = {
+            _native_binding_signature(shortcut): (shortcut, callback)
+            for shortcut, callback in bindings.items()
+        }
         with self._bindings_lock:
-            self._binding_specs = binding_specs
-            self._hotkeys = parsed
+            self._bindings = parsed
 
     def set_suspended(self, suspended):
         with self._bindings_lock:
             self._suspended = bool(suspended)
-            # Recreate the state machines so no modifier remains logically
-            # pressed when recording ends or bindings change.
-            if not self._suspended:
-                self._hotkeys = tuple(
-                    HotKey(HotKey.parse(shortcut), callback)
-                    for shortcut, callback in self._binding_specs.items()
+
+    def start(self):
+        if self._alive:
+            return
+        global_monitor = None
+        local_monitor = None
+        try:
+            global_monitor = self._event_api.add_global_monitor(
+                self._handle_global_event
+            )
+            local_monitor = self._event_api.add_local_monitor(
+                self._handle_local_event
+            )
+            if global_monitor is None or local_monitor is None:
+                raise RuntimeError(
+                    "macOS n'a pas créé les moniteurs clavier AppKit"
                 )
+        except Exception:
+            if global_monitor is not None:
+                self._event_api.remove_monitor(global_monitor)
+            if local_monitor is not None:
+                self._event_api.remove_monitor(local_monitor)
+            raise
+        self._global_monitor = global_monitor
+        self._local_monitor = local_monitor
+        self._alive = True
 
-    def _on_press(self, key, injected=False):
-        if injected:
-            return
-        with self._bindings_lock:
-            if self._suspended:
-                return
-            canonical = self.canonical(key)
-            for hotkey in self._hotkeys:
-                hotkey.press(canonical)
+    def wait(self):
+        """Compatibility with the previous threaded listener interface."""
 
-    def _on_release(self, key, injected=False):
-        if injected:
+    def is_alive(self):
+        return bool(
+            self._alive
+            and self._global_monitor is not None
+            and self._local_monitor is not None
+        )
+
+    def stop(self):
+        if not self._alive:
             return
-        with self._bindings_lock:
-            if self._suspended:
+        self._alive = False
+        global_monitor = self._global_monitor
+        local_monitor = self._local_monitor
+        self._global_monitor = None
+        self._local_monitor = None
+        if global_monitor is not None:
+            self._event_api.remove_monitor(global_monitor)
+        if local_monitor is not None:
+            self._event_api.remove_monitor(local_monitor)
+
+    def join(self, timeout=None):
+        """Compatibility with the previous threaded listener interface."""
+
+    def _event_signature(self, event):
+        flags = int(event.modifierFlags()) & int(
+            self._event_api.independent_flags_mask
+        )
+        modifiers = set()
+        for name, flag in (
+            ("cmd", self._event_api.command_flag),
+            ("ctrl", self._event_api.control_flag),
+            ("alt", self._event_api.option_flag),
+            ("shift", self._event_api.shift_flag),
+        ):
+            if flags & int(flag):
+                modifiers.add(name)
+
+        key_code = int(event.keyCode())
+        key = _MACOS_SPECIAL_KEY_CODES.get(key_code)
+        if key is None:
+            key = str(event.charactersIgnoringModifiers() or "").lower()
+        return frozenset(modifiers), key, key_code
+
+    def _handle_event(self, event):
+        try:
+            if bool(event.isARepeat()):
                 return
-            canonical = self.canonical(key)
-            for hotkey in self._hotkeys:
-                hotkey.release(canonical)
+            modifiers, key, key_code = self._event_signature(event)
+            signature = (modifiers, key)
+            with self._bindings_lock:
+                if self._suspended:
+                    return
+                binding = self._bindings.get(signature)
+                configured_modifiers = {
+                    configured[0] for configured in self._bindings
+                }
+            if modifiers in configured_modifiers:
+                observed = "+".join(sorted(modifiers) + [key or "?"])
+                log(
+                    "Événement clavier AppKit observé : "
+                    f"{observed} (keyCode={key_code})"
+                )
+            if binding is None:
+                return
+            shortcut, callback = binding
+            log(f"Raccourci global AppKit détecté : {shortcut}")
+            callback()
+        except Exception as exc:
+            log(
+                f"Traitement d'un événement clavier AppKit impossible : {exc}",
+                logging.ERROR,
+            )
+
+    def _handle_global_event(self, event):
+        self._handle_event(event)
+
+    def _handle_local_event(self, event):
+        self._handle_event(event)
+        return event
 
 
 class HotkeyService:
     """Own the sole process-wide macOS keyboard listener."""
 
-    def __init__(self, listener_factory=_PersistentGlobalHotKeys):
+    def __init__(self, listener_factory=_MacOSGlobalHotKeys):
         self._listener_factory = listener_factory
         self._listener = None
         self._owner_bindings = {}

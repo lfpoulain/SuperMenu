@@ -1,8 +1,11 @@
+import pytest
+
 from src.utils.hotkey_manager import (
     HotkeyManager,
     HotkeyService,
-    _PersistentGlobalHotKeys,
+    _MacOSGlobalHotKeys,
     _modifier_labels,
+    _native_binding_signature,
     normalize_hotkey,
 )
 from PySide6.QtCore import Qt
@@ -62,6 +65,50 @@ class HotkeySettingsStub:
         self.custom = value
 
 
+class FakeAppKitEventAPI:
+    command_flag = 1
+    control_flag = 2
+    option_flag = 4
+    shift_flag = 8
+    independent_flags_mask = 15
+
+    def __init__(self):
+        self.global_handler = None
+        self.local_handler = None
+        self.removed = []
+
+    def add_global_monitor(self, handler):
+        self.global_handler = handler
+        return "global"
+
+    def add_local_monitor(self, handler):
+        self.local_handler = handler
+        return "local"
+
+    def remove_monitor(self, monitor):
+        self.removed.append(monitor)
+
+
+class FakeAppKitKeyEvent:
+    def __init__(self, *, flags, key_code, characters="", repeat=False):
+        self._flags = flags
+        self._key_code = key_code
+        self._characters = characters
+        self._repeat = repeat
+
+    def modifierFlags(self):
+        return self._flags
+
+    def keyCode(self):
+        return self._key_code
+
+    def charactersIgnoringModifiers(self):
+        return self._characters
+
+    def isARepeat(self):
+        return self._repeat
+
+
 def test_command_hotkey_is_normalized_for_pynput():
     normalized, error = normalize_hotkey("Cmd+Shift+Space")
     assert error == ""
@@ -96,9 +143,74 @@ def test_qt_macos_modifier_swap_is_mapped_to_physical_keys():
     assert control == ["Ctrl"]
 
 
-def test_persistent_listener_does_not_override_private_darwin_callbacks():
-    assert "_handler" not in _PersistentGlobalHotKeys.__dict__
-    assert "_create_event_tap" not in _PersistentGlobalHotKeys.__dict__
+def test_native_binding_signature_supports_literal_less_than_key():
+    assert _native_binding_signature("<cmd>+<shift>+<") == (
+        frozenset({"cmd", "shift"}),
+        "<",
+    )
+
+
+def test_appkit_monitor_matches_global_space_shortcut_and_ignores_repeats():
+    api = FakeAppKitEventAPI()
+    listener = _MacOSGlobalHotKeys(event_api=api)
+    triggered = []
+    listener.replace_bindings(
+        {"<cmd>+<shift>+<space>": lambda: triggered.append(True)}
+    )
+
+    listener.start()
+    event = FakeAppKitKeyEvent(flags=9, key_code=0x31, repeat=True)
+    api.global_handler(event)
+    event._repeat = False
+    api.global_handler(event)
+
+    assert triggered == [True]
+    assert listener.is_alive() is True
+
+
+def test_appkit_monitor_covers_local_events_and_removes_each_monitor_once():
+    api = FakeAppKitEventAPI()
+    listener = _MacOSGlobalHotKeys(event_api=api)
+    triggered = []
+    listener.replace_bindings({"<cmd>+m": lambda: triggered.append(True)})
+    listener.start()
+    event = FakeAppKitKeyEvent(flags=1, key_code=0, characters="M")
+
+    assert api.local_handler(event) is event
+    listener.stop()
+    listener.stop()
+
+    assert triggered == [True]
+    assert api.removed == ["global", "local"]
+    assert listener.is_alive() is False
+
+
+def test_appkit_monitor_suspension_keeps_monitors_installed():
+    api = FakeAppKitEventAPI()
+    listener = _MacOSGlobalHotKeys(event_api=api)
+    triggered = []
+    listener.replace_bindings({"<cmd>+a": lambda: triggered.append(True)})
+    listener.start()
+    listener.set_suspended(True)
+
+    api.global_handler(
+        FakeAppKitKeyEvent(flags=1, key_code=0, characters="a")
+    )
+
+    assert triggered == []
+    assert listener.is_alive() is True
+
+
+def test_appkit_monitor_cleans_up_after_partial_start_failure():
+    api = FakeAppKitEventAPI()
+    api.add_local_monitor = lambda handler: None
+    listener = _MacOSGlobalHotKeys(event_api=api)
+
+    with pytest.raises(RuntimeError, match="moniteurs clavier AppKit"):
+        listener.start()
+
+    assert api.removed == ["global"]
+    assert listener.is_alive() is False
 
 
 def test_hotkey_requires_a_modifier():

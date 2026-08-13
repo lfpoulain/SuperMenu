@@ -37,10 +37,11 @@ l’application packagée, c’est `SuperMenu.app` qu’il faudra autoriser. Ces
 droits servent uniquement aux raccourcis globaux et aux commandes Copier/Coller.
 Aucun droit Microphone ou Enregistrement de l’écran n’est utilisé.
 
-Tous les raccourcis partagent un seul écouteur macOS persistant. Modifier un
-raccourci ou revérifier les autorisations met à jour ses liaisons sans arrêter
-ni recréer le tap clavier natif. SuperMenu s’appuie directement sur le listener
-macOS standard de `pynput`, sans surcharger ses callbacks Darwin privés.
+Tous les raccourcis partagent deux moniteurs AppKit persistants : le moniteur
+global reçoit les touches destinées aux autres applications et le moniteur
+local couvre SuperMenu lorsqu’il est actif, conformément au fonctionnement
+documenté par Apple. Modifier un raccourci met à jour les liaisons sans recréer
+ces moniteurs. `pynput` reste limité aux commandes Copier/Coller.
 L’enregistreur tient compte de l’inversion Command/Control appliquée par défaut
 par Qt sur macOS : les noms affichés correspondent donc aux touches physiques.
 
@@ -57,8 +58,9 @@ le passage depuis une version qui utilisait le Trousseau.
 ## Diagnostic
 
 Les journaux sont conservés dans `~/Library/Logs/SuperMenu`. Le fichier
-`supermenu.log` trace le chemin complet d’un raccourci (détection, passage au
-thread Qt, activation macOS et affichage du menu) ainsi que les erreurs Python.
+`supermenu.log` trace le chemin complet d’un raccourci (événement AppKit,
+détection, passage au thread Qt, activation macOS et affichage du menu) ainsi
+que les erreurs Python.
 `native-crash.log` conserve une trace des crashs natifs éventuels. Aucun de ces
 fichiers ne contient la clé API, le texte sélectionné ou le contenu des prompts.
 
