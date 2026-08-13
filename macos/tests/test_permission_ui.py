@@ -192,7 +192,10 @@ def test_hotkey_recorder_is_async_and_keeps_main_window_open(window, qt_app):
     assert manager.saved == "Cmd+Option+K"
     assert window.isVisible() is True
     assert window._hotkey_dialog is None
-    QTest.qWait(250)
+    for _attempt in range(40):
+        if not manager.service.suspended:
+            break
+        QTest.qWait(50)
     assert manager.service.suspended is False
 
 
