@@ -2,8 +2,38 @@
 
 SuperMenu reste distribué directement dans un DMG, sans Mac App Store. Le
 workflow GitHub utilise une identité **Developer ID Application** stable, active
-le Hardened Runtime par l'intermédiaire de PyInstaller, signe l'application et
-le DMG, puis soumet le DMG à `notarytool` et agrafe le ticket Apple.
+le Hardened Runtime par l'intermédiaire de PyInstaller, signe l'application,
+la notarie et l'agrafe, puis construit le DMG, le signe, le soumet à
+`notarytool` et l'agrafe à son tour.
+
+## Autorisations du Hardened Runtime
+
+PyInstaller passe `--options=runtime` dès qu'une identité est fournie. Ce
+runtime durci refuse par défaut d'exécuter de la mémoire allouée à chaud, ce
+que CPython et PyObjC font tous les deux. `entitlements.plist` lève donc trois
+exceptions :
+
+| Clé | Pourquoi |
+|---|---|
+| `com.apple.security.cs.allow-unsigned-executable-memory` | PyObjC transforme les callables Python en blocs Objective-C via des fermetures libffi. Les gestionnaires du moniteur clavier global en sont : sans cette clé, le processus est tué au lieu de lever une exception. |
+| `com.apple.security.cs.allow-jit` | Même famille de besoin, pour les allocations marquées `MAP_JIT`. |
+| `com.apple.security.cs.disable-library-validation` | Le bundle charge les modules d'extension Python et les plugins Qt collectés par PyInstaller, résolus dynamiquement. |
+
+`entitlements.plist` ne contient aucun commentaire, et c'est délibéré. Une
+première version documentait ces clés sur place et la signature échouait
+sur `AMFIUnserializeXML: syntax error near line 6` — parce que le commentaire
+contenait `--options=runtime`, et qu'un double tiret est **interdit à
+l'intérieur d'un commentaire XML**. Le fichier n'était donc pas du XML bien
+formé ; `codesign` ne faisait que le signaler avec un message avare.
+
+Garder le fichier réduit à ses clés supprime toute cette classe de problème,
+d'où cette explication ici plutôt que dedans. Le test
+`test_entitlements_stay_parseable_by_codesign` le valide en le passant à
+`plistlib`, qui échoue exactement à la même ligne qu'AMFI.
+
+Comme ce chemin ne se manifeste qu'à l'exécution et sous forme de crash, pas
+d'exception, `run.py --smoke-test` installe les moniteurs natifs sur le binaire
+signé avant que le DMG ne soit produit.
 
 Le bundle identifier de distribution est `com.supermenu.macos`. Il ne doit plus
 être modifié : il fait partie de l'identité utilisée par macOS pour reconnaître

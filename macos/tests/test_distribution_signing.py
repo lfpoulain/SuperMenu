@@ -1,3 +1,4 @@
+import plistlib
 from pathlib import Path
 
 
@@ -36,13 +37,30 @@ def test_hardened_runtime_ships_the_entitlements_it_requires():
     assert 'entitlements_file=str(project_dir / "entitlements.plist")' in spec
     assert entitlements_path.is_file()
 
-    entitlements = entitlements_path.read_text(encoding="utf-8")
+    entitlements = plistlib.loads(entitlements_path.read_bytes())
     for key in (
         "com.apple.security.cs.allow-jit",
         "com.apple.security.cs.allow-unsigned-executable-memory",
         "com.apple.security.cs.disable-library-validation",
     ):
-        assert key in entitlements
+        assert entitlements[key] is True
+
+
+def test_entitlements_stay_parseable_by_codesign():
+    """Well-formedness is the guard that matters here.
+
+    A first version documented the keys in place and codesign rejected it with
+    "AMFIUnserializeXML: syntax error near line 6", because the comment
+    contained "--options=runtime" and a double hyphen is illegal inside an XML
+    comment. plistlib fails on the same line, so parsing the file is enough to
+    catch it. Keeping the plist comment-free removes the class of problem, and
+    the rationale for each key lives in SIGNING.md.
+    """
+    raw = (MACOS_ROOT / "entitlements.plist").read_bytes()
+
+    assert isinstance(plistlib.loads(raw), dict)
+    assert b"<!--" not in raw
+    assert b"\r\n" not in raw
 
 
 def test_build_targets_apple_silicon_only():
