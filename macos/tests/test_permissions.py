@@ -27,6 +27,31 @@ def test_native_accessibility_permission_check(monkeypatch):
     assert status.accessibility_check_available is True
 
 
+def test_native_accessibility_prompt_is_dispatched_without_using_trust_result(
+    monkeypatch,
+):
+    calls = []
+    monkeypatch.setattr(
+        permissions,
+        "_ax_is_process_trusted_with_options",
+        lambda options: calls.append(options) or False,
+    )
+    monkeypatch.setattr(permissions, "_ax_prompt_key", "prompt")
+
+    assert permissions.request_accessibility_permission() is True
+    assert calls == [{"prompt": True}]
+
+
+def test_native_accessibility_prompt_reports_unavailable(monkeypatch):
+    monkeypatch.setattr(
+        permissions,
+        "_ax_is_process_trusted_with_options",
+        None,
+    )
+
+    assert permissions.request_accessibility_permission() is False
+
+
 def test_unavailable_native_check_is_not_reported_as_supported(monkeypatch):
     monkeypatch.setattr(permissions, "_ax_is_process_trusted", None)
 

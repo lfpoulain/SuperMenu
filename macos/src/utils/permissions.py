@@ -81,13 +81,23 @@ class PermissionStatus:
         return tuple(labels)
 
 
-def accessibility_is_trusted(*, prompt: bool = False) -> bool:
-    if prompt and _ax_is_process_trusted_with_options and _ax_prompt_key:
-        try:
-            _ax_is_process_trusted_with_options({_ax_prompt_key: True})
-        except Exception:
-            # Opening the matching settings pane remains the reliable fallback.
-            pass
+def request_accessibility_permission() -> bool:
+    """Ask macOS to display its native Accessibility consent dialog.
+
+    The native function returns the current trust state, not whether it showed
+    a dialog.  This helper therefore reports whether the request was dispatched
+    successfully so callers do not open System Settings over the system prompt.
+    """
+    if _ax_is_process_trusted_with_options is None or _ax_prompt_key is None:
+        return False
+    try:
+        _ax_is_process_trusted_with_options({_ax_prompt_key: True})
+        return True
+    except Exception:
+        return False
+
+
+def accessibility_is_trusted() -> bool:
     if _ax_is_process_trusted is None:
         return False
     try:

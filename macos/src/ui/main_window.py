@@ -49,9 +49,9 @@ from src.utils.paths import resource_path, user_config_dir, user_log_dir
 from src.utils.logger import log
 from src.utils.window_target import activate_current_application
 from src.utils.permissions import (
-    accessibility_is_trusted,
     current_permission_status,
     open_accessibility_settings,
+    request_accessibility_permission,
 )
 from supermenu_core.utils.validators import Validators
 
@@ -129,6 +129,7 @@ class MainWindow(QMainWindow):
         self._custom_model_details = {}
         self._hotkey_dialog = None
         self._last_permission_state = None
+        self._accessibility_request_attempted = False
 
         self.setWindowTitle("SuperMenu - Configuration")
         self.setMinimumSize(900, 800)
@@ -874,10 +875,18 @@ class MainWindow(QMainWindow):
         )
 
     def request_accessibility_permission(self):
-        """Request control access and always reveal the matching settings pane."""
-        accessibility_is_trusted(prompt=True)
-        open_accessibility_settings()
-        QTimer.singleShot(800, self.refresh_permission_status)
+        """Show native consent first; reveal Settings only on a later attempt."""
+        if self._accessibility_request_attempted:
+            open_accessibility_settings()
+        else:
+            self._accessibility_request_attempted = True
+            if not request_accessibility_permission():
+                open_accessibility_settings()
+        self.accessibility_button.setText("Ouvrir les réglages…")
+        QTimer.singleShot(
+            800,
+            lambda: self.refresh_permission_status(force_reload=True),
+        )
 
     @staticmethod
     def _set_status_label(label, text, granted):
@@ -913,10 +922,19 @@ class MainWindow(QMainWindow):
             status.accessibility,
         )
         self.accessibility_button.setEnabled(not status.accessibility)
+        if status.accessibility:
+            self.accessibility_button.setText("Accessibilité configurée")
+        elif self._accessibility_request_attempted:
+            self.accessibility_button.setText("Ouvrir les réglages…")
+        else:
+            self.accessibility_button.setText("Configurer Accessibilité…")
 
         permissions_changed = (
             self._last_permission_state is not None
             and state != self._last_permission_state
+        )
+        permission_granted_now = (
+            self._last_permission_state is False and state is True
         )
         services = {
             manager.service
@@ -934,8 +952,11 @@ class MainWindow(QMainWindow):
             force_reload or permissions_changed or service_needs_recovery
         )
         hotkeys_ok = True
+        if permission_granted_now:
+            restart_results = [service.restart() for service in services]
+            hotkeys_ok = all(restart_results) if restart_results else True
         if should_reload:
-            hotkeys_ok = self._reload_all_hotkeys()
+            hotkeys_ok = self._reload_all_hotkeys() and hotkeys_ok
 
         hotkey_managers = [
             manager

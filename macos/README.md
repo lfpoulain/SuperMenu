@@ -44,6 +44,12 @@ Accessibilité**, puis relancez-le. Une fois l’application packagée, c’est
 globaux et aux commandes Copier/Coller. Les autorisations Surveillance de
 l’entrée, Microphone et Enregistrement de l’écran ne sont pas nécessaires.
 
+Le premier clic sur **Configurer Accessibilité…** laisse macOS afficher seul
+son dialogue de consentement. Si l’accès reste absent, le même bouton devient
+**Ouvrir les réglages…** pour permettre une intervention manuelle sans empiler
+les deux fenêtres. Lorsque l’autorisation est accordée, SuperMenu recrée ses
+moniteurs AppKit automatiquement ; il n’est pas nécessaire de quitter l’app.
+
 Tous les raccourcis partagent deux moniteurs AppKit persistants : le moniteur
 global reçoit les touches destinées aux autres applications et le moniteur
 local couvre SuperMenu lorsqu’il est actif, conformément au fonctionnement

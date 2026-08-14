@@ -258,6 +258,23 @@ def test_recheck_does_not_restart_or_stop_the_native_listener():
     assert listener.stop_calls == 0
 
 
+def test_service_restart_recreates_listener_with_existing_bindings():
+    FakePersistentListener.instances = []
+    service = HotkeyService(listener_factory=FakePersistentListener)
+    callback = lambda: None
+    service.replace_owner_bindings("principal", {"<cmd>+a": callback})
+    first_listener = FakePersistentListener.instances[0]
+
+    assert service.restart() is True
+
+    second_listener = FakePersistentListener.instances[1]
+    assert first_listener.stop_calls == 1
+    assert first_listener.join_calls == 1
+    assert second_listener.start_calls == 1
+    assert second_listener.bindings == {"<cmd>+a": callback}
+    assert service.running is True
+
+
 def test_conflicting_hotkey_update_is_atomic():
     FakePersistentListener.instances = []
     settings = HotkeySettingsStub()

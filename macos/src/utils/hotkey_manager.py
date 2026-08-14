@@ -557,6 +557,29 @@ class HotkeyService:
                 )
                 return False
 
+    def restart(self):
+        """Recreate native monitors after macOS changes TCC authorization."""
+        with self._lock:
+            if self._closed:
+                self._last_error = "Le service de raccourcis est fermé"
+                return False
+            listener = self._listener
+            self._listener = None
+        if listener is not None:
+            try:
+                listener.stop()
+                listener.join(timeout=1.0)
+            except Exception as exc:
+                self._last_error = str(exc)
+                log(
+                    "Recréation du service de raccourcis impossible : "
+                    f"{exc}",
+                    logging.ERROR,
+                )
+                return False
+        log("Recréation des moniteurs clavier après autorisation macOS")
+        return self.ensure_started()
+
     def suspend(self):
         with self._lock:
             self._suspended = True

@@ -21,15 +21,15 @@ def window(qt_app, tmp_path):
     instance.close()
 
 
-def test_permission_button_opens_accessibility_system_pane(
+def test_first_permission_click_shows_only_native_consent(
     window,
     monkeypatch,
 ):
     calls = []
     monkeypatch.setattr(
         main_window_module,
-        "accessibility_is_trusted",
-        lambda prompt=False: calls.append(("accessibility", prompt)) or False,
+        "request_accessibility_permission",
+        lambda: calls.append("request") or True,
     )
     monkeypatch.setattr(
         main_window_module,
@@ -38,12 +38,65 @@ def test_permission_button_opens_accessibility_system_pane(
     )
     window.request_accessibility_permission()
 
-    assert ("accessibility", True) in calls
-    assert ("open_accessibility", True) in calls
+    assert calls == ["request"]
+    assert window.accessibility_button.text() == "Ouvrir les réglages…"
     assert not hasattr(window, "input_monitoring_button")
 
 
+def test_second_permission_click_opens_accessibility_settings(
+    window,
+    monkeypatch,
+):
+    calls = []
+    monkeypatch.setattr(
+        main_window_module,
+        "request_accessibility_permission",
+        lambda: calls.append("request") or True,
+    )
+    monkeypatch.setattr(
+        main_window_module,
+        "open_accessibility_settings",
+        lambda: calls.append("settings") or True,
+    )
+
+    window.request_accessibility_permission()
+    window.request_accessibility_permission()
+
+    assert calls == ["request", "settings"]
+
+
+def test_permission_click_opens_settings_when_native_prompt_is_unavailable(
+    window,
+    monkeypatch,
+):
+    calls = []
+    monkeypatch.setattr(
+        main_window_module,
+        "request_accessibility_permission",
+        lambda: calls.append("request") or False,
+    )
+    monkeypatch.setattr(
+        main_window_module,
+        "open_accessibility_settings",
+        lambda: calls.append("settings") or True,
+    )
+
+    window.request_accessibility_permission()
+
+    assert calls == ["request", "settings"]
+
+
 def test_granted_permissions_reload_hotkeys(window, monkeypatch):
+    class ServiceStub:
+        running = True
+
+        def __init__(self):
+            self.restart_calls = 0
+
+        def restart(self):
+            self.restart_calls += 1
+            return True
+
     class HotkeyManagerStub:
         registered = False
         last_register_error = ""
@@ -56,9 +109,13 @@ def test_granted_permissions_reload_hotkeys(window, monkeypatch):
         def refresh_hotkeys(self):
             return True, {}
 
+    service = ServiceStub()
     window.hotkey_manager = HotkeyManagerStub()
     window.custom_hotkey_manager = HotkeyManagerStub()
     window.prompt_hotkey_manager = PromptManagerStub()
+    window.hotkey_manager.service = service
+    window.custom_hotkey_manager.service = service
+    window.prompt_hotkey_manager.service = service
     window._last_permission_state = False
     monkeypatch.setattr(
         main_window_module,
@@ -70,6 +127,7 @@ def test_granted_permissions_reload_hotkeys(window, monkeypatch):
 
     assert window.hotkey_manager.registered is True
     assert window.custom_hotkey_manager.registered is True
+    assert service.restart_calls == 1
     assert "actifs" in window.hotkey_service_status.text()
 
 
