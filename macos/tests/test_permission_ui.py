@@ -1,6 +1,5 @@
 import pytest
 from PySide6.QtWidgets import QApplication, QMessageBox
-from PySide6.QtTest import QTest
 
 from src.config.settings import Settings
 from src.ui import main_window as main_window_module
@@ -237,10 +236,9 @@ def test_hotkey_recorder_is_async_and_keeps_main_window_open(window, qt_app):
     assert manager.saved == "Cmd+Option+K"
     assert window.isVisible() is True
     assert window._hotkey_dialog is None
-    for _attempt in range(40):
-        if not manager.service.suspended:
-            break
-        QTest.qWait(50)
+    # Listening resumes as soon as the modifiers are up rather than after a
+    # fixed delay, so with nothing held it happens on the spot. The previous
+    # version waited on a 200 ms timer and could not be asserted reliably.
     assert manager.service.suspended is False
 
 

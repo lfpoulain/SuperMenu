@@ -45,6 +45,7 @@ from supermenu_core.config.provider_settings import CUSTOM_REASONING_EFFORTS
 from supermenu_core.ui.theme_manager import ThemeManager
 from src.utils import updater as app_updater
 from src.utils.hotkey_manager import HotkeyRecorderDialog
+from src.utils.key_events import KeyEventPoster
 from src.utils.paths import resource_path, user_config_dir, user_log_dir
 from src.utils.logger import log
 from src.utils.window_target import PasteTarget, activate_current_application
@@ -146,6 +147,7 @@ class MainWindow(QMainWindow):
         self._hotkey_dialog = None
         self._last_permission_state = None
         self._accessibility_request_attempted = False
+        self._keys = KeyEventPoster()
 
         self.setWindowTitle("SuperMenu - Configuration")
         self.setMinimumSize(900, 800)
@@ -874,9 +876,14 @@ class MainWindow(QMainWindow):
                 on_recorded(recorded)
             dialog.deleteLater()
             if service is not None:
-                # Let macOS deliver every modifier release before listening
-                # again, preventing a just-recorded shortcut from firing.
-                QTimer.singleShot(200, service.resume)
+                # Listening again while the just-recorded combination is still
+                # held would fire it immediately. The condition is the user's
+                # fingers, not a delay: wait for the modifiers to come up, and
+                # resume at once when nothing is held.
+                self._keys.when_modifiers_released(
+                    QTimer.singleShot,
+                    service.resume,
+                )
 
         dialog.finished.connect(finish_recording)
         dialog.open()

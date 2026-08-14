@@ -1,4 +1,5 @@
 from src.utils.key_events import KEY_CODE_C, KEY_CODE_COMMAND, KeyEventPoster
+from src.utils import selection as selection_module
 from src.utils.selection import SelectionReader
 
 from tests.fake_key_api import FakeQuartzKeyAPI
@@ -246,3 +247,52 @@ def test_a_silent_accessibility_api_falls_back_to_the_clipboard():
 
     assert accessibility.calls == 1
     assert results == ["texte presse-papiers"]
+
+
+class SlowClipboard(FakeClipboard):
+    """Answers only after a few polls, like a real application would."""
+
+    def __init__(self, text, polls_before_answer):
+        super().__init__()
+        self.text = text
+        self.remaining = polls_before_answer
+        self.reads = 0
+
+    def get_clipboard_text_safe(self):
+        self.reads += 1
+        if self.remaining > 0:
+            self.remaining -= 1
+            return self.current
+        return self.text
+
+
+def test_the_copy_is_polled_instead_of_waited_out():
+    """The old fixed 180 ms delay was paid in full on every prompt."""
+    scheduler = QueuedScheduler()
+    clipboard = SlowClipboard("texte", polls_before_answer=2)
+    results = []
+
+    _reader(scheduler, clipboard, FakeQuartzKeyAPI()).read_async(
+        FakeTarget(active=True),
+        results.append,
+    )
+    scheduler.drain()
+
+    assert results == ["texte"]
+    # Three reads: two empty, then the answer. It does not wait for a ceiling.
+    assert clipboard.reads == 3
+
+
+def test_a_silent_clipboard_still_gives_up():
+    scheduler = QueuedScheduler()
+    clipboard = SlowClipboard("jamais", polls_before_answer=10_000)
+    results = []
+
+    _reader(scheduler, clipboard, FakeQuartzKeyAPI()).read_async(
+        FakeTarget(active=True),
+        results.append,
+    )
+    scheduler.drain(limit=200)
+
+    assert results == [""]
+    assert clipboard.reads <= selection_module.COPY_MAX_POLLS + 1

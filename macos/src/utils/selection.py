@@ -21,9 +21,13 @@ from src.utils.key_events import KeyEventPoster
 from src.utils.logger import log, logger
 
 
-ACTIVATION_POLL_MS = 40
-ACTIVATION_MAX_POLLS = 8
-COPY_SETTLE_MS = 180
+ACTIVATION_POLL_MS = 25
+ACTIVATION_MAX_POLLS = 12
+# The copy is waited for, not slept through: the target answers in well under
+# the old fixed 180 ms most of the time, and the ceiling only costs anything
+# when nothing was selected.
+COPY_POLL_MS = 15
+COPY_MAX_POLLS = 18
 RESTORE_DELAY_MS = 100
 
 
@@ -48,13 +52,22 @@ class SelectionReader:
         finished = False
         snapshot = None
         clipboard_changed = False
+        started_ns = time.monotonic_ns()
+        phases = []
         sentinel = f"__SUPERMENU_EMPTY_SELECTION_{time.monotonic_ns()}__"
+
+        def mark(label):
+            """Record where the delay before the menu actually goes."""
+            elapsed_ms = (time.monotonic_ns() - started_ns) // 1_000_000
+            phases.append(f"{label} {elapsed_ms} ms")
 
         def finish(text):
             nonlocal finished
             if finished:
                 return
             finished = True
+            mark("terminé")
+            log("Chronologie de la sélection : " + ", ".join(phases))
             if clipboard_changed:
                 expected = text if text else sentinel
                 self._schedule(
@@ -63,22 +76,28 @@ class SelectionReader:
                 )
             on_finished(text or "")
 
-        def read_clipboard():
+        def read_clipboard(poll_number=0):
             try:
                 text = self._clipboard.get_clipboard_text_safe()
             except Exception:
                 logger.exception("Lecture de la sélection impossible")
                 finish("")
                 return
-            if not text or text == sentinel:
-                log("Lecture de la sélection terminée : aucun texte sélectionné")
-                finish("")
+            if text and text != sentinel:
+                log(
+                    "Lecture de la sélection terminée : "
+                    f"{len(text)} caractère(s) détecté(s)"
+                )
+                finish(text)
                 return
-            log(
-                "Lecture de la sélection terminée : "
-                f"{len(text)} caractère(s) détecté(s)"
-            )
-            finish(text)
+            if poll_number < COPY_MAX_POLLS:
+                self._schedule(
+                    COPY_POLL_MS,
+                    lambda: read_clipboard(poll_number + 1),
+                )
+                return
+            log("Lecture de la sélection terminée : aucun texte sélectionné")
+            finish("")
 
         def send_copy():
             nonlocal snapshot, clipboard_changed
@@ -95,13 +114,19 @@ class SelectionReader:
             if not self._keys.copy():
                 finish("")
                 return
-            self._schedule(COPY_SETTLE_MS, read_clipboard)
+            mark("copie envoyée")
+            self._schedule(COPY_POLL_MS, read_clipboard)
 
         def await_modifiers():
             # The global shortcut fires on key down, so the user is very likely
             # still holding Cmd and Shift. Copying now would reach the target as
-            # Cmd+Shift+C.
-            self._keys.when_modifiers_released(self._schedule, send_copy)
+            # Cmd+Shift+C. This wait is the user's own fingers and is usually
+            # the largest share of the delay before the menu appears.
+            mark("cible active")
+            self._keys.when_modifiers_released(
+                self._schedule,
+                lambda: (mark("modificateurs relâchés"), send_copy()),
+            )
 
         def await_activation(poll_number=0):
             if target.is_current():
@@ -130,12 +155,14 @@ class SelectionReader:
         # is no activation, no clipboard and no synthetic keystroke at all.
         direct_text = self._accessibility.selected_text()
         if direct_text:
+            mark("API Accessibilité")
             log(
                 "Sélection lue via l’API Accessibilité : "
                 f"{len(direct_text)} caractère(s)"
             )
             finish(direct_text)
             return
+        mark("Accessibilité muette, repli presse-papiers")
 
         if not target.request_activation():
             log(
