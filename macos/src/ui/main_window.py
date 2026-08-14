@@ -56,6 +56,22 @@ from src.utils.permissions import (
 from supermenu_core.utils.validators import Validators
 
 
+def _create_form_layout(parent):
+    """Build a form whose fields use the width available, as on Windows.
+
+    QFormLayout reads its growth policy from the active style. QMacStyle asks
+    for FieldsStayAtSizeHint, so every line edit and text area stayed at its
+    minimum width with dead space beside it, while the Windows styles default
+    to AllNonFixedFieldsGrow. Setting it explicitly makes both compositions
+    lay out the same way.
+    """
+    form = QFormLayout(parent)
+    form.setFieldGrowthPolicy(
+        QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+    )
+    return form
+
+
 class NoWheelComboBox(QComboBox):
     def wheelEvent(self, event):
         event.ignore()
@@ -217,7 +233,7 @@ class MainWindow(QMainWindow):
         right = QWidget()
         right_layout = QVBoxLayout(right)
         form_group = QGroupBox("✏️ Éditer le prompt")
-        form = QFormLayout(form_group)
+        form = _create_form_layout(form_group)
         self.prompt_name = QLineEdit()
         form.addRow("🏷️ Nom affiché :", self.prompt_name)
         self.prompt_instruction = QTextEdit()
@@ -347,7 +363,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(endpoint_group)
 
         shortcuts_group = QGroupBox("⌨️ Raccourcis clavier")
-        shortcuts_form = QFormLayout(shortcuts_group)
+        shortcuts_form = _create_form_layout(shortcuts_group)
         main_row = QHBoxLayout()
         self.main_hotkey = QLineEdit(self.settings.get_hotkey())
         self.main_hotkey.setReadOnly(True)
@@ -406,7 +422,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(permissions_group)
 
         general_group = QGroupBox("🎨 Interface et mises à jour")
-        general_form = QFormLayout(general_group)
+        general_form = _create_form_layout(general_group)
         self.theme_combo = NoWheelComboBox()
         for key, label in ThemeManager.get_theme_names().items():
             self.theme_combo.addItem(label, key)

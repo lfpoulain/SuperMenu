@@ -1,4 +1,4 @@
-from src.utils.key_events import KEY_CODE_C, KeyEventPoster
+from src.utils.key_events import KEY_CODE_C, KEY_CODE_COMMAND, KeyEventPoster
 from src.utils.selection import SelectionReader
 
 from tests.fake_key_api import FakeQuartzKeyAPI
@@ -87,8 +87,10 @@ def test_selection_is_read_without_blocking_the_run_loop():
 
     assert results == ["texte sélectionné"]
     assert api.posted == [
+        (KEY_CODE_COMMAND, True, api.command_flag),
         (KEY_CODE_C, True, api.command_flag),
         (KEY_CODE_C, False, api.command_flag),
+        (KEY_CODE_COMMAND, False, 0),
     ]
     assert ("restore", "snapshot", "texte sélectionné") in clipboard.events
 
@@ -110,7 +112,7 @@ def test_copy_waits_for_the_shortcut_modifiers_to_be_released():
     api.held = 0
     scheduler.drain()
 
-    assert api.posted[0] == (KEY_CODE_C, True, api.command_flag)
+    assert api.posted[1] == (KEY_CODE_C, True, api.command_flag)
     assert results == ["abc"]
 
 

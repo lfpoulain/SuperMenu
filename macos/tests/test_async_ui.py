@@ -148,7 +148,12 @@ def test_context_menu_activates_supermenu_before_popup(tmp_path, monkeypatch):
     manager.show_menu()
 
     assert events[0:2] == ["activate_app", "popup"]
-    assert "request_activate" in events
+    # The application is activated, the popup window is not. popup() installs
+    # the grab that dismisses the menu on an outside click, and making the
+    # popup window key afterwards cancels it -- the menu then stays open until
+    # an entry is picked.
+    assert "activate_window" not in events
+    assert "request_activate" not in events
     assert manager._menu_open is True
 
     manager._active_menu.aboutToHide.emit()

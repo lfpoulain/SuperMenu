@@ -172,12 +172,14 @@ class ContextMenuManager(QObject):
             if self._closed or self._active_menu is not menu:
                 return
             try:
+                # popup() installs the mouse and keyboard grab that makes a
+                # click outside dismiss the menu. Making the popup window key
+                # afterwards -- activateWindow(), requestActivate() -- cancels
+                # that grab, leaving a menu that can only be closed by picking
+                # an entry. The application itself is already frontmost here,
+                # which is what the menu actually needed.
                 menu.popup(QCursor.pos())
-                menu.activateWindow()
                 menu.raise_()
-                window_handle = menu.windowHandle()
-                if window_handle is not None:
-                    window_handle.requestActivate()
                 log("Affichage du menu contextuel demandé à Qt")
                 QTimer.singleShot(
                     MENU_VISIBILITY_CHECK_DELAY_MS,

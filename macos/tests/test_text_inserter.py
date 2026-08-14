@@ -1,5 +1,5 @@
 from src.utils import text_inserter as text_inserter_module
-from src.utils.key_events import KEY_CODE_V, KeyEventPoster
+from src.utils.key_events import KEY_CODE_COMMAND, KEY_CODE_V, KeyEventPoster
 from src.utils.text_inserter import TextInserter
 
 from tests.fake_key_api import FakeQuartzKeyAPI
@@ -79,8 +79,10 @@ def test_async_insertion_waits_for_main_loop_before_verifying_target(monkeypatch
         ("restore", "snapshot", "réponse"),
     ]
     assert api.posted == [
+        (KEY_CODE_COMMAND, True, api.command_flag),
         (KEY_CODE_V, True, api.command_flag),
         (KEY_CODE_V, False, api.command_flag),
+        (KEY_CODE_COMMAND, False, 0),
     ]
 
 
@@ -146,8 +148,10 @@ def test_paste_waits_for_the_user_to_let_go_of_the_shortcut(monkeypatch):
     scheduler.drain()
 
     assert api.posted == [
+        (KEY_CODE_COMMAND, True, api.command_flag),
         (KEY_CODE_V, True, api.command_flag),
         (KEY_CODE_V, False, api.command_flag),
+        (KEY_CODE_COMMAND, False, 0),
     ]
     assert results == [(True, "")]
 

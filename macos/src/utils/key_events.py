@@ -44,20 +44,27 @@ try:
         CGEventCreateKeyboardEvent,
         CGEventPost,
         CGEventSetFlags,
+        CGEventSourceCreate,
+        CGEventSourceSetLocalEventsSuppressionInterval,
         kCGEventFlagMaskCommand,
+        kCGEventSourceStateHIDSystemState,
         kCGHIDEventTap,
     )
 except ImportError:  # Allows the macOS source tests to run on other hosts.
     CGEventCreateKeyboardEvent = None
     CGEventPost = None
     CGEventSetFlags = None
+    CGEventSourceCreate = None
+    CGEventSourceSetLocalEventsSuppressionInterval = None
     kCGEventFlagMaskCommand = 1 << 20
+    kCGEventSourceStateHIDSystemState = 1
     kCGHIDEventTap = 0
 
 
 # Positional virtual key codes from Carbon's Events.h.
 KEY_CODE_C = 0x08
 KEY_CODE_V = 0x09
+KEY_CODE_COMMAND = 0x37
 
 MODIFIER_RELEASE_POLL_MS = 20
 MODIFIER_RELEASE_MAX_POLLS = 25
@@ -75,11 +82,43 @@ class _QuartzKeyboardAPI:
 
     command_flag = int(kCGEventFlagMaskCommand)
 
-    @staticmethod
-    def post_key(key_code: int, key_down: bool, flags: int) -> None:
+    def __init__(self):
+        self._source = None
+        self._source_resolved = False
+
+    def _event_source(self):
+        """Return a source that does not mute the user's own input.
+
+        By default macOS suppresses local keyboard and mouse events for a
+        quarter of a second after a synthetic one is posted. That is what made
+        the pointer stop updating and the next selection impossible right after
+        a prompt ran.
+        """
+        if self._source_resolved:
+            return self._source
+        self._source_resolved = True
+        if CGEventSourceCreate is None:
+            return None
+        try:
+            source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState)
+            if source is not None and CGEventSourceSetLocalEventsSuppressionInterval:
+                CGEventSourceSetLocalEventsSuppressionInterval(source, 0.0)
+            self._source = source
+        except Exception as exc:
+            log(
+                f"Source d'événements CoreGraphics indisponible : {exc}",
+                logging.WARNING,
+            )
+        return self._source
+
+    def post_key(self, key_code: int, key_down: bool, flags: int) -> None:
         if CGEventCreateKeyboardEvent is None:
             raise RuntimeError("Quartz est indisponible")
-        event = CGEventCreateKeyboardEvent(None, key_code, key_down)
+        event = CGEventCreateKeyboardEvent(
+            self._event_source(),
+            key_code,
+            key_down,
+        )
         if event is None:
             raise RuntimeError("macOS n'a pas créé l'événement clavier")
         CGEventSetFlags(event, flags)
@@ -107,14 +146,35 @@ class KeyEventPoster:
         return not (int(self._api.held_modifiers()) & _SHORTCUT_MODIFIERS)
 
     def post_command_shortcut(self, key_code: int) -> bool:
+        """Post Command+<key> as a complete, coherent key sequence.
+
+        Setting the Command flag on the letter alone is not enough. An
+        application that receives a key-down carrying the Command flag without
+        ever seeing the matching flagsChanged events can be left believing the
+        modifier is still held: Chrome then stops showing the text cursor and
+        refuses the next selection until its own state resynchronises. Pressing
+        and releasing the modifier key itself produces those events.
+        """
+        flags = int(self._api.command_flag)
+        modifier_pressed = False
+        success = False
         try:
-            flags = int(self._api.command_flag)
+            self._api.post_key(KEY_CODE_COMMAND, True, flags)
+            modifier_pressed = True
             self._api.post_key(key_code, True, flags)
             self._api.post_key(key_code, False, flags)
-            return True
+            success = True
         except Exception as exc:
             log(f"Envoi du raccourci clavier impossible : {exc}", logging.ERROR)
-            return False
+        if modifier_pressed:
+            # Never leave Command latched, even on a partial failure: every
+            # following keystroke would be read as a shortcut.
+            try:
+                self._api.post_key(KEY_CODE_COMMAND, False, 0)
+            except Exception as exc:
+                log(f"Relâchement de Command impossible : {exc}", logging.ERROR)
+                return False
+        return success
 
     def copy(self) -> bool:
         return self.post_command_shortcut(KEY_CODE_C)
