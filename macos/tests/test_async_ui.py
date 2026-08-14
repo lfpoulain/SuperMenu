@@ -115,16 +115,23 @@ def test_context_menu_activates_supermenu_before_popup(tmp_path, monkeypatch):
             callback()
 
     class FakeTarget:
-        def activate_and_verify(self):
+        def request_activation(self, force=False):
             events.append("restore_target")
             return True
+
+    class ImmediateSelectionReader:
+        """Deliver an empty selection without touching the clipboard."""
+
+        @staticmethod
+        def read_async(target, on_finished):
+            on_finished("")
 
     monkeypatch.setattr(context_menu_module, "QMenu", FakeMenu)
     monkeypatch.setattr(context_menu_module, "QTimer", ImmediateTimer)
     monkeypatch.setattr(
         context_menu_module.PasteTarget,
         "capture",
-        lambda: FakeTarget(),
+        lambda **_kwargs: FakeTarget(),
     )
     monkeypatch.setattr(
         context_menu_module,
@@ -136,7 +143,7 @@ def test_context_menu_activates_supermenu_before_popup(tmp_path, monkeypatch):
         "current_application_is_active",
         lambda: True,
     )
-    monkeypatch.setattr(manager, "_try_get_selected_text", lambda _target: "")
+    manager.selection_reader = ImmediateSelectionReader()
 
     manager.show_menu()
 

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 import requests
+
+# Single source of truth, shared with src.config.settings and with Windows.
+from supermenu_core.config.provider_settings import normalize_update_channel
 
 
 REPOSITORY_RELEASES_URL = "https://github.com/lfpoulain/SuperMenu/releases"
@@ -14,9 +16,14 @@ _VERSION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-
-def normalize_update_channel(value: Optional[str]) -> str:
-    return "beta" if str(value or "").strip().lower() == "beta" else "stable"
+__all__ = [
+    "REPOSITORY_RELEASES_URL",
+    "check_latest_release",
+    "extract_version",
+    "is_newer_version",
+    "normalize_update_channel",
+    "parse_version",
+]
 
 
 def parse_version(value: str) -> tuple[int, ...]:

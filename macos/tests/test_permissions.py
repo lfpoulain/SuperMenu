@@ -65,3 +65,16 @@ def test_native_permission_apis_are_available_on_macos():
     status = permissions.current_permission_status()
 
     assert status.accessibility_check_available is True
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="native macOS APIs")
+def test_native_consent_prompt_api_is_packaged():
+    """Guard the dependency that owns AXIsProcessTrustedWithOptions.
+
+    ``HIServices`` ships in pyobjc-framework-ApplicationServices, which is not
+    pulled in by Cocoa or Quartz. When it is missing the import error is
+    swallowed and the app silently degrades to "open System Settings" on a
+    pane where macOS never listed SuperMenu, because it never asked.
+    """
+    assert permissions._ax_is_process_trusted_with_options is not None
+    assert permissions._ax_prompt_key is not None

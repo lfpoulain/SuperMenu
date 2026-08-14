@@ -451,6 +451,33 @@ class _MacOSGlobalHotKeys:
         return event
 
 
+def probe_native_hotkey_support(listener_factory=None) -> dict:
+    """Install and remove the native key monitors once, reporting what happened.
+
+    This exists for the packaged smoke test. Under the Hardened Runtime PyObjC
+    compiles the Python handlers into libffi closures, and a bundle signed
+    without ``com.apple.security.cs.allow-unsigned-executable-memory`` crashes
+    the process on that allocation instead of raising. Running the path is
+    therefore the check: a signed build that survives this call has working
+    entitlements. Monitor installation itself is *not* asserted, because an
+    un-trusted machine (any CI runner) legitimately refuses it.
+    """
+    if sys.platform != "darwin" and listener_factory is None:
+        return {"ran": False, "reason": "non-darwin"}
+    factory = listener_factory or _MacOSGlobalHotKeys
+    try:
+        listener = factory()
+        listener.replace_bindings({})
+        try:
+            listener.start()
+            installed = bool(listener.is_alive())
+        finally:
+            listener.stop()
+        return {"ran": True, "monitors_installed": installed}
+    except Exception as exc:
+        return {"ran": True, "monitors_installed": False, "error": str(exc)}
+
+
 class HotkeyService:
     """Own the sole process-wide macOS keyboard listener."""
 
@@ -619,12 +646,18 @@ class HotkeyService:
 class HotkeyManager(QObject):
     hotkey_triggered = Signal()
     custom_hotkey_triggered = Signal()
+    # Internal hop used to unwind the AppKit handler before any work starts.
+    _dispatch_requested = Signal()
 
     def __init__(self, settings, custom_hotkey: bool = False, service=None):
         super().__init__()
         self.settings = settings
         self.custom_hotkey = custom_hotkey
         self.hotkey = ""
+        self._dispatch_requested.connect(
+            self._deliver_hotkey,
+            Qt.ConnectionType.QueuedConnection,
+        )
         self.service = service or HotkeyService()
         self._owns_service = service is None
         self._owner = "mode personnalisé" if custom_hotkey else "menu principal"
@@ -668,6 +701,19 @@ class HotkeyManager(QObject):
         self._binding_active = False
 
     def _on_hotkey_triggered(self) -> None:
+        """Runs inside the native key handler; hand off and return at once.
+
+        AppKit invokes the monitor handler on the main run loop, so a direct
+        signal connection would run the whole menu, clipboard and activation
+        sequence before the handler unwinds — with the run loop blocked
+        throughout. The queued hop puts that work on the next event loop turn.
+        """
+        try:
+            self._dispatch_requested.emit()
+        except RuntimeError as exc:
+            log(f"Signal de raccourci ignoré pendant la fermeture : {exc}")
+
+    def _deliver_hotkey(self) -> None:
         try:
             if self.custom_hotkey:
                 self.custom_hotkey_triggered.emit()
@@ -703,10 +749,16 @@ class HotkeyManager(QObject):
 
 class PromptHotkeyManager(QObject):
     prompt_hotkey_triggered = Signal(str)
+    # See HotkeyManager._on_hotkey_triggered for why this hop exists.
+    _dispatch_requested = Signal(str)
 
     def __init__(self, settings, service=None):
         super().__init__()
         self.settings = settings
+        self._dispatch_requested.connect(
+            self.prompt_hotkey_triggered,
+            Qt.ConnectionType.QueuedConnection,
+        )
         self.service = service or HotkeyService()
         self._owns_service = service is None
         self._owner = "raccourcis des prompts"
@@ -750,7 +802,7 @@ class PromptHotkeyManager(QObject):
 
     def _emit_prompt_hotkey(self, prompt_id):
         try:
-            self.prompt_hotkey_triggered.emit(prompt_id)
+            self._dispatch_requested.emit(prompt_id)
         except RuntimeError as exc:
             log(f"Raccourci de prompt ignoré pendant la fermeture : {exc}")
 

@@ -97,4 +97,7 @@ def test_macos_pull_requests_build_a_test_dmg():
     assert "pull_request:" in workflow
     assert "build-dmg:" in workflow
     assert "scripts/build_dmg.sh" in workflow
-    assert "macos/dist/SuperMenu-*-macOS.dmg" in workflow
+    # SuperMenu is distributed for Apple Silicon only; the slice is part of
+    # the artifact name so an Intel user cannot pick up a bundle that will
+    # not launch.
+    assert "macos/dist/SuperMenu-*-macOS-arm64.dmg" in workflow

@@ -56,9 +56,30 @@ local couvre SuperMenu lorsqu’il est actif, conformément au fonctionnement
 documenté par Apple. `NSEvent` utilise précisément l’autorisation Accessibilité
 pour les événements clavier globaux ; demander Surveillance de l’entrée en plus
 serait redondant. Modifier un raccourci met à jour les liaisons sans recréer ces
-moniteurs. `pynput` reste limité aux commandes Copier/Coller.
+moniteurs.
 L’enregistreur tient compte de l’inversion Command/Control appliquée par défaut
 par Qt sur macOS : les noms affichés correspondent donc aux touches physiques.
+
+Copier et Coller sont émis en `CGEvent` avec des drapeaux assignés
+explicitement (`src/utils/key_events.py`). Deux raisons. Le raccourci global se
+déclenche sur l’appui, donc l’utilisateur tient encore Cmd et Shift quand
+SuperMenu poste son Cmd+C : sans drapeaux explicites, le serveur de fenêtres
+fusionne cet état physique et l’application cible reçoit Cmd+Shift+C. Et les
+codes de touches virtuels sont positionnels, contrairement à une résolution par
+caractère qui échoue sur les dispositions non latines. L’envoi attend en plus,
+sans bloquer, que les modificateurs soient relâchés.
+
+Aucune étape ne dort sur le thread Qt. `NSRunningApplication` et `NSWorkspace`
+rafraîchissent leurs propriétés via la boucle principale : dormir dessus en
+attendant un changement d’application empêchait précisément la mise à jour
+attendue, et une activation réussie pouvait être signalée en échec. La lecture
+de la sélection (`src/utils/selection.py`) et l’insertion
+(`src/utils/text_inserter.py`) programment donc leurs attentes.
+
+Le raccourci natif est remis à la boucle d’événements Qt avant tout traitement.
+AppKit appelle le gestionnaire du moniteur sur la boucle principale : une
+connexion directe aurait exécuté le menu, le presse-papiers et l’activation
+à l’intérieur de ce gestionnaire, boucle bloquée.
 
 L’affichage des fenêtres demande d’abord l’activation moderne et coopérative
 d’AppKit. L’ancienne activation forcée n’est utilisée qu’en repli de
@@ -108,15 +129,33 @@ avec les deux plateformes avant toute publication bêta.
 bash scripts/build_dmg.sh
 ```
 
-Le résultat est écrit dans `dist/SuperMenu-<version>-macOS.dmg`. Le volume
-contient `SuperMenu.app` et un raccourci vers `/Applications`, pour une
+Le résultat est écrit dans `dist/SuperMenu-<version>-macOS-arm64.dmg`. Le
+volume contient `SuperMenu.app` et un raccourci vers `/Applications`, pour une
 installation par glisser-déposer.
+
+**SuperMenu est distribué pour Apple Silicon uniquement.** Le spec PyInstaller
+fixe `target_arch="arm64"` explicitement plutôt que d'hériter en silence de
+l'architecture de la machine de build, et le nom du DMG porte la tranche pour
+qu'un utilisateur Intel ne télécharge jamais un paquet qui ne peut pas se
+lancer.
 
 Sans variable de signature, ce script produit encore un DMG de développement
 non signé. Lorsqu'une identité `MACOS_CODESIGN_IDENTITY` est disponible,
-PyInstaller signe tous les composants avec le Hardened Runtime et le script
-signe aussi le DMG. La CI effectue ensuite la notarisation et l'agrafage du
-ticket Apple.
+PyInstaller signe tous les composants avec le Hardened Runtime et les
+autorisations de `entitlements.plist`, puis le script signe aussi le DMG.
+
+Ce runtime durci refuse par défaut la mémoire exécutable allouée à chaud. Or
+PyObjC transforme les callables Python en blocs Objective-C par des fermetures
+libffi — c'est le cas des gestionnaires du moniteur clavier global. Sans
+`com.apple.security.cs.allow-unsigned-executable-memory`, l'application ne
+lève pas d'exception : elle est tuée. Le `--smoke-test` installe donc les
+moniteurs natifs sur le binaire signé avant que le DMG ne soit produit.
+
+Si les identifiants Apple sont présents, `build_dmg.sh` notarie et agrafe
+`SuperMenu.app` **avant** de la placer dans le DMG. Le ticket du DMG ne suit
+pas l'application lors du glisser-déposer : sans cet agrafage, le premier
+lancement exigerait un aller-retour réseau vers Gatekeeper et échouerait hors
+ligne. La CI notarie ensuite le DMG lui-même.
 
 La création du certificat et les cinq secrets GitHub requis sont documentés
 dans [`SIGNING.md`](SIGNING.md). Cette distribution Developer ID reste un DMG

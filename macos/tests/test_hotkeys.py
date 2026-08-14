@@ -7,6 +7,7 @@ from src.utils.hotkey_manager import (
     _modifier_labels,
     _native_binding_signature,
     normalize_hotkey,
+    probe_native_hotkey_support,
 )
 from PySide6.QtCore import Qt
 
@@ -316,3 +317,30 @@ def test_listener_is_suspended_without_being_destroyed():
 
     assert listener.suspended is False
     assert listener.stop_calls == 0
+
+
+def test_native_probe_reports_a_clean_install_and_teardown():
+    FakePersistentListener.instances = []
+
+    result = probe_native_hotkey_support(
+        listener_factory=FakePersistentListener
+    )
+    listener = FakePersistentListener.instances[0]
+
+    assert result == {"ran": True, "monitors_installed": True}
+    assert listener.start_calls == 1
+    assert listener.stop_calls == 1
+
+
+def test_native_probe_reports_a_refused_monitor_without_raising():
+    class RefusingListener(FakePersistentListener):
+        def start(self):
+            raise RuntimeError("macOS n'a pas créé les moniteurs clavier AppKit")
+
+    RefusingListener.instances = []
+
+    result = probe_native_hotkey_support(listener_factory=RefusingListener)
+
+    assert result["ran"] is True
+    assert result["monitors_installed"] is False
+    assert "moniteurs" in result["error"]

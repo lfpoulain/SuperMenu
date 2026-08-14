@@ -47,7 +47,7 @@ from src.utils import updater as app_updater
 from src.utils.hotkey_manager import HotkeyRecorderDialog
 from src.utils.paths import resource_path, user_config_dir, user_log_dir
 from src.utils.logger import log
-from src.utils.window_target import activate_current_application
+from src.utils.window_target import PasteTarget, activate_current_application
 from src.utils.permissions import (
     current_permission_status,
     open_accessibility_settings,
@@ -156,10 +156,12 @@ class MainWindow(QMainWindow):
         root_layout.addLayout(buttons)
         self.setCentralWidget(root)
 
+        # Only polled while the configuration window is on screen. SuperMenu
+        # lives in the menu bar and is hidden most of the time; a permanent
+        # 1.5 s wake-up costs battery for a panel nobody is looking at.
         self._permission_timer = QTimer(self)
         self._permission_timer.setInterval(1500)
         self._permission_timer.timeout.connect(self.refresh_permission_status)
-        self._permission_timer.start()
 
     def _create_prompts_tab(self):
         tab = QWidget()
@@ -1108,6 +1110,9 @@ class MainWindow(QMainWindow):
             log("Clic sur l’icône de barre des menus : menu natif affiché")
 
     def show_main_window(self):
+        # Record where the user came from before SuperMenu takes the
+        # foreground, so "Afficher le menu des prompts" still has a target.
+        PasteTarget.remember_frontmost()
         activate_current_application()
         self.refresh_permission_status()
         self.show()
@@ -1120,7 +1125,7 @@ class MainWindow(QMainWindow):
             log("Test du menu impossible : gestionnaire indisponible")
             return
         log("Ouverture manuelle du menu des prompts")
-        self.context_menu_manager.show_menu()
+        self.context_menu_manager.show_menu(from_ui=True)
 
     def show_permission_setup(self):
         self.tabs.setCurrentIndex(1)
@@ -1172,7 +1177,16 @@ class MainWindow(QMainWindow):
             self.tray_icon.hide()
         QApplication.quit()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._permission_timer.start()
+
+    def hideEvent(self, event):
+        self._permission_timer.stop()
+        super().hideEvent(event)
+
     def closeEvent(self, event):
+        self._permission_timer.stop()
         if self._quitting:
             event.accept()
         else:

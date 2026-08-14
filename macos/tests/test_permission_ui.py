@@ -249,12 +249,17 @@ def test_prompt_menu_can_be_opened_without_global_hotkey(window):
         def __init__(self):
             self.calls = 0
 
-        def show_menu(self):
+        def show_menu(self, *, from_ui=False):
             self.calls += 1
+            self.from_ui = from_ui
 
     manager = ContextMenuStub()
     window.context_menu_manager = manager
 
     window.show_prompt_menu()
+
+    # SuperMenu is the frontmost application here, so the menu has to reuse the
+    # target remembered before the configuration window took focus.
+    assert manager.from_ui is True
 
     assert manager.calls == 1

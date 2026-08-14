@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      PyInstaller enables the Hardened Runtime (--options=runtime) as soon as a
+      Developer ID identity is supplied. CPython and PyObjC both allocate
+      executable memory at runtime, so the runtime needs these exceptions:
+
+      allow-unsigned-executable-memory / allow-jit
+          PyObjC turns Python callables into Objective-C blocks through libffi
+          closures. The global keyboard monitor handlers are exactly that, and
+          the Hardened Runtime refuses the write-then-execute page without one
+          of these entitlements.
+
+      disable-library-validation
+          The bundle loads Python extension modules and Qt plugins collected by
+          PyInstaller. They are signed with the same identity, but the loader
+          still needs this exception for dynamically resolved dylibs.
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

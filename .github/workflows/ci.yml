@@ -184,7 +184,14 @@ jobs:
           echo "MACOS_ARTIFACT_LABEL=signed-notarized" >> "${GITHUB_ENV}"
           echo "MACOS_KEYCHAIN_PATH=${keychain_path}" >> "${GITHUB_ENV}"
 
+      # The credentials are passed to the build itself: build_dmg.sh notarizes
+      # and staples SuperMenu.app before packaging it, so the ticket survives
+      # the drag to /Applications.
       - name: Build app and DMG
+        env:
+          MACOS_APPLE_ID: ${{ secrets.MACOS_APPLE_ID }}
+          MACOS_APP_PASSWORD: ${{ secrets.MACOS_APP_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
         run: |
           chmod +x scripts/*.sh
           scripts/build_dmg.sh
@@ -200,8 +207,8 @@ jobs:
       - name: Upload DMG
         uses: actions/upload-artifact@v6
         with:
-          name: SuperMenu-${{ runner.arch }}-macOS-${{ env.MACOS_ARTIFACT_LABEL }}
-          path: macos/dist/SuperMenu-*-macOS.dmg
+          name: SuperMenu-macOS-arm64-${{ env.MACOS_ARTIFACT_LABEL }}
+          path: macos/dist/SuperMenu-*-macOS-arm64.dmg
           if-no-files-found: error
           retention-days: 14
 

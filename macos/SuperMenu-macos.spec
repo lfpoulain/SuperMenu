@@ -20,6 +20,8 @@ a = Analysis(
     hiddenimports=[
         "pynput.keyboard._darwin",
         "pynput.mouse._darwin",
+        # Imported lazily by src.utils.permissions for the Accessibility prompt.
+        "HIServices",
     ],
     hookspath=[],
     hooksconfig={},
@@ -43,11 +45,14 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch=None,
+    # SuperMenu is distributed for Apple Silicon only. Pinning the slice keeps
+    # the build honest instead of silently inheriting the runner architecture.
+    target_arch="arm64",
     # PyInstaller signs every collected Mach-O binary and enables the
-    # hardened runtime when a real Developer ID identity is provided.
+    # hardened runtime when a real Developer ID identity is provided. The
+    # entitlements are required by that runtime, see entitlements.plist.
     codesign_identity=codesign_identity,
-    entitlements_file=None,
+    entitlements_file=str(project_dir / "entitlements.plist"),
 )
 
 coll = COLLECT(

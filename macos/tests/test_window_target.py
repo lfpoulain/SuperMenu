@@ -1,3 +1,5 @@
+import os
+
 from src.utils import window_target
 
 
@@ -117,7 +119,7 @@ def test_paste_target_yields_before_cooperative_activation(monkeypatch):
         bundle_identifier="com.example.target",
     )
 
-    assert target.activate_and_verify() is True
+    assert target.request_activation() is True
     assert calls == [
         ("yield", target_application),
         ("activate", 0),
@@ -204,3 +206,100 @@ def test_paste_target_rejects_reused_pid_with_a_different_bundle(monkeypatch):
     )
 
     assert target.is_current() is False
+
+
+class _FakeFrontmost:
+    def __init__(self, process_id, bundle="com.example.editor", name="Editor"):
+        self._process_id = process_id
+        self._bundle = bundle
+        self._name = name
+
+    def processIdentifier(self):
+        return self._process_id
+
+    def bundleIdentifier(self):
+        return self._bundle
+
+    def localizedName(self):
+        return self._name
+
+    def isTerminated(self):
+        return False
+
+
+def test_ui_triggered_menus_reuse_the_application_the_user_came_from(monkeypatch):
+    """SuperMenu is frontmost when its own UI opens the prompt menu.
+
+    Without a remembered target the capture returns None, the selection is
+    always empty and every prompt in the menu stays greyed out.
+    """
+    window_target.PasteTarget.forget_last_known()
+    editor = _FakeFrontmost(4321)
+    frontmost = {"application": editor}
+    monkeypatch.setattr(
+        window_target,
+        "_frontmost_application",
+        lambda: frontmost["application"],
+    )
+    monkeypatch.setattr(
+        window_target,
+        "NSRunningApplication",
+        type(
+            "FakeRunningApplication",
+            (),
+            {
+                "runningApplicationWithProcessIdentifier_": staticmethod(
+                    lambda _pid: editor
+                )
+            },
+        ),
+    )
+
+    remembered = window_target.PasteTarget.remember_frontmost()
+    assert remembered.process_id == 4321
+
+    # SuperMenu takes the foreground.
+    frontmost["application"] = _FakeFrontmost(
+        os.getpid(),
+        bundle="com.supermenu.macos",
+        name="SuperMenu",
+    )
+
+    assert window_target.PasteTarget.capture() is None
+    fallback = window_target.PasteTarget.capture(fall_back_to_last_known=True)
+    assert fallback is not None
+    assert fallback.process_id == 4321
+    window_target.PasteTarget.forget_last_known()
+
+
+def test_a_terminated_remembered_target_is_dropped(monkeypatch):
+    window_target.PasteTarget.forget_last_known()
+    editor = _FakeFrontmost(4321)
+    frontmost = {"application": editor}
+    monkeypatch.setattr(
+        window_target,
+        "_frontmost_application",
+        lambda: frontmost["application"],
+    )
+    monkeypatch.setattr(
+        window_target,
+        "NSRunningApplication",
+        type(
+            "FakeRunningApplication",
+            (),
+            {
+                "runningApplicationWithProcessIdentifier_": staticmethod(
+                    lambda _pid: None
+                )
+            },
+        ),
+    )
+
+    window_target.PasteTarget.remember_frontmost()
+    frontmost["application"] = _FakeFrontmost(
+        os.getpid(),
+        bundle="com.supermenu.macos",
+    )
+
+    assert window_target.PasteTarget.capture(fall_back_to_last_known=True) is None
+    window_target.PasteTarget.forget_last_known()

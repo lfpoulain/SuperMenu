@@ -33,6 +33,12 @@ class SimpleLoadingIndicator(QDialog):
         )
         self.setModal(False)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        # Qt::Tool maps to an NSPanel on macOS, and AppKit hides tool windows
+        # whenever the owning application is deactivated. This indicator exists
+        # precisely to report progress while the *target* application is in
+        # front, so without this attribute it vanishes exactly when it matters.
+        # The attribute is ignored on other platforms.
+        self.setAttribute(Qt.WA_MacAlwaysShowToolWindow, True)
         self.setFocusPolicy(Qt.NoFocus)
 
         # Style compact

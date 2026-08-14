@@ -68,6 +68,7 @@ _ax_is_process_trusted_with_options, _ax_prompt_key = (
 class PermissionStatus:
     accessibility: bool
     accessibility_check_available: bool = True
+    consent_prompt_available: bool = True
 
     @property
     def all_granted(self) -> bool:
@@ -88,7 +89,7 @@ def request_accessibility_permission() -> bool:
     a dialog.  This helper therefore reports whether the request was dispatched
     successfully so callers do not open System Settings over the system prompt.
     """
-    if _ax_is_process_trusted_with_options is None or _ax_prompt_key is None:
+    if not consent_prompt_is_available():
         return False
     try:
         _ax_is_process_trusted_with_options({_ax_prompt_key: True})
@@ -110,8 +111,21 @@ def open_accessibility_settings() -> bool:
     return bool(QDesktopServices.openUrl(QUrl(ACCESSIBILITY_SETTINGS_URL)))
 
 
+def consent_prompt_is_available() -> bool:
+    """Whether macOS can be asked to show its own Accessibility dialog.
+
+    ``HIServices`` lives in pyobjc-framework-ApplicationServices. When that
+    dependency is missing the import failure is silent, and the app can only
+    open a System Settings pane that does not list SuperMenu yet — macOS adds
+    an app to that list when it *requests* the permission, not when it is
+    merely installed. Surfacing the capability keeps the failure visible.
+    """
+    return _ax_is_process_trusted_with_options is not None and _ax_prompt_key is not None
+
+
 def current_permission_status() -> PermissionStatus:
     return PermissionStatus(
         accessibility=accessibility_is_trusted(),
         accessibility_check_available=_ax_is_process_trusted is not None,
+        consent_prompt_available=consent_prompt_is_available(),
     )

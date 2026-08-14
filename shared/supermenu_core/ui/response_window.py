@@ -6,7 +6,6 @@ Fenêtre de réponse modernisée avec pyqtdarktheme
 """
 
 import logging
-import re
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -17,6 +16,8 @@ from PySide6.QtWidgets import (
     QApplication,
 )
 from PySide6.QtCore import Qt, QTimer, Signal
+
+from supermenu_core.utils.thinking import mask_thinking
 
 logger = logging.getLogger("SuperMenu.core.ui")
 
@@ -56,8 +57,8 @@ class BaseResponseWindow(QWidget):
         # Create the status bar
         self.status_label = QLabel("Prêt")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setProperty("status", "info")  # Pour le style automatique
         self.content_layout.addWidget(self.status_label)
+        self._set_status("info")
 
         # Create the button bar
         self.create_button_bar()
@@ -82,6 +83,19 @@ class BaseResponseWindow(QWidget):
         self.paste_target = None
         self._pending_paste_text = None
         self._active_text_inserter = None
+
+    def _set_status(self, level):
+        """Apply a status level so the stylesheet actually repaints.
+
+        Qt resolves property selectors such as ``QLabel[status="success"]``
+        when a widget is polished. Assigning the property later changes
+        nothing on screen until the style is unpolished and polished again,
+        which is why the status colours never used to update.
+        """
+        self.status_label.setProperty("status", level)
+        style = self.status_label.style()
+        style.unpolish(self.status_label)
+        style.polish(self.status_label)
 
     def create_title_bar(self):
         """Create the title bar"""
@@ -165,13 +179,12 @@ class BaseResponseWindow(QWidget):
             self.think_toggle_button.setVisible(False)
             self.think_toggle_button.setEnabled(False)
 
-        self.response_text.setText(display_text)
-        self.response_text.setPlainText(
-            display_text
-        )  # Assure l'affichage en texte brut
+        # setPlainText alone: setText auto-detects rich text, so a model answer
+        # containing angle brackets was parsed as HTML before being discarded.
+        self.response_text.setPlainText(display_text)
         self.title_label.setText("✨ SuperMenu - Réponse")
         self.status_label.setText("✅ Terminé")
-        self.status_label.setProperty("status", "success")
+        self._set_status("success")
         self.retry_button.setEnabled(True)
         self.copy_button.setEnabled(True)
         self.write_button.setEnabled(True)
@@ -190,7 +203,7 @@ class BaseResponseWindow(QWidget):
         self.response_text.setPlainText(text)
         self.title_label.setText(title)
         self.status_label.setText("✅ Terminé")
-        self.status_label.setProperty("status", "success")
+        self._set_status("success")
         self.retry_button.setEnabled(False)
         self.copy_button.setEnabled(bool(text))
         self.write_button.setEnabled(bool(text))
@@ -239,34 +252,7 @@ class BaseResponseWindow(QWidget):
 
     def _mask_thinking(self, response):
         """Masque le contenu <think>...</think> si présent."""
-        if not response:
-            return response, False
-
-        bracket_pattern = re.compile(
-            r"\[think\](.*?)\[/think\]", re.IGNORECASE | re.DOTALL
-        )
-        if bracket_pattern.search(response):
-            masked = bracket_pattern.sub("", response)
-            masked = re.sub(r"\n{3,}", "\n\n", masked).strip()
-            return masked, True
-
-        if re.search(r"\[/?think\]", response, re.IGNORECASE):
-            masked = re.sub(r"\[/?think\]", "", response, flags=re.IGNORECASE)
-            masked = re.sub(r"\n{3,}", "\n\n", masked).strip()
-            return masked, True
-
-        pattern = re.compile(r"<think\b[^>]*>(.*?)</think>", re.IGNORECASE | re.DOTALL)
-        if pattern.search(response):
-            masked = pattern.sub("", response)
-            masked = re.sub(r"\n{3,}", "\n\n", masked).strip()
-            return masked, True
-
-        if re.search(r"</?think\b[^>]*>", response, re.IGNORECASE):
-            masked = re.sub(r"</?think\b[^>]*>", "", response, flags=re.IGNORECASE)
-            masked = re.sub(r"\n{3,}", "\n\n", masked).strip()
-            return masked, True
-
-        return response, False
+        return mask_thinking(response)
 
     def toggle_thinking_visibility(self):
         """Afficher ou masquer le raisonnement."""
@@ -275,7 +261,6 @@ class BaseResponseWindow(QWidget):
 
         self.think_visible = not self.think_visible
         if self.think_visible:
-            self.response_text.setText(self.raw_response)
             self.response_text.setPlainText(self.raw_response)
             self.think_toggle_button.setText("🙈 Masquer le raisonnement")
         else:
@@ -284,7 +269,6 @@ class BaseResponseWindow(QWidget):
                 if self.masked_response
                 else "(Aucune reponse finale; seul le raisonnement a ete renvoye.)"
             )
-            self.response_text.setText(display_text)
             self.response_text.setPlainText(display_text)
             self.think_toggle_button.setText("👁 Voir le raisonnement")
 
@@ -293,7 +277,7 @@ class BaseResponseWindow(QWidget):
         if is_loading:
             self.title_label.setText("⏳ SuperMenu - Chargement...")
             self.status_label.setText("⏳ Traitement en cours...")
-            self.status_label.setProperty("status", "info")
+            self._set_status("info")
             self.retry_button.setEnabled(False)
             self.copy_button.setEnabled(False)
             self.write_button.setEnabled(False)
@@ -329,10 +313,10 @@ class BaseResponseWindow(QWidget):
                 QTimer.singleShot(100, self._paste_text)
             else:
                 self.status_label.setText("⚠️ Aucun texte à coller")
-                self.status_label.setProperty("status", "warning")
+                self._set_status("warning")
         except Exception as e:
             self.status_label.setText(f"❌ Erreur: {str(e)}")
-            self.status_label.setProperty("status", "error")
+            self._set_status("error")
 
     def _paste_text(self):
         """Paste after macOS asynchronously reactivates the captured target."""
@@ -367,7 +351,7 @@ class BaseResponseWindow(QWidget):
                 self.status_label.setText(
                     messages.get(reason, "⚠️ Insertion impossible")
                 )
-                self.status_label.setProperty("status", "warning")
+                self._set_status("warning")
 
             inserter.insert_text_async(
                 text,
@@ -380,18 +364,18 @@ class BaseResponseWindow(QWidget):
             self.write_button.setEnabled(True)
             self.show()
             self.status_label.setText("⚠️ Erreur interne pendant l’insertion")
-            self.status_label.setProperty("status", "error")
+            self._set_status("error")
 
     def retry_request(self):
         """Retry the API request"""
         if self.last_prompt is not None:
             self.status_label.setText("🔄 Réessai...")
-            self.status_label.setProperty("status", "info")
+            self._set_status("info")
             self.set_loading(True)
             self.retry_requested.emit()
         else:
             self.status_label.setText("⚠️ Aucune requête à réessayer")
-            self.status_label.setProperty("status", "warning")
+            self._set_status("warning")
 
     def store_request(self, prompt, content):
         """Stocke les informations de la requête pour permettre un retry
