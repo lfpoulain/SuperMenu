@@ -165,3 +165,9 @@ def test_beta_and_stable_releases_require_a_notarized_macos_dmg():
     assert "needs.build-macos-stable.outputs.app_version" in stable
     assert "SuperMenu_Beta-macOS-arm64.dmg" in beta
     assert "SuperMenu-macOS-arm64.dmg" in stable
+    assert beta.index("Validate source") < beta.index(
+        "Inject macOS beta metadata"
+    )
+    assert stable.index("Validate source") < stable.index(
+        "Inject macOS stable metadata"
+    )
