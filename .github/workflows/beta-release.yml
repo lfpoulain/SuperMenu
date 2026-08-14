@@ -51,13 +51,6 @@ jobs:
           "APP_VERSION=$appVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "app_version=$appVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-          @(
-            '"""Build metadata overwritten by GitHub Actions for packaged releases."""'
-            ''
-            "APP_VERSION = `"$appVersion`""
-            'BUILD_CHANNEL = "beta"'
-          ) | Set-Content -LiteralPath "src/config/build_info.py" -Encoding utf8
-
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -81,6 +74,16 @@ jobs:
           python -m pytest -q ../shared/tests
           python -m pytest -q tests
           python -m flake8 ../shared/supermenu_core src tests run.py --select=F,E9
+
+      - name: Inject Windows beta metadata
+        shell: powershell
+        run: |
+          @(
+            '"""Build metadata overwritten by GitHub Actions for packaged releases."""'
+            ''
+            "APP_VERSION = `"$env:APP_VERSION`""
+            'BUILD_CHANNEL = "beta"'
+          ) | Set-Content -LiteralPath "src/config/build_info.py" -Encoding utf8
 
       - name: Build portable executable
         shell: powershell
@@ -153,13 +156,6 @@ jobs:
           echo "MACOS_BASE_VERSION=${base_version}" >> "${GITHUB_ENV}"
           echo "app_version=${app_version}" >> "${GITHUB_OUTPUT}"
 
-          printf '%s\n' \
-            '"""Build metadata overwritten by GitHub Actions for packaged releases."""' \
-            '' \
-            "APP_VERSION = \"${app_version}\"" \
-            'BUILD_CHANNEL = "beta"' \
-            > src/config/build_info.py
-
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -184,6 +180,15 @@ jobs:
           python -m pytest -q tests
           python -m flake8 ../shared/supermenu_core src tests run.py --select=F,E9
           python run.py --smoke-test
+
+      - name: Inject macOS beta metadata
+        run: |
+          printf '%s\n' \
+            '"""Build metadata overwritten by GitHub Actions for packaged releases."""' \
+            '' \
+            "APP_VERSION = \"${APP_VERSION}\"" \
+            'BUILD_CHANNEL = "beta"' \
+            > src/config/build_info.py
 
       - name: Configure required Developer ID signing
         env:

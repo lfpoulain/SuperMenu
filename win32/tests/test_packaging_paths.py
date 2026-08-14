@@ -78,6 +78,9 @@ def test_release_workflows_keep_ci_beta_and_stable_separate():
     assert "tag: beta" in beta
     assert "SuperMenu_Beta_Setup.exe" in beta
     assert "update-beta.json" in beta
+    assert beta.index("Validate source") < beta.index(
+        "Inject Windows beta metadata"
+    )
     assert 'git tag --force beta "${BUILD_COMMIT}"' in beta
     assert "git push --force origin refs/tags/beta" in beta
     assert beta.index("Publish rolling beta prerelease") < beta.index(
@@ -87,6 +90,9 @@ def test_release_workflows_keep_ci_beta_and_stable_separate():
     assert "immutableCreate: true" in stable
     assert "updateOnlyUnreleased: true" in stable
     assert "update-stable.json" in stable
+    assert stable.index("Validate source") < stable.index(
+        "Inject Windows stable metadata"
+    )
 
 
 def test_macos_pull_requests_build_a_test_dmg():
