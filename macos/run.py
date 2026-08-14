@@ -19,6 +19,7 @@ def run_packaged_smoke_test():
         AVAILABLE_MODELS,
         DEFAULT_OPENAI_MODEL,
     )
+    from src.utils.hotkey_manager import probe_native_hotkey_support
     from src.utils.paths import packaged_resource_status
     from src.utils.permissions import current_permission_status
 
@@ -41,16 +42,24 @@ def run_packaged_smoke_test():
     permission_status = current_permission_status()
     status["permission_checks"] = {
         "accessibility": permission_status.accessibility_check_available,
-        "input_monitoring": permission_status.input_monitoring_check_available,
+        "native_consent_prompt": permission_status.consent_prompt_available,
     }
     status["permission_checks_ok"] = sys.platform != "darwin" or all(
         status["permission_checks"].values()
+    )
+    # Exercises the PyObjC block trampolines on the signed binary. A bundle
+    # missing its Hardened Runtime entitlements crashes here, which is the
+    # point: the packaged smoke test must fail before the DMG is published.
+    status["native_hotkey_probe"] = probe_native_hotkey_support()
+    status["native_hotkey_probe_ok"] = (
+        sys.platform != "darwin" or status["native_hotkey_probe"].get("ran") is True
     )
     status["ok"] = bool(
         status["ok"]
         and status["model_config_ok"]
         and status["build_config_ok"]
         and status["permission_checks_ok"]
+        and status["native_hotkey_probe_ok"]
     )
     print(json.dumps(status, ensure_ascii=False))
     return 0 if status["ok"] else 1

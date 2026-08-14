@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import logging
-import time
 import uuid
 
-from pynput.keyboard import Controller, Key
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QMenu
@@ -14,10 +12,10 @@ from PySide6.QtWidgets import QMenu
 from src.api.openai_client import OpenAIClient
 from src.ui.prompt_dialog import PromptDialog
 from src.ui.response_window import ResponseWindow
-from src.utils.clipboard_manager import ClipboardManager
 from supermenu_core.ui.loading_indicator import SimpleLoadingIndicator
 from src.utils.logger import log, logger
 from supermenu_core.ui.safe_dialogs import SafeDialogs
+from src.utils.selection import SelectionReader
 from src.utils.text_inserter import TextInserter
 from src.utils.window_target import (
     PasteTarget,
@@ -26,8 +24,6 @@ from src.utils.window_target import (
 )
 
 
-COPY_DELAY = 0.18
-RESTORE_DELAY = 0.10
 MENU_ACTIVATION_POLL_MS = 25
 MENU_ACTIVATION_MAX_POLLS = 6
 MENU_FORCED_ACTIVATION_DELAY_MS = 50
@@ -37,10 +33,10 @@ MENU_VISIBILITY_CHECK_DELAY_MS = 350
 class ContextMenuManager(QObject):
     """Coordinate selection, prompt choice, API calls and response insertion."""
 
-    def __init__(self, settings):
+    def __init__(self, settings, selection_reader=None):
         super().__init__()
         self.settings = settings
-        self.keyboard = Controller()
+        self.selection_reader = selection_reader or SelectionReader()
         self.api_client = self._create_api_client()
         self.response_window = ResponseWindow()
         self.response_window.retry_requested.connect(self.on_retry_requested)
@@ -48,6 +44,8 @@ class ContextMenuManager(QObject):
         self._active_response_request_id = None
         self._retired_clients = []
         self._menu_open = False
+        self._selection_pending = False
+        self._active_inserters = []
         self._active_menu = None
         self._prompt_dialog = None
         self._closed = False
@@ -72,78 +70,53 @@ class ContextMenuManager(QObject):
         except (TypeError, RuntimeError):
             pass
 
-    def _press_keyboard_shortcut(self, *keys) -> None:
-        pressed = []
-        try:
-            for key in keys:
-                self.keyboard.press(key)
-                pressed.append(key)
-        finally:
-            for key in reversed(pressed):
-                try:
-                    self.keyboard.release(key)
-                except Exception:
-                    pass
-
-    def _try_get_selected_text(self, target=None) -> str:
-        if target is None:
-            target = PasteTarget.capture()
-        if target is None:
-            log("Lecture de la sélection ignorée : aucune application cible")
-            return ""
-
-        snapshot = ClipboardManager.capture_snapshot()
-        sentinel = f"__SUPERMENU_EMPTY_SELECTION_{time.monotonic_ns()}__"
-        selected_text = ""
-        clipboard_changed = False
-        try:
-            if not ClipboardManager.set_clipboard_text_safe(sentinel):
-                log("Lecture de la sélection impossible : presse-papiers indisponible")
-                return ""
-            clipboard_changed = True
-            if not target.activate_and_verify():
-                log(
-                    "Lecture de la sélection impossible : application cible "
-                    "non réactivée",
-                    logging.WARNING,
-                )
-                return ""
-            self._press_keyboard_shortcut(Key.cmd, "c")
-            time.sleep(COPY_DELAY)
-            selected_text = ClipboardManager.get_clipboard_text_safe()
-            if not selected_text or selected_text == sentinel:
-                log("Lecture de la sélection terminée : aucun texte sélectionné")
-                return ""
-            log(
-                "Lecture de la sélection terminée : "
-                f"{len(selected_text)} caractère(s) détecté(s)"
-            )
-            return selected_text
-        except Exception:
-            logger.exception("Lecture de la sélection impossible")
-            return ""
-        finally:
-            if clipboard_changed:
-                time.sleep(RESTORE_DELAY)
-                expected = selected_text if selected_text else sentinel
-                ClipboardManager.restore_if_unchanged(snapshot, expected)
-
-    def show_menu(self) -> None:
-        if self._closed:
-            log("Ouverture du menu ignorée : service fermé", logging.WARNING)
-            return
-        if self._menu_open:
-            log("Ouverture du menu ignorée : un menu est déjà ouvert")
-            return
-        log("Préparation du menu contextuel")
-        target = PasteTarget.capture()
+    def _capture_selection(self, on_ready, *, from_ui: bool = False) -> None:
+        """Capture the frontmost app, then read its selection asynchronously."""
+        target = PasteTarget.capture(fall_back_to_last_known=from_ui)
         log(
             "Application cible capturée"
             if target is not None
             else "Aucune application cible capturée",
             logging.INFO if target is not None else logging.WARNING,
         )
-        selected_text = self._try_get_selected_text(target)
+
+        def deliver(selected_text):
+            self._selection_pending = False
+            if self._closed:
+                return
+            try:
+                on_ready(selected_text, target)
+            except Exception:
+                logger.exception("Traitement de la sélection impossible")
+
+        self._selection_pending = True
+        try:
+            self.selection_reader.read_async(target, deliver)
+        except Exception:
+            self._selection_pending = False
+            logger.exception("Lecture de la sélection impossible")
+
+    def show_menu(self, *, from_ui: bool = False) -> None:
+        """Present the prompt menu.
+
+        ``from_ui`` marks the paths triggered from SuperMenu's own interface,
+        where the frontmost application is already SuperMenu. Those fall back
+        to the application the user came from, so the diagnostic entry points
+        can exercise a real prompt instead of only ever showing a greyed menu.
+        """
+        if self._closed:
+            log("Ouverture du menu ignorée : service fermé", logging.WARNING)
+            return
+        if self._menu_open or self._selection_pending:
+            log("Ouverture du menu ignorée : un menu est déjà ouvert")
+            return
+        log("Préparation du menu contextuel")
+        self._capture_selection(self._present_menu, from_ui=from_ui)
+
+    def _present_menu(self, selected_text, target) -> None:
+        if self._menu_open:
+            log("Ouverture du menu ignorée : un menu est déjà ouvert")
+            return
         menu = QMenu()
         self._menu_open = True
         self._active_menu = menu
@@ -170,9 +143,12 @@ class ContextMenuManager(QObject):
                 QTimer.singleShot(0, restore_target_after_cancel)
 
         def restore_target_after_cancel():
-            restored = target.activate_and_verify()
+            # Fire and forget: verifying would mean sleeping on the run loop
+            # that has to deliver the workspace notification in the first place.
+            restored = target.request_activation()
             log(
-                "Application cible réactivée après fermeture du menu"
+                "Réactivation de l’application cible demandée après fermeture "
+                "du menu"
                 if restored
                 else "Application cible non réactivée après fermeture du menu",
                 logging.INFO if restored else logging.WARNING,
@@ -196,12 +172,14 @@ class ContextMenuManager(QObject):
             if self._closed or self._active_menu is not menu:
                 return
             try:
+                # popup() installs the mouse and keyboard grab that makes a
+                # click outside dismiss the menu. Making the popup window key
+                # afterwards -- activateWindow(), requestActivate() -- cancels
+                # that grab, leaving a menu that can only be closed by picking
+                # an entry. The application itself is already frontmost here,
+                # which is what the menu actually needed.
                 menu.popup(QCursor.pos())
-                menu.activateWindow()
                 menu.raise_()
-                window_handle = menu.windowHandle()
-                if window_handle is not None:
-                    window_handle.requestActivate()
                 log("Affichage du menu contextuel demandé à Qt")
                 QTimer.singleShot(
                     MENU_VISIBILITY_CHECK_DELAY_MS,
@@ -259,20 +237,24 @@ class ContextMenuManager(QObject):
         QTimer.singleShot(0, popup_when_application_is_active)
 
     def show_custom_mode(self) -> None:
-        target = PasteTarget.capture()
-        selected_text = self._try_get_selected_text(target)
-        self._handle_custom(selected_text, target)
+        if self._closed or self._selection_pending:
+            return
+        self._capture_selection(self._handle_custom)
 
     def run_prompt_hotkey(self, prompt_id: str) -> None:
-        target = PasteTarget.capture()
-        selected_text = self._try_get_selected_text(target)
-        if not selected_text:
-            SimpleLoadingIndicator.show_near_cursor(
-                "Aucun texte sélectionné",
-                duration_ms=1800,
-            )
+        if self._closed or self._selection_pending:
             return
-        self._handle_prompt(prompt_id, selected_text, target)
+
+        def run(selected_text, target):
+            if not selected_text:
+                SimpleLoadingIndicator.show_near_cursor(
+                    "Aucun texte sélectionné",
+                    duration_ms=1800,
+                )
+                return
+            self._handle_prompt(prompt_id, selected_text, target)
+
+        self._capture_selection(run)
 
     def _handle_prompt(self, prompt_id: str, text: str, target) -> None:
         prompt = self.settings.get_prompt(prompt_id)
@@ -411,26 +393,50 @@ class ContextMenuManager(QObject):
             return
         client = request["client"]
         if request["insert_directly"] or insert_directly:
-            safe_target = request.get("target") or target
-            inserted = TextInserter().insert_text(response, target=safe_target)
-            indicator = request.get("indicator")
-            if indicator is not None:
-                indicator.set_message(
-                    "Réponse insérée" if inserted else "Insertion annulée"
-                )
-                indicator.move_near_cursor()
-                QTimer.singleShot(1600, indicator.close)
-            if not inserted:
-                SafeDialogs.show_information(
-                    "Insertion annulée",
-                    "L'application cible a changé ou n'est plus disponible.",
-                )
-            self._release_retired_client_if_idle(client)
+            self._insert_directly(
+                response,
+                request.get("target") or target,
+                request.get("indicator"),
+                client,
+            )
             return
         if request_id == self._active_response_request_id:
             self.response_window.set_response(response)
             self.response_window.set_loading(False)
         self._release_retired_client_if_idle(client)
+
+    def _insert_directly(self, response, target, indicator, client) -> None:
+        """Paste the answer without blocking the run loop that drives focus.
+
+        The synchronous helper slept through activation and the clipboard
+        round trip on the Qt thread, which froze the UI for about half a
+        second and suppressed the AppKit updates it was polling for.
+        """
+        inserter = TextInserter()
+        self._active_inserters.append(inserter)
+
+        def finished(success, reason):
+            try:
+                self._active_inserters.remove(inserter)
+            except ValueError:
+                pass
+            if self._closed:
+                return
+            if indicator is not None:
+                indicator.set_message(
+                    "Réponse insérée" if success else "Insertion annulée"
+                )
+                indicator.move_near_cursor()
+                QTimer.singleShot(1600, indicator.close)
+            if not success:
+                log(f"Insertion directe abandonnée : {reason}", logging.WARNING)
+                SafeDialogs.show_information(
+                    "Insertion annulée",
+                    "L'application cible a changé ou n'est plus disponible.",
+                )
+            self._release_retired_client_if_idle(client)
+
+        inserter.insert_text_async(response, target, finished)
 
     def on_request_error_scoped(self, request_id, error) -> None:
         if self._closed:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import time
 from dataclasses import dataclass
 
 
@@ -101,6 +100,12 @@ def activate_current_application(*, force: bool = False) -> bool:
     )
 
 
+# The application the user came from, remembered the moment SuperMenu is about
+# to take focus. Menus opened from SuperMenu's own UI cannot capture a target
+# any more -- by then SuperMenu is the frontmost application.
+_last_external_target = None
+
+
 @dataclass(frozen=True)
 class PasteTarget:
     process_id: int
@@ -108,21 +113,48 @@ class PasteTarget:
     application_name: str = ""
 
     @classmethod
-    def capture(cls, *, allow_current_process: bool = False):
+    def capture(
+        cls,
+        *,
+        allow_current_process: bool = False,
+        fall_back_to_last_known: bool = False,
+    ):
+        global _last_external_target
         application = _frontmost_application()
         if application is None:
             return None
         try:
             process_id = int(application.processIdentifier())
             if not allow_current_process and process_id == os.getpid():
+                if fall_back_to_last_known and _last_external_target is not None:
+                    if _last_external_target._running_application() is not None:
+                        return _last_external_target
+                    _last_external_target = None
                 return None
-            return cls(
+            target = cls(
                 process_id=process_id,
                 bundle_identifier=str(application.bundleIdentifier() or ""),
                 application_name=str(application.localizedName() or ""),
             )
         except Exception:
             return None
+        if target.process_id != os.getpid():
+            _last_external_target = target
+        return target
+
+    @classmethod
+    def remember_frontmost(cls):
+        """Record the current target before SuperMenu steals the foreground.
+
+        Call this just before activating SuperMenu, so a menu opened from the
+        configuration window or the menu bar still knows where to paste.
+        """
+        return cls.capture()
+
+    @classmethod
+    def forget_last_known(cls) -> None:
+        global _last_external_target
+        _last_external_target = None
 
     def is_current(self) -> bool:
         application = _frontmost_application()
@@ -193,23 +225,9 @@ class PasteTarget:
         except Exception:
             return False
 
-    def activate_and_verify(self) -> bool:
-        """Synchronous compatibility helper for non-Qt call sites."""
-        try:
-            if self.is_current():
-                return True
-            if not self.request_activation():
-                return False
-            for _attempt in range(6):
-                time.sleep(0.05)
-                if self.is_current():
-                    return True
-
-            if self.request_activation(force=True):
-                for _attempt in range(4):
-                    time.sleep(0.05)
-                    if self.is_current():
-                        return True
-            return False
-        except Exception:
-            return False
+    # There is deliberately no synchronous activate-and-verify helper here.
+    # NSRunningApplication and NSWorkspace refresh their properties through the
+    # main run loop, so sleeping on the Qt thread while polling is_current()
+    # suppressed the update it was waiting for and reported working activations
+    # as failures. Callers schedule their polls instead; see
+    # src/utils/selection.py and src/utils/text_inserter.py.

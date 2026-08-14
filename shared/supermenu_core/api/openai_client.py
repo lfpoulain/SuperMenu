@@ -9,7 +9,6 @@ import threading
 import tempfile
 import time
 import logging
-import re
 import uuid
 from urllib.parse import urlparse
 from PySide6.QtCore import QObject, Signal, Slot
@@ -26,6 +25,7 @@ from supermenu_core.api.model_capabilities import (
     choose_reasoning_option,
     parse_lmstudio_model_catalog,
 )
+from supermenu_core.utils.thinking import split_inline_thinking
 
 logger = logging.getLogger("SuperMenu.core.api")
 
@@ -35,20 +35,21 @@ def log(message, level=logging.INFO):
     logger.log(level, message)
 
 
+# One pooled session for the whole process. Without it every prompt paid a
+# fresh TCP and TLS handshake -- 100 to 300 ms of latency on an app whose only
+# job is to feel instant. requests.Session is thread-safe for this usage: each
+# request runs on its own worker thread and shares the connection pool.
+_SESSION = requests.Session()
+
+
+def _session():
+    return _SESSION
+
+
 # Constante pour le timeout des requêtes API
 DEFAULT_API_TIMEOUT = 60
 LMSTUDIO_API_TIMEOUT = 300
 DEFAULT_MAX_TOKENS = 2048
-THINK_BLOCK_RE = re.compile(
-    r"<think\b[^>]*>(.*?)</think>",
-    re.IGNORECASE | re.DOTALL,
-)
-THINK_TAG_RE = re.compile(r"</?think\b[^>]*>", re.IGNORECASE)
-BRACKET_THINK_BLOCK_RE = re.compile(
-    r"\[think\](.*?)\[/think\]",
-    re.IGNORECASE | re.DOTALL,
-)
-BRACKET_THINK_TAG_RE = re.compile(r"\[/?think\]", re.IGNORECASE)
 
 
 def _looks_like_ollama_endpoint(endpoint_url):
@@ -217,7 +218,7 @@ class OpenAIClient(QObject):
             try:
                 headers = self._build_headers()
                 base_url = _models_base_url(self.custom_endpoint, False)
-                response = requests.get(
+                response = _session().get(
                     f"{base_url}/api/v1/models",
                     headers=headers,
                     timeout=timeout,
@@ -276,7 +277,7 @@ class OpenAIClient(QObject):
             self._ollama_capabilities_checked = True
             try:
                 base_url = _models_base_url(self.custom_endpoint, True)
-                response = requests.post(
+                response = _session().post(
                     f"{base_url}/api/show",
                     headers=self._build_headers(),
                     data=json.dumps({"model": self.model, "verbose": False}),
@@ -362,40 +363,7 @@ class OpenAIClient(QObject):
     @staticmethod
     def _split_inline_thinking(text):
         """Separate inline think blocks, including an unclosed final block."""
-        if not isinstance(text, str) or not text:
-            return "", ""
-
-        reasoning_parts = [
-            match.group(1).strip()
-            for match in THINK_BLOCK_RE.finditer(text)
-            if match.group(1).strip()
-        ]
-        reasoning_parts.extend(
-            match.group(1).strip()
-            for match in BRACKET_THINK_BLOCK_RE.finditer(text)
-            if match.group(1).strip()
-        )
-
-        visible = THINK_BLOCK_RE.sub("", text)
-        visible = BRACKET_THINK_BLOCK_RE.sub("", visible)
-
-        unclosed = re.search(r"<think\b[^>]*>", visible, re.IGNORECASE)
-        if unclosed:
-            tail = visible[unclosed.end() :].strip()
-            if tail:
-                reasoning_parts.append(tail)
-            visible = visible[: unclosed.start()]
-
-        unclosed_bracket = re.search(r"\[think\]", visible, re.IGNORECASE)
-        if unclosed_bracket:
-            tail = visible[unclosed_bracket.end() :].strip()
-            if tail:
-                reasoning_parts.append(tail)
-            visible = visible[: unclosed_bracket.start()]
-
-        visible = THINK_TAG_RE.sub("", visible)
-        visible = BRACKET_THINK_TAG_RE.sub("", visible)
-        return visible.strip(), "\n\n".join(reasoning_parts).strip()
+        return split_inline_thinking(text)
 
     @staticmethod
     def _normalize_response_parts(content, reasoning):
@@ -720,7 +688,7 @@ class OpenAIClient(QObject):
             if self._closing.is_set():
                 raise RuntimeError("Client fermé")
             try:
-                response = requests.post(
+                response = _session().post(
                     request_url, headers=headers, data=json.dumps(data), timeout=timeout
                 )
 
@@ -1217,7 +1185,9 @@ class OpenAIClient(QObject):
 
             last_error = None
             for models_url in candidates:
-                response = requests.get(models_url, headers=headers, timeout=timeout)
+                response = _session().get(
+                    models_url, headers=headers, timeout=timeout
+                )
 
                 if response.status_code != 200:
                     last_error = f"Erreur {response.status_code}: {response.text}"

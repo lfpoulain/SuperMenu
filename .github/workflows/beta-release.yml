@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-publish-beta:
+  build-windows-beta:
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
@@ -28,6 +28,8 @@ jobs:
         working-directory: win32
     env:
       BUILD_COMMIT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+    outputs:
+      app_version: ${{ steps.metadata.outputs.app_version }}
 
     steps:
       - name: Checkout tested commit
@@ -36,16 +38,18 @@ jobs:
           ref: ${{ env.BUILD_COMMIT }}
           fetch-depth: 0
 
-      - name: Prepare beta metadata
+      - name: Prepare Windows beta metadata
+        id: metadata
         shell: powershell
         run: |
           $baseVersion = (Get-Content -LiteralPath "VERSION" -Raw).Trim()
           if ($baseVersion -notmatch '^\d+\.\d+\.\d+$') {
-            throw "VERSION must contain a SemVer version such as 1.2.0"
+            throw "win32/VERSION must contain a SemVer version such as 1.2.0"
           }
 
           $appVersion = "$baseVersion-beta.${{ github.run_number }}"
           "APP_VERSION=$appVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "app_version=$appVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
           @(
             '"""Build metadata overwritten by GitHub Actions for packaged releases."""'
@@ -105,52 +109,218 @@ jobs:
             throw "SuperMenu_Beta_Setup.exe not found"
           }
 
-      - name: Generate checksums
-        shell: powershell
-        run: |
-          $manifest = [ordered]@{
-            schema_version = 1
-            channel = "beta"
-            version = $env:APP_VERSION
-            prerelease = $true
-            tag = "beta"
-          } | ConvertTo-Json
-          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-          [IO.File]::WriteAllText(
-            (Join-Path $PWD "update-beta.json"),
-            $manifest,
-            $utf8NoBom
-          )
-
-          $assets = @(
-            "SuperMenu_Beta.exe"
-            "SuperMenu_Beta_Setup.exe"
-            "update-beta.json"
-          )
-          $checksums = foreach ($asset in $assets) {
-            $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $asset"
-          }
-          $checksums | Set-Content -LiteralPath "SHA256SUMS-beta.txt" -Encoding ascii
-
-      - name: Preserve beta build artifact
+      - name: Preserve Windows beta artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: SuperMenu-${{ env.APP_VERSION }}
+          name: beta-windows
           path: |
             win32/SuperMenu_Beta.exe
             win32/SuperMenu_Beta_Setup.exe
-            win32/update-beta.json
-            win32/SHA256SUMS-beta.txt
           if-no-files-found: error
           retention-days: 14
+
+  build-macos-beta:
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: macos
+    env:
+      BUILD_COMMIT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+    outputs:
+      app_version: ${{ steps.metadata.outputs.app_version }}
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.BUILD_COMMIT }}
+          fetch-depth: 0
+
+      - name: Prepare macOS beta metadata
+        id: metadata
+        run: |
+          base_version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "${base_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "macos/VERSION must contain a SemVer version such as 1.2.0" >&2
+            exit 1
+          fi
+
+          app_version="${base_version}-beta.${GITHUB_RUN_NUMBER}"
+          echo "APP_VERSION=${app_version}" >> "${GITHUB_ENV}"
+          echo "MACOS_BASE_VERSION=${base_version}" >> "${GITHUB_ENV}"
+          echo "app_version=${app_version}" >> "${GITHUB_OUTPUT}"
+
+          printf '%s\n' \
+            '"""Build metadata overwritten by GitHub Actions for packaged releases."""' \
+            '' \
+            "APP_VERSION = \"${app_version}\"" \
+            'BUILD_CHANNEL = "beta"' \
+            > src/config/build_info.py
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            shared/pyproject.toml
+            macos/requirements.txt
+            macos/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Validate source
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m compileall -q ../shared/supermenu_core src run.py
+          python -m pytest -q ../shared/tests
+          python -m pytest -q tests
+          python -m flake8 ../shared/supermenu_core src tests run.py --select=F,E9
+          python run.py --smoke-test
+
+      - name: Configure required Developer ID signing
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_APPLE_ID: ${{ secrets.MACOS_APPLE_ID }}
+          MACOS_APP_PASSWORD: ${{ secrets.MACOS_APP_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: |
+          required=(
+            MACOS_CERTIFICATE_BASE64
+            MACOS_CERTIFICATE_PASSWORD
+            MACOS_APPLE_ID
+            MACOS_APP_PASSWORD
+            MACOS_TEAM_ID
+          )
+          missing=()
+          for variable_name in "${required[@]}"; do
+            if [[ -z "${!variable_name:-}" ]]; then
+              missing+=("${variable_name}")
+            fi
+          done
+          if [[ "${#missing[@]}" -ne 0 ]]; then
+            printf 'Configuration Apple incomplète. Secrets absents : %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          certificate_path="${RUNNER_TEMP}/supermenu-developer-id.p12"
+          keychain_path="${RUNNER_TEMP}/supermenu-signing.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          printf '%s' "${MACOS_CERTIFICATE_BASE64}" | base64 --decode -o "${certificate_path}"
+
+          security create-keychain -p "${keychain_password}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p "${keychain_password}" "${keychain_path}"
+          security import "${certificate_path}" \
+            -P "${MACOS_CERTIFICATE_PASSWORD}" \
+            -A -t cert -f pkcs12 -k "${keychain_path}"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -k "${keychain_password}" \
+            "${keychain_path}"
+          security list-keychains -d user -s "${keychain_path}"
+
+          identity="$(security find-identity -v -p codesigning "${keychain_path}" | awk -F '"' '/Developer ID Application/ {print $2; exit}')"
+          if [[ -z "${identity}" ]]; then
+            echo "Le fichier P12 ne contient aucune identité Developer ID Application valide." >&2
+            exit 1
+          fi
+
+          echo "MACOS_CODESIGN_IDENTITY=${identity}" >> "${GITHUB_ENV}"
+          echo "MACOS_KEYCHAIN_PATH=${keychain_path}" >> "${GITHUB_ENV}"
+
+      - name: Build, sign and notarize app and DMG
+        env:
+          MACOS_APPLE_ID: ${{ secrets.MACOS_APPLE_ID }}
+          MACOS_APP_PASSWORD: ${{ secrets.MACOS_APP_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: |
+          chmod +x scripts/*.sh
+          scripts/build_dmg.sh
+          scripts/notarize_dmg.sh
+          cp \
+            "dist/SuperMenu-${MACOS_BASE_VERSION}-macOS-arm64.dmg" \
+            "dist/SuperMenu_Beta-macOS-arm64.dmg"
+
+      - name: Preserve signed and notarized macOS beta artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: beta-macos
+          path: macos/dist/SuperMenu_Beta-macOS-arm64.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove temporary signing keychain
+        if: always()
+        run: |
+          keychain_path="${MACOS_KEYCHAIN_PATH:-${RUNNER_TEMP}/supermenu-signing.keychain-db}"
+          security delete-keychain "${keychain_path}" 2>/dev/null || true
+          rm -f "${RUNNER_TEMP}/supermenu-developer-id.p12"
+
+  publish-beta:
+    needs:
+      - build-windows-beta
+      - build-macos-beta
+    runs-on: ubuntu-latest
+    env:
+      BUILD_COMMIT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      WINDOWS_VERSION: ${{ needs.build-windows-beta.outputs.app_version }}
+      MACOS_VERSION: ${{ needs.build-macos-beta.outputs.app_version }}
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.BUILD_COMMIT }}
+          fetch-depth: 0
+
+      - name: Download Windows beta artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: beta-windows
+          path: release-assets
+
+      - name: Download macOS beta artifact
+        uses: actions/download-artifact@v6
+        with:
+          name: beta-macos
+          path: release-assets
+
+      - name: Generate platform manifests and checksums
+        working-directory: release-assets
+        run: |
+          jq -n \
+            --arg version "${WINDOWS_VERSION}" \
+            '{schema_version: 1, channel: "beta", version: $version, prerelease: true, tag: "beta"}' \
+            > update-beta.json
+
+          jq -n \
+            --arg version "${MACOS_VERSION}" \
+            '{schema_version: 1, platform: "macos", architecture: "arm64", channel: "beta", version: $version, prerelease: true, tag: "beta", asset: "SuperMenu_Beta-macOS-arm64.dmg"}' \
+            > update-macos-beta.json
+
+          sha256sum \
+            SuperMenu_Beta.exe \
+            SuperMenu_Beta_Setup.exe \
+            SuperMenu_Beta-macOS-arm64.dmg \
+            update-beta.json \
+            update-macos-beta.json \
+            > SHA256SUMS-beta.txt
 
       - name: Publish rolling beta prerelease
         uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
         with:
           tag: beta
           commit: ${{ env.BUILD_COMMIT }}
-          name: SuperMenu Beta ${{ env.APP_VERSION }}
+          name: SuperMenu Beta
           prerelease: true
           makeLatest: false
           allowUpdates: true
@@ -158,23 +328,22 @@ jobs:
           replacesArtifacts: true
           removeArtifacts: true
           artifactErrorsFailBuild: true
-          artifacts: |
-            win32/SuperMenu_Beta.exe
-            win32/SuperMenu_Beta_Setup.exe
-            win32/update-beta.json
-            win32/SHA256SUMS-beta.txt
+          artifacts: release-assets/*
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
             Build beta automatique depuis la branche main.
 
             Channel: beta
-            Version: ${{ env.APP_VERSION }}
+            Windows version: ${{ env.WINDOWS_VERSION }}
+            macOS version: ${{ env.MACOS_VERSION }}
             Commit: ${{ env.BUILD_COMMIT }}
+
+            Windows : exécutable portable et installateur.
+            macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
 
             Cette version est une prérelease destinée aux tests. Pour la version recommandée, utilisez la dernière release stable.
 
       - name: Align rolling beta tag with published commit
-        shell: powershell
         run: |
-          git tag --force beta $env:BUILD_COMMIT
+          git tag --force beta "${BUILD_COMMIT}"
           git push --force origin refs/tags/beta

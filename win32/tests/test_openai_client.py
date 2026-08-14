@@ -5,6 +5,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
+from supermenu_core.api import openai_client as client_module
 from src.api.openai_client import OpenAIClient
 
 
@@ -148,7 +149,8 @@ def test_ollama_reads_thinking_capability_from_show_endpoint(monkeypatch):
             return {"capabilities": ["completion", "thinking"]}
 
     monkeypatch.setattr(
-        "src.api.openai_client.requests.post",
+        client_module._SESSION,
+        "post",
         lambda *_args, **_kwargs: FakeResponse(),
     )
     client = OpenAIClient(
@@ -391,7 +393,8 @@ def test_lmstudio_reads_reasoning_options_from_native_model_catalog(monkeypatch)
             }
 
     monkeypatch.setattr(
-        "src.api.openai_client.requests.get",
+        client_module._SESSION,
+        "get",
         lambda *_args, **_kwargs: FakeResponse(),
     )
     client = OpenAIClient(
@@ -441,7 +444,7 @@ def test_lmstudio_native_404_falls_back_without_output_token_cap(monkeypatch):
         calls.append((url, json.loads(data)))
         return FakeResponse(404 if len(calls) == 1 else 200)
 
-    monkeypatch.setattr("src.api.openai_client.requests.post", fake_post)
+    monkeypatch.setattr(client_module._SESSION, "post", fake_post)
     client = OpenAIClient(
         FakeSettings(
             use_custom_endpoint=True,
@@ -482,7 +485,7 @@ def test_fetch_models_detects_ollama_endpoint(monkeypatch):
         called_urls.append(url)
         return FakeResponse()
 
-    monkeypatch.setattr("src.api.openai_client.requests.get", fake_get)
+    monkeypatch.setattr(client_module._SESSION, "get", fake_get)
     success, models = OpenAIClient.fetch_available_models("http://localhost:11434", endpoint_type=None)
 
     assert success is True
@@ -520,7 +523,8 @@ def test_fetch_lmstudio_model_details_keeps_dynamic_reasoning_options(monkeypatc
             }
 
     monkeypatch.setattr(
-        "src.api.openai_client.requests.get",
+        client_module._SESSION,
+        "get",
         lambda *_args, **_kwargs: FakeResponse(),
     )
 

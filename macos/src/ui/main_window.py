@@ -45,17 +45,32 @@ from supermenu_core.config.provider_settings import CUSTOM_REASONING_EFFORTS
 from supermenu_core.ui.theme_manager import ThemeManager
 from src.utils import updater as app_updater
 from src.utils.hotkey_manager import HotkeyRecorderDialog
+from src.utils.key_events import KeyEventPoster
 from src.utils.paths import resource_path, user_config_dir, user_log_dir
 from src.utils.logger import log
-from src.utils.window_target import activate_current_application
+from src.utils.window_target import PasteTarget, activate_current_application
 from src.utils.permissions import (
-    accessibility_is_trusted,
     current_permission_status,
-    input_monitoring_is_trusted,
     open_accessibility_settings,
-    open_input_monitoring_settings,
+    request_accessibility_permission,
 )
 from supermenu_core.utils.validators import Validators
+
+
+def _create_form_layout(parent):
+    """Build a form whose fields use the width available, as on Windows.
+
+    QFormLayout reads its growth policy from the active style. QMacStyle asks
+    for FieldsStayAtSizeHint, so every line edit and text area stayed at its
+    minimum width with dead space beside it, while the Windows styles default
+    to AllNonFixedFieldsGrow. Setting it explicitly makes both compositions
+    lay out the same way.
+    """
+    form = QFormLayout(parent)
+    form.setFieldGrowthPolicy(
+        QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+    )
+    return form
 
 
 class NoWheelComboBox(QComboBox):
@@ -131,6 +146,8 @@ class MainWindow(QMainWindow):
         self._custom_model_details = {}
         self._hotkey_dialog = None
         self._last_permission_state = None
+        self._accessibility_request_attempted = False
+        self._keys = KeyEventPoster()
 
         self.setWindowTitle("SuperMenu - Configuration")
         self.setMinimumSize(900, 800)
@@ -157,10 +174,12 @@ class MainWindow(QMainWindow):
         root_layout.addLayout(buttons)
         self.setCentralWidget(root)
 
+        # Only polled while the configuration window is on screen. SuperMenu
+        # lives in the menu bar and is hidden most of the time; a permanent
+        # 1.5 s wake-up costs battery for a panel nobody is looking at.
         self._permission_timer = QTimer(self)
         self._permission_timer.setInterval(1500)
         self._permission_timer.timeout.connect(self.refresh_permission_status)
-        self._permission_timer.start()
 
     def _create_prompts_tab(self):
         tab = QWidget()
@@ -216,7 +235,7 @@ class MainWindow(QMainWindow):
         right = QWidget()
         right_layout = QVBoxLayout(right)
         form_group = QGroupBox("✏️ Éditer le prompt")
-        form = QFormLayout(form_group)
+        form = _create_form_layout(form_group)
         self.prompt_name = QLineEdit()
         form.addRow("🏷️ Nom affiché :", self.prompt_name)
         self.prompt_instruction = QTextEdit()
@@ -346,7 +365,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(endpoint_group)
 
         shortcuts_group = QGroupBox("⌨️ Raccourcis clavier")
-        shortcuts_form = QFormLayout(shortcuts_group)
+        shortcuts_form = _create_form_layout(shortcuts_group)
         main_row = QHBoxLayout()
         self.main_hotkey = QLineEdit(self.settings.get_hotkey())
         self.main_hotkey.setReadOnly(True)
@@ -371,8 +390,9 @@ class MainWindow(QMainWindow):
         permissions_group = QGroupBox("🔐 Autorisations macOS")
         permissions_layout = QVBoxLayout(permissions_group)
         explanation = QLabel(
-            "SuperMenu utilise Accessibilité pour Copier/Coller et "
-            "Surveillance de l’entrée pour détecter ses raccourcis globaux."
+            "SuperMenu utilise Accessibilité pour détecter ses raccourcis "
+            "globaux et exécuter Copier/Coller. Aucune autre autorisation "
+            "de saisie n’est nécessaire."
         )
         explanation.setWordWrap(True)
         permissions_layout.addWidget(explanation)
@@ -387,19 +407,6 @@ class MainWindow(QMainWindow):
         )
         accessibility_row.addWidget(self.accessibility_button)
         permissions_layout.addLayout(accessibility_row)
-
-        input_row = QHBoxLayout()
-        self.input_monitoring_status = QLabel()
-        input_row.addWidget(self.input_monitoring_status)
-        input_row.addStretch()
-        self.input_monitoring_button = QPushButton(
-            "Configurer Surveillance de l’entrée…"
-        )
-        self.input_monitoring_button.clicked.connect(
-            self.request_input_monitoring_permission
-        )
-        input_row.addWidget(self.input_monitoring_button)
-        permissions_layout.addLayout(input_row)
 
         status_row = QHBoxLayout()
         self.hotkey_service_status = QLabel()
@@ -417,7 +424,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(permissions_group)
 
         general_group = QGroupBox("🎨 Interface et mises à jour")
-        general_form = QFormLayout(general_group)
+        general_form = _create_form_layout(general_group)
         self.theme_combo = NoWheelComboBox()
         for key, label in ThemeManager.get_theme_names().items():
             self.theme_combo.addItem(label, key)
@@ -869,9 +876,14 @@ class MainWindow(QMainWindow):
                 on_recorded(recorded)
             dialog.deleteLater()
             if service is not None:
-                # Let macOS deliver every modifier release before listening
-                # again, preventing a just-recorded shortcut from firing.
-                QTimer.singleShot(200, service.resume)
+                # Listening again while the just-recorded combination is still
+                # held would fire it immediately. The condition is the user's
+                # fingers, not a delay: wait for the modifiers to come up, and
+                # resume at once when nothing is held.
+                self._keys.when_modifiers_released(
+                    QTimer.singleShot,
+                    service.resume,
+                )
 
         dialog.finished.connect(finish_recording)
         dialog.open()
@@ -888,16 +900,18 @@ class MainWindow(QMainWindow):
         )
 
     def request_accessibility_permission(self):
-        """Request control access and always reveal the matching settings pane."""
-        accessibility_is_trusted(prompt=True)
-        open_accessibility_settings()
-        QTimer.singleShot(800, self.refresh_permission_status)
-
-    def request_input_monitoring_permission(self):
-        """Request global keyboard monitoring and reveal its settings pane."""
-        input_monitoring_is_trusted(prompt=True)
-        open_input_monitoring_settings()
-        QTimer.singleShot(800, self.refresh_permission_status)
+        """Show native consent first; reveal Settings only on a later attempt."""
+        if self._accessibility_request_attempted:
+            open_accessibility_settings()
+        else:
+            self._accessibility_request_attempted = True
+            if not request_accessibility_permission():
+                open_accessibility_settings()
+        self.accessibility_button.setText("Ouvrir les réglages…")
+        QTimer.singleShot(
+            800,
+            lambda: self.refresh_permission_status(force_reload=True),
+        )
 
     @staticmethod
     def _set_status_label(label, text, granted):
@@ -918,7 +932,7 @@ class MainWindow(QMainWindow):
 
     def refresh_permission_status(self, force_reload=False):
         status = current_permission_status()
-        state = (status.accessibility, status.input_monitoring)
+        state = status.accessibility
 
         accessibility_text = (
             "✅ Accessibilité autorisée"
@@ -932,24 +946,20 @@ class MainWindow(QMainWindow):
             accessibility_text,
             status.accessibility,
         )
-        input_text = (
-            "✅ Surveillance de l’entrée autorisée"
-            if status.input_monitoring
-            else "⚠️ Surveillance de l’entrée manquante"
-        )
-        if not status.input_monitoring_check_available:
-            input_text = "⚠️ État Surveillance de l’entrée non lisible"
-        self._set_status_label(
-            self.input_monitoring_status,
-            input_text,
-            status.input_monitoring,
-        )
         self.accessibility_button.setEnabled(not status.accessibility)
-        self.input_monitoring_button.setEnabled(not status.input_monitoring)
+        if status.accessibility:
+            self.accessibility_button.setText("Accessibilité configurée")
+        elif self._accessibility_request_attempted:
+            self.accessibility_button.setText("Ouvrir les réglages…")
+        else:
+            self.accessibility_button.setText("Configurer Accessibilité…")
 
         permissions_changed = (
             self._last_permission_state is not None
             and state != self._last_permission_state
+        )
+        permission_granted_now = (
+            self._last_permission_state is False and state is True
         )
         services = {
             manager.service
@@ -967,8 +977,11 @@ class MainWindow(QMainWindow):
             force_reload or permissions_changed or service_needs_recovery
         )
         hotkeys_ok = True
+        if permission_granted_now:
+            restart_results = [service.restart() for service in services]
+            hotkeys_ok = all(restart_results) if restart_results else True
         if should_reload:
-            hotkeys_ok = self._reload_all_hotkeys()
+            hotkeys_ok = self._reload_all_hotkeys() and hotkeys_ok
 
         hotkey_managers = [
             manager
@@ -1120,6 +1133,9 @@ class MainWindow(QMainWindow):
             log("Clic sur l’icône de barre des menus : menu natif affiché")
 
     def show_main_window(self):
+        # Record where the user came from before SuperMenu takes the
+        # foreground, so "Afficher le menu des prompts" still has a target.
+        PasteTarget.remember_frontmost()
         activate_current_application()
         self.refresh_permission_status()
         self.show()
@@ -1132,7 +1148,7 @@ class MainWindow(QMainWindow):
             log("Test du menu impossible : gestionnaire indisponible")
             return
         log("Ouverture manuelle du menu des prompts")
-        self.context_menu_manager.show_menu()
+        self.context_menu_manager.show_menu(from_ui=True)
 
     def show_permission_setup(self):
         self.tabs.setCurrentIndex(1)
@@ -1164,7 +1180,7 @@ class MainWindow(QMainWindow):
             if QMessageBox.question(
                 self,
                 "Mise à jour disponible",
-                f"La version {version} est disponible. Ouvrir la page de téléchargement ?",
+                f"La version {version} est disponible. Télécharger le DMG ?",
             ) == QMessageBox.StandardButton.Yes:
                 QDesktopServices.openUrl(QUrl(release.get("url", "")))
         elif not silent:
@@ -1184,7 +1200,16 @@ class MainWindow(QMainWindow):
             self.tray_icon.hide()
         QApplication.quit()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._permission_timer.start()
+
+    def hideEvent(self, event):
+        self._permission_timer.stop()
+        super().hideEvent(event)
+
     def closeEvent(self, event):
+        self._permission_timer.stop()
         if self._quitting:
             event.accept()
         else:

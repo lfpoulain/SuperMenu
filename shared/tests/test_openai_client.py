@@ -93,7 +93,8 @@ def test_model_catalog_uses_the_explicit_custom_endpoint_key(monkeypatch):
         captured.update(url=url, headers=headers, timeout=timeout)
         return Response()
 
-    monkeypatch.setattr(client_module.requests, "get", fake_get)
+    # Requests go through one pooled session so connections are reused.
+    monkeypatch.setattr(client_module._SESSION, "get", fake_get)
 
     success, models = OpenAIClient.fetch_available_models(
         "https://models.example.test",

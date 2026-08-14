@@ -120,15 +120,101 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
 
+      - name: Configure Developer ID signing when secrets are available
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_APPLE_ID: ${{ secrets.MACOS_APPLE_ID }}
+          MACOS_APP_PASSWORD: ${{ secrets.MACOS_APP_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: |
+          required=(
+            MACOS_CERTIFICATE_BASE64
+            MACOS_CERTIFICATE_PASSWORD
+            MACOS_APPLE_ID
+            MACOS_APP_PASSWORD
+            MACOS_TEAM_ID
+          )
+          present=0
+          missing=()
+          for variable_name in "${required[@]}"; do
+            if [[ -n "${!variable_name:-}" ]]; then
+              present=$((present + 1))
+            else
+              missing+=("${variable_name}")
+            fi
+          done
+
+          if [[ "${present}" -eq 0 ]]; then
+            echo "MACOS_DISTRIBUTION_BUILD=0" >> "${GITHUB_ENV}"
+            echo "MACOS_ARTIFACT_LABEL=unsigned-test" >> "${GITHUB_ENV}"
+            echo "::notice::Build macOS non signé : aucun secret Apple configuré."
+            exit 0
+          fi
+          if [[ "${present}" -ne "${#required[@]}" ]]; then
+            printf 'Configuration Apple incomplète. Secrets absents : %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          certificate_path="${RUNNER_TEMP}/supermenu-developer-id.p12"
+          keychain_path="${RUNNER_TEMP}/supermenu-signing.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          printf '%s' "${MACOS_CERTIFICATE_BASE64}" | base64 --decode -o "${certificate_path}"
+
+          security create-keychain -p "${keychain_password}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p "${keychain_password}" "${keychain_path}"
+          security import "${certificate_path}" \
+            -P "${MACOS_CERTIFICATE_PASSWORD}" \
+            -A -t cert -f pkcs12 -k "${keychain_path}"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -k "${keychain_password}" \
+            "${keychain_path}"
+          security list-keychains -d user -s "${keychain_path}"
+
+          identity="$(security find-identity -v -p codesigning "${keychain_path}" | awk -F '"' '/Developer ID Application/ {print $2; exit}')"
+          if [[ -z "${identity}" ]]; then
+            echo "Le fichier P12 ne contient aucune identité Developer ID Application valide." >&2
+            exit 1
+          fi
+
+          echo "MACOS_CODESIGN_IDENTITY=${identity}" >> "${GITHUB_ENV}"
+          echo "MACOS_DISTRIBUTION_BUILD=1" >> "${GITHUB_ENV}"
+          echo "MACOS_ARTIFACT_LABEL=signed-notarized" >> "${GITHUB_ENV}"
+          echo "MACOS_KEYCHAIN_PATH=${keychain_path}" >> "${GITHUB_ENV}"
+
+      # The credentials are passed to the build itself: build_dmg.sh notarizes
+      # and staples SuperMenu.app before packaging it, so the ticket survives
+      # the drag to /Applications.
       - name: Build app and DMG
+        env:
+          MACOS_APPLE_ID: ${{ secrets.MACOS_APPLE_ID }}
+          MACOS_APP_PASSWORD: ${{ secrets.MACOS_APP_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
         run: |
           chmod +x scripts/*.sh
           scripts/build_dmg.sh
 
+      - name: Notarize signed DMG
+        if: env.MACOS_DISTRIBUTION_BUILD == '1'
+        env:
+          MACOS_APPLE_ID: ${{ secrets.MACOS_APPLE_ID }}
+          MACOS_APP_PASSWORD: ${{ secrets.MACOS_APP_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: scripts/notarize_dmg.sh
+
       - name: Upload DMG
         uses: actions/upload-artifact@v6
         with:
-          name: SuperMenu-${{ runner.arch }}-macOS
-          path: macos/dist/SuperMenu-*-macOS.dmg
+          name: SuperMenu-macOS-arm64-${{ env.MACOS_ARTIFACT_LABEL }}
+          path: macos/dist/SuperMenu-*-macOS-arm64.dmg
           if-no-files-found: error
           retention-days: 14
+
+      - name: Remove temporary signing keychain
+        if: always()
+        run: |
+          keychain_path="${MACOS_KEYCHAIN_PATH:-${RUNNER_TEMP}/supermenu-signing.keychain-db}"
+          security delete-keychain "${keychain_path}" 2>/dev/null || true
+          rm -f "${RUNNER_TEMP}/supermenu-developer-id.p12"

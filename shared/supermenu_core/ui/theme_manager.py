@@ -8,7 +8,7 @@ Module de gestion moderne des thèmes avec pyqtdarktheme
 import qdarktheme
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPalette, QColor
+from PySide6.QtGui import QColor, QGuiApplication, QPalette
 
 
 class ThemeManager:
@@ -16,6 +16,10 @@ class ThemeManager:
 
     # Thèmes disponibles
     THEMES = {"dark": "dark", "light": "light", "auto": "auto"}
+
+    # Set once an application is following the system scheme, so the signal is
+    # not connected again on every save.
+    _system_scheme_connected = False
 
     # Couleurs personnalisées pour SuperMenu
     ACCENT_COLORS = {
@@ -27,6 +31,43 @@ class ThemeManager:
     }
 
     @staticmethod
+    def system_color_scheme() -> str:
+        """Return the scheme the operating system is currently using.
+
+        Qt 6.5 exposes this through QStyleHints; anything older, or a headless
+        run without style hints, falls back to dark.
+        """
+        application = QGuiApplication.instance()
+        hints = application.styleHints() if application is not None else None
+        if hints is None or not hasattr(hints, "colorScheme"):
+            return "dark"
+        try:
+            return "light" if hints.colorScheme() == Qt.ColorScheme.Light else "dark"
+        except Exception:
+            return "dark"
+
+    @staticmethod
+    def resolve_theme(theme: str) -> str:
+        """Turn the stored preference into a scheme the stylesheet supports."""
+        if theme not in ThemeManager.THEMES:
+            theme = "dark"
+        if theme == "auto":
+            return ThemeManager.system_color_scheme()
+        return theme
+
+    @staticmethod
+    def _follow_system_scheme(app: QApplication, follow: bool) -> None:
+        """Re-apply the theme when the OS switches between light and dark."""
+        application = QGuiApplication.instance()
+        hints = application.styleHints() if application is not None else None
+        changed = getattr(hints, "colorSchemeChanged", None) if hints else None
+        if changed is None:
+            return
+        if follow and not ThemeManager._system_scheme_connected:
+            changed.connect(lambda *_args: ThemeManager.apply_theme(app, "auto"))
+            ThemeManager._system_scheme_connected = True
+
+    @staticmethod
     def apply_theme(app: QApplication, theme: str = "dark"):
         """
         Applique un thème moderne à l'application
@@ -35,13 +76,9 @@ class ThemeManager:
             app: Instance de QApplication
             theme: "dark", "light" ou "auto"
         """
-        if theme not in ThemeManager.THEMES:
-            theme = "dark"
-
-        # Pour pyqtdarktheme 0.1.x, on utilise load_stylesheet
-        # "auto" n'est pas supporté dans cette version, on utilise "dark" par défaut
-        if theme == "auto":
-            theme = "dark"
+        requested = theme if theme in ThemeManager.THEMES else "dark"
+        theme = ThemeManager.resolve_theme(requested)
+        ThemeManager._follow_system_scheme(app, requested == "auto")
 
         # Charger le stylesheet de base
         stylesheet = qdarktheme.load_stylesheet(theme)

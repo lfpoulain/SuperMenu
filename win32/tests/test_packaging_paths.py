@@ -78,7 +78,7 @@ def test_release_workflows_keep_ci_beta_and_stable_separate():
     assert "tag: beta" in beta
     assert "SuperMenu_Beta_Setup.exe" in beta
     assert "update-beta.json" in beta
-    assert "git tag --force beta $env:BUILD_COMMIT" in beta
+    assert 'git tag --force beta "${BUILD_COMMIT}"' in beta
     assert "git push --force origin refs/tags/beta" in beta
     assert beta.index("Publish rolling beta prerelease") < beta.index(
         "Align rolling beta tag with published commit"
@@ -97,4 +97,7 @@ def test_macos_pull_requests_build_a_test_dmg():
     assert "pull_request:" in workflow
     assert "build-dmg:" in workflow
     assert "scripts/build_dmg.sh" in workflow
-    assert "macos/dist/SuperMenu-*-macOS.dmg" in workflow
+    # SuperMenu is distributed for Apple Silicon only; the slice is part of
+    # the artifact name so an Intel user cannot pick up a bundle that will
+    # not launch.
+    assert "macos/dist/SuperMenu-*-macOS-arm64.dmg" in workflow
