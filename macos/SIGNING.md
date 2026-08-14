@@ -164,8 +164,8 @@ aux anciens builds ad hoc. Sur le Mac de test :
 
 1. quitter l'ancienne application ;
 2. remplacer `/Applications/SuperMenu.app` par celle du DMG notarié ;
-3. lancer SuperMenu et accorder une dernière fois Accessibilité et Surveillance
-   de l'entrée si macOS le demande ;
+3. lancer SuperMenu et accorder une dernière fois Accessibilité si macOS le
+   demande ;
 4. toujours installer les versions suivantes au même emplacement.
 
 Les mises à jour suivantes, signées avec la même équipe et le même bundle

@@ -51,9 +51,7 @@ from src.utils.window_target import activate_current_application
 from src.utils.permissions import (
     accessibility_is_trusted,
     current_permission_status,
-    input_monitoring_is_trusted,
     open_accessibility_settings,
-    open_input_monitoring_settings,
 )
 from supermenu_core.utils.validators import Validators
 
@@ -371,8 +369,9 @@ class MainWindow(QMainWindow):
         permissions_group = QGroupBox("🔐 Autorisations macOS")
         permissions_layout = QVBoxLayout(permissions_group)
         explanation = QLabel(
-            "SuperMenu utilise Accessibilité pour Copier/Coller et "
-            "Surveillance de l’entrée pour détecter ses raccourcis globaux."
+            "SuperMenu utilise Accessibilité pour détecter ses raccourcis "
+            "globaux et exécuter Copier/Coller. Aucune autre autorisation "
+            "de saisie n’est nécessaire."
         )
         explanation.setWordWrap(True)
         permissions_layout.addWidget(explanation)
@@ -387,19 +386,6 @@ class MainWindow(QMainWindow):
         )
         accessibility_row.addWidget(self.accessibility_button)
         permissions_layout.addLayout(accessibility_row)
-
-        input_row = QHBoxLayout()
-        self.input_monitoring_status = QLabel()
-        input_row.addWidget(self.input_monitoring_status)
-        input_row.addStretch()
-        self.input_monitoring_button = QPushButton(
-            "Configurer Surveillance de l’entrée…"
-        )
-        self.input_monitoring_button.clicked.connect(
-            self.request_input_monitoring_permission
-        )
-        input_row.addWidget(self.input_monitoring_button)
-        permissions_layout.addLayout(input_row)
 
         status_row = QHBoxLayout()
         self.hotkey_service_status = QLabel()
@@ -893,12 +879,6 @@ class MainWindow(QMainWindow):
         open_accessibility_settings()
         QTimer.singleShot(800, self.refresh_permission_status)
 
-    def request_input_monitoring_permission(self):
-        """Request global keyboard monitoring and reveal its settings pane."""
-        input_monitoring_is_trusted(prompt=True)
-        open_input_monitoring_settings()
-        QTimer.singleShot(800, self.refresh_permission_status)
-
     @staticmethod
     def _set_status_label(label, text, granted):
         label.setText(text)
@@ -918,7 +898,7 @@ class MainWindow(QMainWindow):
 
     def refresh_permission_status(self, force_reload=False):
         status = current_permission_status()
-        state = (status.accessibility, status.input_monitoring)
+        state = status.accessibility
 
         accessibility_text = (
             "✅ Accessibilité autorisée"
@@ -932,20 +912,7 @@ class MainWindow(QMainWindow):
             accessibility_text,
             status.accessibility,
         )
-        input_text = (
-            "✅ Surveillance de l’entrée autorisée"
-            if status.input_monitoring
-            else "⚠️ Surveillance de l’entrée manquante"
-        )
-        if not status.input_monitoring_check_available:
-            input_text = "⚠️ État Surveillance de l’entrée non lisible"
-        self._set_status_label(
-            self.input_monitoring_status,
-            input_text,
-            status.input_monitoring,
-        )
         self.accessibility_button.setEnabled(not status.accessibility)
-        self.input_monitoring_button.setEnabled(not status.input_monitoring)
 
         permissions_changed = (
             self._last_permission_state is not None

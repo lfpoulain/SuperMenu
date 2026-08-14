@@ -21,7 +21,7 @@ def window(qt_app, tmp_path):
     instance.close()
 
 
-def test_permission_buttons_open_the_matching_system_pane(
+def test_permission_button_opens_accessibility_system_pane(
     window,
     monkeypatch,
 ):
@@ -36,24 +36,11 @@ def test_permission_buttons_open_the_matching_system_pane(
         "open_accessibility_settings",
         lambda: calls.append(("open_accessibility", True)) or True,
     )
-    monkeypatch.setattr(
-        main_window_module,
-        "input_monitoring_is_trusted",
-        lambda prompt=False: calls.append(("input", prompt)) or False,
-    )
-    monkeypatch.setattr(
-        main_window_module,
-        "open_input_monitoring_settings",
-        lambda: calls.append(("open_input", True)) or True,
-    )
-
     window.request_accessibility_permission()
-    window.request_input_monitoring_permission()
 
     assert ("accessibility", True) in calls
     assert ("open_accessibility", True) in calls
-    assert ("input", True) in calls
-    assert ("open_input", True) in calls
+    assert not hasattr(window, "input_monitoring_button")
 
 
 def test_granted_permissions_reload_hotkeys(window, monkeypatch):
@@ -72,11 +59,11 @@ def test_granted_permissions_reload_hotkeys(window, monkeypatch):
     window.hotkey_manager = HotkeyManagerStub()
     window.custom_hotkey_manager = HotkeyManagerStub()
     window.prompt_hotkey_manager = PromptManagerStub()
-    window._last_permission_state = (False, False)
+    window._last_permission_state = False
     monkeypatch.setattr(
         main_window_module,
         "current_permission_status",
-        lambda: PermissionStatus(True, True),
+        lambda: PermissionStatus(accessibility=True),
     )
 
     window.refresh_permission_status()
@@ -143,7 +130,7 @@ def test_recheck_attempts_hotkeys_even_when_permission_api_reports_false(
     monkeypatch.setattr(
         main_window_module,
         "current_permission_status",
-        lambda: PermissionStatus(False, False),
+        lambda: PermissionStatus(accessibility=False),
     )
 
     window.refresh_permission_status(force_reload=True)

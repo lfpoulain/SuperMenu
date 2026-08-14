@@ -41,7 +41,6 @@ def run_packaged_smoke_test():
     permission_status = current_permission_status()
     status["permission_checks"] = {
         "accessibility": permission_status.accessibility_check_available,
-        "input_monitoring": permission_status.input_monitoring_check_available,
     }
     status["permission_checks_ok"] = sys.platform != "darwin" or all(
         status["permission_checks"].values()

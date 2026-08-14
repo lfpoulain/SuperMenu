@@ -39,16 +39,18 @@ L'installation doit être lancée depuis `macos/` : la première ligne de
 
 Au premier lancement, autorisez le processus de développement (Terminal ou
 Python) dans **Réglages Système > Confidentialité et sécurité >
-Accessibilité** et **Surveillance de l’entrée**, puis relancez-le. Une fois
-l’application packagée, c’est `SuperMenu.app` qu’il faudra autoriser. Ces deux
-droits servent uniquement aux raccourcis globaux et aux commandes Copier/Coller.
-Aucun droit Microphone ou Enregistrement de l’écran n’est utilisé.
+Accessibilité**, puis relancez-le. Une fois l’application packagée, c’est
+`SuperMenu.app` qu’il faudra autoriser. Ce droit sert uniquement aux raccourcis
+globaux et aux commandes Copier/Coller. Les autorisations Surveillance de
+l’entrée, Microphone et Enregistrement de l’écran ne sont pas nécessaires.
 
 Tous les raccourcis partagent deux moniteurs AppKit persistants : le moniteur
 global reçoit les touches destinées aux autres applications et le moniteur
 local couvre SuperMenu lorsqu’il est actif, conformément au fonctionnement
-documenté par Apple. Modifier un raccourci met à jour les liaisons sans recréer
-ces moniteurs. `pynput` reste limité aux commandes Copier/Coller.
+documenté par Apple. `NSEvent` utilise précisément l’autorisation Accessibilité
+pour les événements clavier globaux ; demander Surveillance de l’entrée en plus
+serait redondant. Modifier un raccourci met à jour les liaisons sans recréer ces
+moniteurs. `pynput` reste limité aux commandes Copier/Coller.
 L’enregistreur tient compte de l’inversion Command/Control appliquée par défaut
 par Qt sur macOS : les noms affichés correspondent donc aux touches physiques.
 

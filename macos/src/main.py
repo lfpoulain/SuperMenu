@@ -20,7 +20,7 @@ from src.utils.hotkey_manager import (
     PromptHotkeyManager,
 )
 from src.utils.logger import LOG_FILE, install_crash_reporting, log, logger
-from src.utils.permissions import automation_permissions_are_trusted
+from src.utils.permissions import accessibility_is_trusted
 
 
 class SuperMenu(QObject):
@@ -89,7 +89,7 @@ class SuperMenu(QObject):
         if not self.main_window.setup_tray_icon():
             logger.warning("La barre des menus est indisponible.")
             self.main_window.show_main_window()
-        elif not automation_permissions_are_trusted():
+        elif not accessibility_is_trusted():
             self.main_window.show_permission_setup()
         else:
             self.main_window.hide()
