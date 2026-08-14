@@ -72,11 +72,20 @@ Les détails d'exécution et de packaging se trouvent dans
 Le workflow `CI` valide le cœur partagé sous Windows (Python 3.10 et 3.12),
 macOS (Python 3.12), puis construit un DMG de test. Lorsque les secrets Apple
 sont configurés, ce DMG est signé avec Developer ID, notarié et validé avant
-son chargement comme artifact. Une bêta Windows n'est publiée qu'après la
-réussite de ce workflow complet.
+son chargement comme artifact.
+
+Après la réussite de `CI` sur `main`, le workflow `Beta Release` construit en
+parallèle les exécutables Windows et le DMG Apple Silicon, puis remplace la
+prérelease roulante `beta` uniquement si les deux builds réussissent. Le
+workflow `Stable Release`, déclenché par un tag `vMAJOR.MINOR.PATCH` conforme à
+`win32/VERSION`, publie les mêmes formats dans une release stable immuable.
+Les DMG de release exigent les cinq secrets Apple : aucun paquet macOS non
+signé ou non notarié ne peut être publié par ces workflows.
 
 `macos/VERSION` et `win32/VERSION` restent indépendants : une modification du
-cœur commun ne force pas les deux applications à publier simultanément.
+cœur commun ne force pas les deux applications à partager le même numéro. Les
+manifestes de mise à jour sont donc propres à chaque plateforme, même si les
+binaires sont regroupés dans une seule release GitHub.
 
 ## Licence
 

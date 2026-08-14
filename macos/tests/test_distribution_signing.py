@@ -136,3 +136,32 @@ def test_ci_keeps_apple_credentials_in_secrets_and_cleans_the_keychain():
     assert "unsigned-test" in workflow
     assert "security delete-keychain" in workflow
     assert "if: always()" in workflow
+
+
+def test_beta_and_stable_releases_require_a_notarized_macos_dmg():
+    workflows_dir = REPOSITORY_ROOT / ".github" / "workflows"
+    beta = (workflows_dir / "beta-release.yml").read_text(encoding="utf-8")
+    stable = (workflows_dir / "stable-release.yml").read_text(
+        encoding="utf-8"
+    )
+
+    for workflow in (beta, stable):
+        for secret_name in (
+            "MACOS_CERTIFICATE_BASE64",
+            "MACOS_CERTIFICATE_PASSWORD",
+            "MACOS_APPLE_ID",
+            "MACOS_APP_PASSWORD",
+            "MACOS_TEAM_ID",
+        ):
+            assert f"secrets.{secret_name}" in workflow
+        assert "scripts/build_dmg.sh" in workflow
+        assert "scripts/notarize_dmg.sh" in workflow
+        assert "security delete-keychain" in workflow
+        assert "if: always()" in workflow
+        assert "macOS-arm64.dmg" in workflow
+        assert "update-macos-" in workflow
+
+    assert "needs.build-macos-beta.outputs.app_version" in beta
+    assert "needs.build-macos-stable.outputs.app_version" in stable
+    assert "SuperMenu_Beta-macOS-arm64.dmg" in beta
+    assert "SuperMenu-macOS-arm64.dmg" in stable

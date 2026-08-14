@@ -123,6 +123,28 @@ Le workflow CI commun exécute ces validations sur macOS, puis construit aussi
 un DMG de test. Une modification du cœur partagé doit donc rester compatible
 avec les deux plateformes avant toute publication bêta.
 
+## Mises à jour et releases
+
+Le bouton **Vérifier les mises à jour** respecte le canal Stable ou Beta
+sélectionné dans les paramètres. Il lit un manifeste macOS dédié, compare la
+version proposée à `macos/VERSION`, puis ouvre directement le téléchargement
+du DMG Apple Silicon correspondant :
+
+- `SuperMenu-macOS-arm64.dmg` pour Stable ;
+- `SuperMenu_Beta-macOS-arm64.dmg` pour Beta.
+
+L'application ne se remplace pas elle-même pendant son exécution. Après le
+téléchargement, l'utilisateur ouvre le DMG et glisse `SuperMenu.app` vers le
+même dossier `/Applications`. La signature Developer ID, le bundle identifier
+et l'emplacement restant identiques, macOS reconnaît les versions successives
+comme la même application et conserve normalement l'autorisation
+Accessibilité.
+
+Les releases GitHub regroupent Windows et macOS, mais chaque plateforme garde
+son propre fichier `VERSION` et son propre manifeste. Cela empêche notamment le
+bouton macOS de sélectionner un installateur `.exe` ou de comparer la version
+Windows à la version du Mac.
+
 ## Construire le `.app` et le DMG
 
 ```bash

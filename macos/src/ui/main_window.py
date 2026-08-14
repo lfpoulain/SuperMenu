@@ -1180,7 +1180,7 @@ class MainWindow(QMainWindow):
             if QMessageBox.question(
                 self,
                 "Mise à jour disponible",
-                f"La version {version} est disponible. Ouvrir la page de téléchargement ?",
+                f"La version {version} est disponible. Télécharger le DMG ?",
             ) == QMessageBox.StandardButton.Yes:
                 QDesktopServices.openUrl(QUrl(release.get("url", "")))
         elif not silent:

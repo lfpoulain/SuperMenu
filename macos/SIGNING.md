@@ -187,6 +187,11 @@ artifact suffixé `unsigned-test`. Une version prête à installer est suffixée
 `signed-notarized`. Si seulement une partie des secrets est configurée, le job
 échoue explicitement au lieu de publier un paquet incomplet.
 
+Cette tolérance à un build non signé concerne uniquement le workflow `CI`. Les
+workflows `Beta Release` et `Stable Release` exigent les cinq secrets et
+échouent avant le packaging si l'un d'eux manque : une release publique ne peut
+donc jamais contenir le DMG de développement.
+
 ## 4. Première migration signée
 
 La première version Developer ID constitue une nouvelle identité par rapport
