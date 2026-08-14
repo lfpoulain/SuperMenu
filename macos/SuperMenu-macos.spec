@@ -1,11 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
 from pathlib import Path
 
 
 project_dir = Path(SPECPATH)
 shared_dir = project_dir.parent / "shared"
 version = (project_dir / "VERSION").read_text(encoding="utf-8").strip()
+codesign_identity = os.environ.get("MACOS_CODESIGN_IDENTITY") or None
 
 a = Analysis(
     ["run.py"],
@@ -42,7 +44,9 @@ exe = EXE(
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
-    codesign_identity=None,
+    # PyInstaller signs every collected Mach-O binary and enables the
+    # hardened runtime when a real Developer ID identity is provided.
+    codesign_identity=codesign_identity,
     entitlements_file=None,
 )
 

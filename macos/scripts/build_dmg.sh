@@ -10,6 +10,12 @@ dmg_path="${project_dir}/dist/SuperMenu-${version}-macOS.dmg"
 cd "${project_dir}"
 bash "${script_dir}/create_icon.sh"
 python -m PyInstaller --noconfirm --clean SuperMenu-macos.spec
+
+if [[ -n "${MACOS_CODESIGN_IDENTITY:-}" ]]; then
+    codesign --verify --deep --strict --verbose=2 "${app_path}"
+    codesign --display --verbose=4 "${app_path}"
+fi
+
 "${app_path}/Contents/MacOS/SuperMenu" --smoke-test
 
 staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/supermenu-dmg.XXXXXX")"
@@ -23,5 +29,14 @@ hdiutil create \
     -ov \
     -format UDZO \
     "${dmg_path}"
+
+if [[ -n "${MACOS_CODESIGN_IDENTITY:-}" ]]; then
+    codesign \
+        --force \
+        --sign "${MACOS_CODESIGN_IDENTITY}" \
+        --timestamp \
+        "${dmg_path}"
+    codesign --verify --strict --verbose=2 "${dmg_path}"
+fi
 
 echo "DMG créé : ${dmg_path}"

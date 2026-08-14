@@ -15,6 +15,7 @@
 - [x] Stocker les journaux dans `~/Library/Logs/SuperMenu`.
 - [x] Préparer la construction native `.app` et le DMG glisser-déposer.
 - [x] Ajouter les tests macOS et une CI commune aux deux plateformes.
+- [x] Préparer la signature Developer ID et la notarisation automatique du DMG.
 
 ## Validation V1 sur un vrai Mac
 
@@ -31,6 +32,6 @@
 
 ## Après la V1 fonctionnelle
 
-- [ ] Ajouter la signature Developer ID et la notarisation pour la diffusion.
+- [ ] Valider le premier DMG Developer ID notarié sur un Mac vierge.
 - [ ] Tester séparément un build Intel si ce matériel doit être supporté.
 - [ ] Publier le DMG dans le workflow de release choisi.

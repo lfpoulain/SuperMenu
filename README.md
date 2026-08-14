@@ -70,8 +70,10 @@ Les détails d'exécution et de packaging se trouvent dans
 ## CI et versions
 
 Le workflow `CI` valide le cœur partagé sous Windows (Python 3.10 et 3.12),
-macOS (Python 3.12), puis construit un DMG de test. Une bêta Windows n'est
-publiée qu'après la réussite de ce workflow complet.
+macOS (Python 3.12), puis construit un DMG de test. Lorsque les secrets Apple
+sont configurés, ce DMG est signé avec Developer ID, notarié et validé avant
+son chargement comme artifact. Une bêta Windows n'est publiée qu'après la
+réussite de ce workflow complet.
 
 `macos/VERSION` et `win32/VERSION` restent indépendants : une modification du
 cœur commun ne force pas les deux applications à publier simultanément.

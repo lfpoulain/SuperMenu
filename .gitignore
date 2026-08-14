@@ -24,6 +24,14 @@ dist/
 *.manifest
 *.dSYM/
 
+# Apple signing material must only live in Keychain or GitHub Actions secrets.
+*.p12
+*.p8
+*.cer
+*.certSigningRequest
+*.keychain
+*.keychain-db
+
 # Application runtime output
 logs/
 *.log

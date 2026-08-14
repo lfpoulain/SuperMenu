@@ -104,7 +104,12 @@ Le résultat est écrit dans `dist/SuperMenu-<version>-macOS.dmg`. Le volume
 contient `SuperMenu.app` et un raccourci vers `/Applications`, pour une
 installation par glisser-déposer.
 
-La première V1 est volontairement non signée. Pour une diffusion à des tiers,
-la prochaine étape recommandée sera une signature Developer ID et une
-notarisation Apple ; cela ne nécessite pas le Mac App Store et ne change pas
-l’architecture de l’application.
+Sans variable de signature, ce script produit encore un DMG de développement
+non signé. Lorsqu'une identité `MACOS_CODESIGN_IDENTITY` est disponible,
+PyInstaller signe tous les composants avec le Hardened Runtime et le script
+signe aussi le DMG. La CI effectue ensuite la notarisation et l'agrafage du
+ticket Apple.
+
+La création du certificat et les cinq secrets GitHub requis sont documentés
+dans [`SIGNING.md`](SIGNING.md). Cette distribution Developer ID reste un DMG
+glisser-déposer et ne passe pas par le Mac App Store.
