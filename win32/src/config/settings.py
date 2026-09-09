@@ -8,6 +8,7 @@ import logging
 import keyring
 from PySide6.QtCore import QSettings
 from src.config.build_info import BUILD_CHANNEL
+from src.config.foundry_models import DEFAULT_FOUNDRY_MODEL, normalize_foundry_model
 from supermenu_core.config.openai_models import (
     DEFAULT_OPENAI_MODEL,
     get_default_reasoning_effort_for_model,
@@ -278,6 +279,8 @@ class Settings:
 
     def get_reasoning_effort(self):
         """Get the effort for the active provider."""
+        if self.get_ai_provider() == "foundry":
+            return "none"
         if self.get_use_custom_endpoint():
             return self.get_custom_reasoning_effort()
         return self.get_openai_reasoning_effort()
@@ -339,6 +342,25 @@ class Settings:
     def set_use_custom_endpoint(self, use_custom):
         """Set whether to use custom endpoint"""
         self.settings.setValue("use_custom_endpoint", bool(use_custom))
+        self.settings.setValue("ai_provider", "custom" if use_custom else "openai")
+
+    def get_ai_provider(self):
+        provider = self.settings.value("ai_provider", "")
+        if provider in ("openai", "custom", "foundry"):
+            return provider
+        return "custom" if self.get_use_custom_endpoint() else "openai"
+
+    def set_ai_provider(self, provider):
+        if provider not in ("openai", "custom", "foundry"):
+            provider = "openai"
+        self.settings.setValue("ai_provider", provider)
+        self.settings.setValue("use_custom_endpoint", provider == "custom")
+
+    def get_foundry_model(self):
+        return normalize_foundry_model(self.settings.value("foundry_model", DEFAULT_FOUNDRY_MODEL))
+
+    def set_foundry_model(self, model):
+        self.settings.setValue("foundry_model", normalize_foundry_model(model))
         
     def get_microphone_index(self):
         """Get the selected microphone index"""
@@ -779,6 +801,7 @@ class Settings:
         self.set_custom_endpoint(self.default_custom_endpoint)
         self.set_custom_model(self.default_custom_model)
         self.set_use_custom_endpoint(self.default_use_custom_endpoint)
+        self.set_foundry_model(DEFAULT_FOUNDRY_MODEL)
         self.set_microphone_index(self.default_microphone_index)
         self.set_transcription_languages(
             self.default_transcription_languages

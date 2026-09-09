@@ -444,7 +444,7 @@ def test_main_window_constructs_without_duplicate_prompts(monkeypatch, tmp_path)
     window.context_menu_manager = SimpleNamespace(
         update_client_config=lambda: client_updates.append("updated")
     )
-    window.use_custom_endpoint_checkbox.setChecked(True)
+    window.ai_provider_combo.setCurrentIndex(window.ai_provider_combo.findData("custom"))
     window.custom_model_combo.setCurrentText("qwen3.5-4b")
     on_index = window.custom_reasoning_effort_combo.findData("on")
     off_index = window.custom_reasoning_effort_combo.findData("off")

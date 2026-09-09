@@ -502,10 +502,13 @@ class MainWindow(QMainWindow):
         models_widget = QWidget()
         models_layout = QVBoxLayout(models_widget)
 
-        self.use_custom_endpoint_checkbox = QCheckBox("Activer un endpoint personnalisé (ex: Ollama / LM Studio)")
-        self.use_custom_endpoint_checkbox.setChecked(self.settings.get_use_custom_endpoint())
-        self.use_custom_endpoint_checkbox.toggled.connect(self.toggle_custom_endpoint)
-        models_layout.addWidget(self.use_custom_endpoint_checkbox)
+        self.ai_provider_combo = QComboBox()
+        self.ai_provider_combo.addItem("OpenAI", "openai")
+        self.ai_provider_combo.addItem("Ollama / LM Studio", "custom")
+        self.ai_provider_combo.addItem("IA locale Microsoft — Foundry Local", "foundry")
+        self.ai_provider_combo.setCurrentIndex(self.ai_provider_combo.findData(self.settings.get_ai_provider()))
+        models_layout.addWidget(QLabel("Moteur IA :"))
+        models_layout.addWidget(self.ai_provider_combo)
 
         self.openai_group = QGroupBox("OpenAI")
         openai_layout = QVBoxLayout(self.openai_group)
@@ -622,6 +625,10 @@ class MainWindow(QMainWindow):
 
         models_layout.addWidget(self.openai_group)
         models_layout.addWidget(self.custom_group)
+        from src.ui.foundry_settings import FoundrySettingsWidget
+        self.foundry_group = FoundrySettingsWidget(self.settings, self)
+        models_layout.addWidget(self.foundry_group)
+        self.ai_provider_combo.currentIndexChanged.connect(self.toggle_custom_endpoint)
 
         save_api_key_button = QPushButton("Enregistrer la configuration")
         save_api_key_button.clicked.connect(self.save_api_key)
@@ -1687,7 +1694,10 @@ class MainWindow(QMainWindow):
             self.model_combo.setCurrentText(self.settings.get_model())
             self.update_reasoning_effort_ui()
             # Reload custom endpoint configuration
-            self.use_custom_endpoint_checkbox.setChecked(self.settings.get_use_custom_endpoint())
+            self.ai_provider_combo.setCurrentIndex(self.ai_provider_combo.findData(self.settings.get_ai_provider()))
+            self.foundry_group.model_combo.setCurrentIndex(
+                self.foundry_group.model_combo.findData(self.settings.get_foundry_model())
+            )
             self.custom_endpoint_input.setText(self.settings.get_custom_endpoint())
             self.custom_model_combo.clear()
             current_custom_model = self.settings.get_custom_model()
@@ -2481,12 +2491,16 @@ class MainWindow(QMainWindow):
         self.voice_prompt_order_combo.setCurrentIndex(0)
     
     def toggle_custom_endpoint(self):
-        """Basculer l'affichage entre OpenAI et endpoint personnalisé"""
-        use_custom = self.use_custom_endpoint_checkbox.isChecked()
+        """Afficher les réglages du fournisseur sélectionné."""
+        provider = self.ai_provider_combo.currentData()
+        use_custom = provider == "custom"
         
         # Afficher/masquer les sections appropriées
-        self.openai_group.setVisible(not use_custom)
+        self.openai_group.setVisible(provider == "openai")
         self.custom_group.setVisible(use_custom)
+        self.foundry_group.setVisible(provider == "foundry")
+        if provider == "foundry" and not self.foundry_group.probed:
+            self.foundry_group.probe()
         if use_custom and self.custom_endpoint_input.text().strip():
             self._custom_models_refresh_timer.start()
         else:
@@ -2618,7 +2632,8 @@ class MainWindow(QMainWindow):
         """Save the API key and configuration"""
         api_key = self.api_key_input.text().strip()
         model = self.model_combo.currentText()
-        use_custom = self.use_custom_endpoint_checkbox.isChecked()
+        provider = self.ai_provider_combo.currentData()
+        use_custom = provider == "custom"
         custom_endpoint = self.custom_endpoint_input.text().strip()
         custom_endpoint_api_key = self.custom_endpoint_api_key_input.text().strip()
         custom_endpoint_type = self.custom_endpoint_type_combo.currentData() if self.custom_endpoint_type_combo else "ollama"
@@ -2629,7 +2644,7 @@ class MainWindow(QMainWindow):
         )
         
         # Validation
-        if not use_custom and api_key:
+        if provider == "openai" and api_key:
             is_valid, error_msg = Validators.validate_api_key(api_key)
             if not is_valid:
                 QMessageBox.warning(self, "Clé API invalide", error_msg)
@@ -2676,7 +2691,8 @@ class MainWindow(QMainWindow):
             model,
         )
         self.settings.set_custom_reasoning_effort(normalized_custom_effort)
-        self.settings.set_use_custom_endpoint(use_custom)
+        self.settings.set_ai_provider(provider)
+        self.settings.set_foundry_model(self.foundry_group.selected_model())
         self.settings.set_custom_endpoint(custom_endpoint)
         self.settings.set_custom_endpoint_api_key(custom_endpoint_api_key)
         self.settings.set_custom_endpoint_type(custom_endpoint_type)
@@ -2710,7 +2726,7 @@ class MainWindow(QMainWindow):
         self._custom_model_details = {}
         self.update_custom_reasoning_effort_ui()
         if (
-            self.use_custom_endpoint_checkbox.isChecked()
+            self.ai_provider_combo.currentData() == "custom"
             and self.custom_endpoint_input.text().strip()
         ):
             self._custom_models_refresh_timer.start()
@@ -2736,7 +2752,7 @@ class MainWindow(QMainWindow):
         self.settings.sync()
         if (
             self.context_menu_manager
-            and self.use_custom_endpoint_checkbox.isChecked()
+            and self.ai_provider_combo.currentData() == "custom"
         ):
             self.context_menu_manager.update_client_config()
 

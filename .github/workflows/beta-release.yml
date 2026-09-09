@@ -3,7 +3,7 @@ name: Beta Release
 on:
   push:
     branches:
-      - codex/apple-foundation-models
+      - codex/foundry-local-windows
   workflow_run:
     workflows:
       - CI
@@ -25,7 +25,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/codex/apple-foundation-models')
+      (github.event_name == 'push' && github.ref == 'refs/heads/codex/foundry-local-windows')
     runs-on: windows-latest
     defaults:
       run:
@@ -102,6 +102,12 @@ jobs:
             throw "Packaged smoke test failed with exit code $($smoke.ExitCode)"
           }
 
+          $foundry = Start-Process -FilePath "dist/SuperMenu.exe" -ArgumentList "--foundry-smoke-test" -RedirectStandardOutput "build/foundry-smoke.json" -WindowStyle Hidden -Wait -PassThru
+          Get-Content -LiteralPath "build/foundry-smoke.json"
+          if ($foundry.ExitCode -ne 0) {
+            throw "Bundled Foundry runtime/catalog smoke test failed with exit code $($foundry.ExitCode)"
+          }
+
           Copy-Item -LiteralPath "dist/SuperMenu.exe" -Destination "SuperMenu_Beta.exe"
 
       - name: Install Inno Setup
@@ -130,7 +136,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/codex/apple-foundation-models')
+      (github.event_name == 'push' && github.ref == 'refs/heads/codex/foundry-local-windows')
     runs-on: macos-15
     defaults:
       run:
@@ -351,6 +357,12 @@ jobs:
 
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
+
+            Nouveauté Windows : Foundry Local embarqué avec Qwen3.5 4B et Qwen3.5 9B.
+            Dans Réglages > Moteur IA, choisir IA locale Microsoft, vérifier, télécharger
+            le modèle puis Enregistrer la configuration. Aucune clé API ni installation
+            de Foundry/Ollama nécessaire pour le texte. Windows 11 24H2 minimum.
+            Correction, reformulation et traduction locales ; dictée toujours via OpenAI.
 
             Nouveauté macOS : Apple Foundation Models. Dans Paramètres > Fournisseur IA,
             choisir Apple Intelligence — local (bêta), vérifier la disponibilité puis Enregistrer.

@@ -39,6 +39,7 @@ Windows et macOS.
 - **Modes de Capture** : Plein écran, Zone sélective ou "Demander à chaque fois".
 
 ### ⚙️ Flexibilité & Sécurité
+- **IA locale Microsoft (bêta)** : Foundry Local embarqué avec **Qwen3.5 4B** et **9B**, téléchargeables depuis les réglages, pour corriger, reformuler et traduire sans clé API. [Configuration et limites](docs/foundry-local.md).
 - **Multi-Modèles** : Sélecteur OpenAI limité à `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` et `gpt-5.4`, plus les **Endpoints Locaux** (Ollama, LM Studio).
 - **Thinking / Raisonnement** : GPT‑OSS utilise ses niveaux `low/medium/high`, Qwen et DeepSeek utilisent l’interrupteur `think`, et LM Studio suit les capacités natives du modèle (`off/on` ou niveaux).
 - **Sélecteur d'Endpoint** : Choisis explicitement Ollama ou LM Studio dans les paramètres au lieu de dépendre d'une détection automatique.
@@ -72,8 +73,8 @@ Windows et macOS.
 
 Au premier lancement (ou via l'icône dans la barre des tâches) :
 
-1. **API Key** : Rentre ta clé OpenAI, ou configure un endpoint local avec son
-   propre jeton optionnel s'il est privé.
+1. **Moteur IA** : Choisis OpenAI avec ta clé API, un endpoint Ollama/LM Studio,
+   ou **IA locale Microsoft** puis télécharge un Qwen et enregistre la configuration.
 2. **Raccourcis** : Vérifie ou modifie les raccourcis par défaut.
    - **Menu** : `Ctrl+²` (le carré, en haut à gauche du clavier AZERTY).
    - **Voix** : `Ctrl+Alt+²`.

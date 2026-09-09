@@ -39,10 +39,7 @@ class ContextMenuManager(QObject):
         self.settings = settings
         # Initialiser le client API avec les paramètres
         # Ne pas passer le modèle ici, OpenAIClient le déterminera selon le type d'endpoint
-        self.api_client = OpenAIClient(
-            settings=settings,
-            api_key=settings.get_api_key()
-        )
+        self.api_client = self._create_api_client()
         self.response_window = ResponseWindow()
         self.voice_recognition = None
         self._pending_requests = {}
@@ -77,6 +74,12 @@ class ContextMenuManager(QObject):
         
         # Connecter le signal de retry
         self.response_window.retry_requested.connect(self.on_retry_requested)
+
+    def _create_api_client(self):
+        if self.settings.get_ai_provider() == "foundry":
+            from src.api.foundry_client import FoundryClient
+            return FoundryClient(self.settings)
+        return OpenAIClient(settings=self.settings, api_key=self.settings.get_api_key())
 
     def _connect_api_client(self, client):
         client.request_started_scoped.connect(self.on_request_started_scoped)
@@ -1196,16 +1199,15 @@ class ContextMenuManager(QObject):
         
         # Recréer le client avec les nouveaux paramètres
         # Le modèle sera automatiquement déterminé selon le type d'endpoint
-        self.api_client = OpenAIClient(
-            settings=self.settings,
-            api_key=self.settings.get_api_key()
-        )
+        self.api_client = self._create_api_client()
         
         self._connect_api_client(self.api_client)
         self._release_retired_client_if_idle(old_client)
             
-        endpoint_info = self.settings.get_custom_endpoint() if self.settings.get_use_custom_endpoint() else "OpenAI"
-        model_info = self.settings.get_custom_model() if self.settings.get_use_custom_endpoint() else self.settings.get_model()
+        provider = self.settings.get_ai_provider()
+        endpoint_info = self.settings.get_custom_endpoint() if provider == "custom" else provider
+        model_info = (self.settings.get_foundry_model() if provider == "foundry" else
+                      self.settings.get_custom_model() if provider == "custom" else self.settings.get_model())
         
         log(
             f"ContextMenuManager: Configuration du client API mise à jour. Endpoint: {endpoint_info}, Modèle: {model_info}",

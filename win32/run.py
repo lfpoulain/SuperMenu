@@ -19,6 +19,7 @@ if project_dir not in sys.path:
 
 def run_packaged_smoke_test():
     """Validate bundled assets without starting the desktop event loop."""
+    from PySide6.QtCore import qVersion
     from supermenu_core.config.openai_models import (
         AVAILABLE_MODELS,
         DEFAULT_OPENAI_MODEL,
@@ -27,6 +28,7 @@ def run_packaged_smoke_test():
     from src.utils.paths import packaged_resource_status
 
     status = packaged_resource_status()
+    status["qt_version"] = qVersion()
     expected_models = [
         "gpt-5.6-sol",
         "gpt-5.6-terra",
@@ -56,9 +58,46 @@ def run_packaged_smoke_test():
     return 0 if status["ok"] else 1
 
 
+def run_foundry_smoke_test():
+    """Exercise bundled native DLLs and windowed child pipes, without weights."""
+    import subprocess
+    from src.api.foundry_client import worker_command
+    from src.api.foundry_worker import pipe_stream
+    from src.config.foundry_models import FOUNDRY_MODELS
+
+    try:
+        sys.stdout = pipe_stream("stdout", -11, "w")
+    except (OSError, ValueError, TypeError):
+        pass  # No output handle when invoked by Start-Process without redirect.
+    program, args = worker_command()
+    child = subprocess.run(
+        [program, *args], input=json.dumps({"id": "smoke", "operation": "probe"}) + "\n",
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        encoding="utf-8", timeout=120, creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    for line in child.stdout.splitlines():
+        try:
+            response = json.loads(line)
+        except ValueError:
+            continue
+        if response.get("id") != "smoke":
+            continue
+        models = response.get("result", {}).get("models", [])
+        ok = child.returncode == 0 and {m["alias"] for m in models} == set(FOUNDRY_MODELS)
+        print(json.dumps({"foundry_ok": ok, "models": models}))
+        return 0 if ok else 1
+    print(json.dumps({"foundry_ok": False, "child_exit": child.returncode, "output": child.stdout[-2000:]}))
+    return 1
+
+
 # Importer et lancer l'application
 if __name__ == "__main__":
     try:
+        if "--foundry-worker" in sys.argv:
+            from src.api.foundry_worker import main
+            sys.exit(main())
+        if "--foundry-smoke-test" in sys.argv:
+            sys.exit(run_foundry_smoke_test())
         if "--smoke-test" in sys.argv:
             sys.exit(run_packaged_smoke_test())
         from src.main import SuperMenu

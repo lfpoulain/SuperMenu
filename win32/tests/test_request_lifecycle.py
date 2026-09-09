@@ -14,6 +14,9 @@ def _app():
 
 
 class FakeSettings:
+    def get_ai_provider(self):
+        return "custom" if self.get_use_custom_endpoint() else "openai"
+
     def get_api_key(self):
         return "key"
 
