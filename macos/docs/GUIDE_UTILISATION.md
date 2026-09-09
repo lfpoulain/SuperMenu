@@ -146,9 +146,9 @@ Si le texte est trop long, sélectionnez un passage plus court. Cette intégrati
 ne propose pas de niveau de raisonnement. **Réessayer**, **Copier**, **Écrire**,
 les prompts personnalisés sans sélection et l’insertion directe restent disponibles.
 
-Les préreleases **Apple Foundation Models beta** se téléchargent manuellement
-depuis GitHub Releases. Le canal **Bêta** des mises à jour continue de suivre la
-bêta générale de SuperMenu.
+Cette intégration est distribuée dans le canal **Bêta** existant. Choisissez
+**Bêta** dans **Canal de mise à jour**, ou téléchargez le DMG macOS de la release
+**SuperMenu Beta** sur GitHub.
 
 ## Configurer les raccourcis
 

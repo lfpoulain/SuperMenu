@@ -17,14 +17,15 @@ permissions:
   contents: write
 
 concurrency:
-  group: beta-release-${{ github.event_name == 'workflow_run' && 'main' || github.ref_name }}
+  group: beta-release
   cancel-in-progress: true
 
 jobs:
   build-windows-beta:
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/codex/apple-foundation-models')
     runs-on: windows-latest
     defaults:
       run:
@@ -275,49 +276,6 @@ jobs:
           security delete-keychain "${keychain_path}" 2>/dev/null || true
           rm -f "${RUNNER_TEMP}/supermenu-developer-id.p12"
 
-  publish-apple-beta:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/apple-foundation-models'
-    needs: build-macos-beta
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download signed macOS beta
-        uses: actions/download-artifact@v6
-        with:
-          name: beta-macos
-          path: release-assets
-
-      - name: Checksum
-        working-directory: release-assets
-        run: sha256sum SuperMenu_Beta-macOS-arm64.dmg > SHA256SUMS-apple-beta.txt
-
-      - name: Publish Apple Foundation Models test beta
-        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
-        with:
-          tag: apple-foundation-beta-${{ github.run_number }}
-          commit: ${{ github.sha }}
-          name: SuperMenu macOS — Apple Foundation Models beta ${{ github.run_number }}
-          prerelease: true
-          makeLatest: false
-          allowUpdates: true
-          updateOnlyUnreleased: true
-          replacesArtifacts: true
-          artifactErrorsFailBuild: true
-          artifacts: release-assets/*
-          token: ${{ secrets.GITHUB_TOKEN }}
-          body: |
-            Bêta macOS dédiée à Apple Foundation Models.
-            Version : ${{ needs.build-macos-beta.outputs.app_version }}
-            Commit : ${{ github.sha }}
-
-            DMG Apple Silicon signé Developer ID et notarisé par Apple.
-            Dans Paramètres > Fournisseur IA, choisir Apple Intelligence — local (bêta),
-            vérifier la disponibilité puis Enregistrer.
-            Nécessite macOS 26+ et Apple Intelligence activé avec son modèle téléchargé.
-            Tester correction, reformulation, résumé, Réessayer et insertion directe.
-
-            Cette prérelease se télécharge manuellement. Le canal de mise à jour Bêta
-            continue de suivre la bêta générale de SuperMenu.
-
   publish-beta:
     needs:
       - build-windows-beta
@@ -384,7 +342,7 @@ jobs:
           artifacts: release-assets/*
           token: ${{ secrets.GITHUB_TOKEN }}
           body: |
-            Build beta automatique depuis la branche main.
+            Build beta depuis le commit indiqué ci-dessous.
 
             Channel: beta
             Windows version: ${{ env.WINDOWS_VERSION }}
@@ -393,6 +351,10 @@ jobs:
 
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
+
+            Nouveauté macOS : Apple Foundation Models. Dans Paramètres > Fournisseur IA,
+            choisir Apple Intelligence — local (bêta), vérifier la disponibilité puis Enregistrer.
+            Nécessite macOS 26+ et Apple Intelligence activé avec son modèle téléchargé.
 
             Cette version est une prérelease destinée aux tests. Pour la version recommandée, utilisez la dernière release stable.
 
