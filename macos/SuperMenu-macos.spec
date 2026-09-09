@@ -12,7 +12,7 @@ codesign_identity = os.environ.get("MACOS_CODESIGN_IDENTITY") or None
 a = Analysis(
     ["run.py"],
     pathex=[str(project_dir), str(shared_dir)],
-    binaries=[],
+    binaries=[("build/native/SuperMenuFoundationModels", "native")],
     datas=[
         ("resources", "resources"),
         ("VERSION", "."),

@@ -35,6 +35,7 @@ conserve ses intégrations natives, ses dépendances, ses tests et son packaging
 | Texte sélectionné et prompts personnalisés | Oui | Oui |
 | Insertion directe dans l’application cible | Oui | Oui |
 | OpenAI, Ollama et LM Studio | Oui | Oui |
+| Apple Intelligence local (bêta) | Non | macOS 26+ |
 | Raccourcis globaux et raccourcis par prompt | Win32 | AppKit |
 | Transcription audio | Oui | Non |
 | Capture et analyse d’écran | Oui | Non |

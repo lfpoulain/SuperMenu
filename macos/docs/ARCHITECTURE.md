@@ -50,6 +50,33 @@ flowchart LR
 Le cœur partagé ne connaît pas la plateforme. La couche macOS adapte ses
 interfaces : paramètres, présentation, insertion et accès au fournisseur.
 
+### Fournisseur Apple Foundation Models
+
+`src/api/apple_foundation_client.py` implémente les mêmes signaux de requête
+que le client HTTP. `ContextMenuManager` choisit ce client lorsque `ai_provider`
+vaut `apple`. Les configurations existantes sont migrées à partir de
+`use_custom_endpoint` au premier choix d’un fournisseur.
+
+Chaque demande lance `native/FoundationModelsHelper.swift`, compilé en exécutable
+arm64 et embarqué dans le bundle par PyInstaller. Le protocole utilise un objet
+JSON sur stdin puis un objet JSON sur stdout ; le texte n’apparaît ni dans la
+ligne de commande, ni sur disque, ni dans les journaux. Les erreurs natives
+deviennent des codes stables et des messages français. Aucune requête réseau
+ni bascule automatique vers un autre fournisseur n’est effectuée par ce client.
+
+`QProcess` conserve l’interface réactive ; une vérification de disponibilité a
+un délai de 15 secondes, une génération de 120 secondes. Fermer l’application
+tue les processus encore actifs. Chaque génération crée une nouvelle session
+Apple pour éviter l’accumulation de contexte. Les erreurs de contexte sont
+affichées sans tronquer silencieusement la sélection.
+
+Le build utilise Xcode 26.2 sur les runners macOS 15. Le framework est lié
+faiblement avec une cible macOS 12 et ses appels sont protégés par une vérification
+macOS 26. Le helper compilé puis sa copie signée dans le bundle sont testés via
+le protocole de disponibilité, y compris sur un runner sans Apple Intelligence.
+La qualité des générations doit être validée sur un Mac compatible avec le
+modèle activé.
+
 ## Arborescence
 
 ```text

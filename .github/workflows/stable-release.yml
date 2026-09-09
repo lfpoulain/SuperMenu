@@ -117,7 +117,9 @@ jobs:
           retention-days: 30
 
   build-macos-stable:
-    runs-on: macos-14
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
     defaults:
       run:
         working-directory: macos

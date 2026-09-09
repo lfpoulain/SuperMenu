@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.config.build_info import APP_VERSION
+from src.api.apple_foundation_client import FoundationModelsRequest
 from supermenu_core.config.openai_models import (
     AVAILABLE_MODELS,
     get_reasoning_efforts_for_model,
@@ -143,6 +144,7 @@ class MainWindow(QMainWindow):
         self._loading_prompt = False
         self._update_worker = None
         self._custom_models_worker = None
+        self._apple_probe = None
         self._custom_model_details = {}
         self._hotkey_dialog = None
         self._last_permission_state = None
@@ -279,13 +281,15 @@ class MainWindow(QMainWindow):
         content = QWidget()
         layout = QVBoxLayout(content)
 
-        endpoint_toggle = QCheckBox(
-            "Activer un endpoint personnalisé (ex: Ollama / LM Studio)"
+        layout.addWidget(QLabel("Fournisseur IA :"))
+        self.provider_combo = NoWheelComboBox()
+        self.provider_combo.addItem("OpenAI", "openai")
+        self.provider_combo.addItem("Ollama / LM Studio", "custom")
+        self.provider_combo.addItem("Apple Intelligence — local (bêta)", "apple")
+        self.provider_combo.setCurrentIndex(
+            self.provider_combo.findData(self.settings.get_ai_provider())
         )
-        endpoint_toggle.setChecked(self.settings.get_use_custom_endpoint())
-        endpoint_toggle.toggled.connect(self.toggle_custom_endpoint)
-        self.use_custom_endpoint = endpoint_toggle
-        layout.addWidget(endpoint_toggle)
+        layout.addWidget(self.provider_combo)
 
         api_group = QGroupBox("OpenAI")
         api_layout = QVBoxLayout(api_group)
@@ -363,6 +367,35 @@ class MainWindow(QMainWindow):
         )
         self._update_custom_reasoning_options()
         layout.addWidget(endpoint_group)
+
+        self.apple_group = QGroupBox("Apple Intelligence")
+        apple_layout = QVBoxLayout(self.apple_group)
+        apple_description = QLabel(
+            "Le modèle Apple traite votre texte sur ce Mac, sans clé API ni serveur "
+            "à configurer. Nécessite macOS 26+, un Mac Apple Silicon et Apple "
+            "Intelligence activé avec son modèle téléchargé.\n\n"
+            "Pour cette bêta, privilégiez les passages courts : correction, "
+            "reformulation et résumé. Les textes longs peuvent dépasser la "
+            "capacité du modèle."
+        )
+        apple_description.setWordWrap(True)
+        apple_layout.addWidget(apple_description)
+        self.apple_status = QLabel("Disponibilité à vérifier.")
+        self.apple_status.setWordWrap(True)
+        apple_layout.addWidget(self.apple_status)
+        self.apple_refresh = QPushButton("Vérifier la disponibilité")
+        self.apple_refresh.clicked.connect(self.refresh_apple_availability)
+        apple_layout.addWidget(self.apple_refresh)
+        apple_settings = QPushButton("Ouvrir les réglages Apple Intelligence")
+        apple_settings.clicked.connect(
+            lambda: QDesktopServices.openUrl(
+                QUrl("x-apple.systempreferences:com.apple.Siri-Settings.extension")
+            )
+        )
+        apple_layout.addWidget(apple_settings)
+        layout.addWidget(self.apple_group)
+        self.provider_combo.currentIndexChanged.connect(self.toggle_provider)
+        QApplication.instance().aboutToQuit.connect(self._cancel_apple_probe)
 
         shortcuts_group = QGroupBox("⌨️ Raccourcis clavier")
         shortcuts_form = _create_form_layout(shortcuts_group)
@@ -445,7 +478,7 @@ class MainWindow(QMainWindow):
         scroll.setWidget(content)
         container_layout.addWidget(scroll)
         self._refresh_reasoning_options(self.settings.get_model())
-        self.toggle_custom_endpoint()
+        self.toggle_provider()
         self.refresh_permission_status()
         return container
 
@@ -682,11 +715,44 @@ class MainWindow(QMainWindow):
         self.reasoning_combo.addItems(get_reasoning_efforts_for_model(model))
         self.reasoning_combo.setCurrentText(current)
 
-    def toggle_custom_endpoint(self, *_args):
-        """Show the same OpenAI/custom endpoint switch used by Windows."""
-        use_custom = self.use_custom_endpoint.isChecked()
-        self.openai_group.setVisible(not use_custom)
-        self.custom_group.setVisible(use_custom)
+    def toggle_provider(self, *_args):
+        provider = self.provider_combo.currentData()
+        self.openai_group.setVisible(provider == "openai")
+        self.custom_group.setVisible(provider == "custom")
+        self.apple_group.setVisible(provider == "apple")
+        if provider == "apple":
+            self.refresh_apple_availability()
+        else:
+            self._cancel_apple_probe()
+
+    def refresh_apple_availability(self, _checked=False):
+        if self._apple_probe is not None:
+            return
+        probe = FoundationModelsRequest(self)
+        self._apple_probe = probe
+        self.apple_refresh.setEnabled(False)
+        self.apple_status.setText("Vérification du modèle Apple…")
+
+        def complete(message):
+            if self._apple_probe is not probe:
+                return
+            self._apple_probe = None
+            self.apple_refresh.setEnabled(True)
+            self.apple_status.setText(message)
+            probe.deleteLater()
+
+        probe.succeeded.connect(
+            lambda _reply: complete("Prêt : le modèle Apple est disponible sur ce Mac.")
+        )
+        probe.failed.connect(complete)
+        probe.start({"action": "availability"}, timeout_ms=15_000)
+
+    def _cancel_apple_probe(self):
+        if self._apple_probe is not None:
+            self._apple_probe.cancel()
+            self._apple_probe.deleteLater()
+            self._apple_probe = None
+        self.apple_refresh.setEnabled(True)
 
     def refresh_custom_models(self, _checked=False):
         if self._custom_models_worker and self._custom_models_worker.isRunning():
@@ -1033,7 +1099,7 @@ class MainWindow(QMainWindow):
         return status
 
     def _validate_endpoint_settings(self):
-        if not self.use_custom_endpoint.isChecked():
+        if self.provider_combo.currentData() != "custom":
             return True
         valid, message = Validators.validate_url(self.custom_endpoint.text())
         if not valid:
@@ -1059,7 +1125,7 @@ class MainWindow(QMainWindow):
         self.settings.set_openai_reasoning_effort(
             self.reasoning_combo.currentText(), model
         )
-        self.settings.set_use_custom_endpoint(self.use_custom_endpoint.isChecked())
+        self.settings.set_ai_provider(self.provider_combo.currentData())
         self.settings.set_custom_endpoint(self.custom_endpoint.text())
         self.settings.set_custom_endpoint_api_key(
             self.custom_endpoint_api_key.text()
@@ -1211,6 +1277,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self._permission_timer.stop()
         if self._quitting:
+            self._cancel_apple_probe()
             event.accept()
         else:
             event.ignore()

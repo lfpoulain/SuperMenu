@@ -52,6 +52,10 @@ class ContextMenuManager(QObject):
         self._connect_api_client(self.api_client)
 
     def _create_api_client(self):
+        if self.settings.get_ai_provider() == "apple":
+            from src.api.apple_foundation_client import AppleFoundationClient
+
+            return AppleFoundationClient()
         return OpenAIClient(
             settings=self.settings,
             api_key=self.settings.get_api_key(),

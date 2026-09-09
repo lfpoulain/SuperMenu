@@ -8,7 +8,8 @@
 SuperMenu pour macOS est une application de barre des menus dédiée au travail
 sur du texte. Elle lit la sélection de l’application active, propose les
 prompts configurés, interroge OpenAI ou un endpoint local et peut réinsérer la
-réponse dans la cible d’origine.
+réponse dans la cible d’origine. Sur macOS 26+, la bêta propose aussi le modèle
+local Apple Intelligence via Foundation Models.
 
 Cette composition est indépendante de Windows : elle possède ses intégrations
 AppKit, ses permissions, son stockage, ses tests et son packaging. La logique
@@ -21,7 +22,7 @@ métier et les composants Qt génériques proviennent de `../shared`.
 - raccourcis globaux attribuables à des prompts individuels ;
 - lecture du texte sélectionné et restauration prudente du presse-papiers ;
 - réponse affichée, copiée ou réinsérée dans l’application d’origine ;
-- OpenAI, Ollama et LM Studio ;
+- OpenAI, Ollama, LM Studio et Apple Intelligence local (bêta, macOS 26+) ;
 - prompts modifiables, réordonnables, importables et exportables ;
 - thèmes clair, sombre et automatique ;
 - mises à jour Stable/Beta dirigées vers le DMG Apple Silicon exact.
@@ -96,7 +97,9 @@ contiennent ni clé API, ni texte sélectionné, ni contenu de prompt.
 
 ## Développer sur un Mac
 
-Python 3.12 est la version de référence.
+Python 3.12 est la version de référence. Pour compiler le composant Apple ou un
+DMG, utilisez Xcode 26+ avec son SDK macOS 26+. Les autres fournisseurs restent
+utilisables sur les versions de macOS antérieures prises en charge.
 
 ```bash
 cd macos
@@ -104,6 +107,7 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements-dev.txt
+bash scripts/build_foundation_helper.sh
 python run.py
 ```
 

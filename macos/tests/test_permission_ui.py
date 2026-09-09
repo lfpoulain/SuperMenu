@@ -131,11 +131,11 @@ def test_granted_permissions_reload_hotkeys(window, monkeypatch):
 
 
 def test_custom_endpoint_switch_uses_windows_style_on_off_display(window):
-    window.use_custom_endpoint.setChecked(False)
+    window.provider_combo.setCurrentIndex(window.provider_combo.findData("openai"))
     assert window.openai_group.isHidden() is False
     assert window.custom_group.isHidden() is True
 
-    window.use_custom_endpoint.setChecked(True)
+    window.provider_combo.setCurrentIndex(window.provider_combo.findData("custom"))
     assert window.openai_group.isHidden() is True
     assert window.custom_group.isHidden() is False
 

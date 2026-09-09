@@ -11,6 +11,7 @@ dmg_path="${project_dir}/dist/SuperMenu-${version}-macOS-arm64.dmg"
 
 cd "${project_dir}"
 bash "${script_dir}/create_icon.sh"
+bash "${script_dir}/build_foundation_helper.sh"
 python -m PyInstaller --noconfirm --clean SuperMenu-macos.spec
 
 if [[ -n "${MACOS_CODESIGN_IDENTITY:-}" ]]; then
@@ -22,6 +23,11 @@ if [[ -n "${MACOS_CODESIGN_IDENTITY:-}" ]]; then
 fi
 
 "${app_path}/Contents/MacOS/SuperMenu" --smoke-test
+
+# Exercise the signed, bundled helper before notarizing and publishing it.
+printf '%s' '{"action":"availability"}' | \
+    "${app_path}/Contents/Frameworks/native/SuperMenuFoundationModels" | \
+    python -c 'import json, sys; r = json.load(sys.stdin); assert type(r.get("ok")) is bool; assert r["ok"] or r.get("code") in {"os_unsupported", "device_not_eligible", "intelligence_disabled", "model_not_ready", "unavailable"}, r'
 
 # Notarize and staple the bundle before it is packaged, so the ticket survives
 # the drag to /Applications and the first launch works offline.

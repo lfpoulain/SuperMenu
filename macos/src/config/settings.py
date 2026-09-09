@@ -144,6 +144,8 @@ class Settings:
         self.settings.setValue("custom_reasoning_effort", normalized)
 
     def get_reasoning_effort(self) -> str:
+        if self.get_ai_provider() == "apple":
+            return "none"
         if self.get_use_custom_endpoint():
             return self.get_custom_reasoning_effort()
         return self.get_openai_reasoning_effort()
@@ -178,6 +180,19 @@ class Settings:
 
     def set_use_custom_endpoint(self, enabled: bool) -> None:
         self.settings.setValue("use_custom_endpoint", bool(enabled))
+
+    def get_ai_provider(self) -> str:
+        provider = self.settings.value("ai_provider", "")
+        if provider in {"openai", "custom", "apple"}:
+            return provider
+        # Migrate existing installations without changing their selected provider.
+        return "custom" if self.get_use_custom_endpoint() else "openai"
+
+    def set_ai_provider(self, provider: str) -> None:
+        if provider not in {"openai", "custom", "apple"}:
+            raise ValueError("Fournisseur IA inconnu.")
+        self.settings.setValue("ai_provider", provider)
+        self.set_use_custom_endpoint(provider == "custom")
 
     def get_hotkey(self) -> str:
         return str(self.settings.value("hotkey", self.default_hotkey))

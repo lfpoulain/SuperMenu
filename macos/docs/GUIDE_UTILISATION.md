@@ -99,7 +99,7 @@ Ouvrez **SuperMenu > Paramètres** depuis l’icône de la barre des menus.
 
 ### OpenAI
 
-Laissez **Activer un endpoint personnalisé** désactivé, puis renseignez :
+Choisissez **OpenAI** dans **Fournisseur IA**, puis renseignez :
 
 1. la clé API OpenAI ;
 2. le modèle ;
@@ -111,7 +111,7 @@ lequel elle a démarré.
 
 ### Ollama ou LM Studio
 
-Activez **Activer un endpoint personnalisé**, puis configurez :
+Choisissez **Ollama / LM Studio** dans **Fournisseur IA**, puis configurez :
 
 - l’URL de l’endpoint, par exemple `http://localhost:11434` pour Ollama ;
 - un jeton distinct si l’endpoint privé en exige un ;
@@ -124,6 +124,31 @@ Vous pouvez également saisir un identifiant de modèle manuellement.
 
 La clé OpenAI et le jeton d’endpoint sont deux réglages séparés. Activer un
 endpoint local ne réutilise jamais implicitement la clé OpenAI.
+
+### Apple Intelligence — local (bêta)
+
+Sur un Mac Apple Silicon avec macOS 26 ou supérieur :
+
+1. activez Apple Intelligence dans **Réglages Système > Apple Intelligence et Siri**
+   et attendez la fin du téléchargement du modèle ;
+2. choisissez **Apple Intelligence — local (bêta)** dans **Fournisseur IA** ;
+3. cliquez sur **Vérifier la disponibilité** : l’état doit indiquer **Prêt** ;
+4. cliquez sur **Enregistrer**, puis testez une correction, une reformulation
+   ou un résumé sur un court passage.
+
+Le traitement s’exécute sur le Mac. Aucune clé API ni installation d’Ollama
+n’est nécessaire. Les réglages des autres fournisseurs sont conservés et restent
+accessibles en changeant de fournisseur. Une erreur Apple est affichée ; la
+demande n’est jamais envoyée automatiquement à un autre fournisseur.
+
+Le modèle a une capacité de contexte limitée et peut refuser certaines demandes.
+Si le texte est trop long, sélectionnez un passage plus court. Cette intégration
+ne propose pas de niveau de raisonnement. **Réessayer**, **Copier**, **Écrire**,
+les prompts personnalisés sans sélection et l’insertion directe restent disponibles.
+
+Les préreleases **Apple Foundation Models beta** se téléchargent manuellement
+depuis GitHub Releases. Le canal **Bêta** des mises à jour continue de suivre la
+bêta générale de SuperMenu.
 
 ## Configurer les raccourcis
 
