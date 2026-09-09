@@ -16,7 +16,7 @@ xcrun swiftc \
     -parse-as-library -O \
     -target arm64-apple-macos12.0 \
     -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
-    -weak_framework FoundationModels \
+    -Xlinker -weak_framework -Xlinker FoundationModels \
     "${project_dir}/native/FoundationModelsHelper.swift" \
     -o "${output_dir}/SuperMenuFoundationModels"
 
