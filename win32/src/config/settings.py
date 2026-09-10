@@ -7,6 +7,7 @@ import logging
 
 import keyring
 from PySide6.QtCore import QSettings
+from supermenu_core.audio.settings import SpeechSettingsMixin
 from src.config.build_info import BUILD_CHANNEL
 from src.config.foundry_models import DEFAULT_FOUNDRY_MODEL, normalize_foundry_model
 from supermenu_core.config.openai_models import (
@@ -32,7 +33,7 @@ _normalize_update_channel = normalize_update_channel
 _normalize_prompt_collection = normalize_prompt_collection
 
 
-class Settings:
+class Settings(SpeechSettingsMixin):
     """Manage application settings"""
     
     def __init__(self):
@@ -810,6 +811,9 @@ class Settings:
         self.set_foundry_model(DEFAULT_FOUNDRY_MODEL)
         self.set_foundry_device("auto")
         self.set_microphone_index(self.default_microphone_index)
+        self.set_speech_provider("openai")
+        self.set_speech_device("auto")
+        self.set_speech_microphone("")
         self.set_transcription_languages(
             self.default_transcription_languages
         )

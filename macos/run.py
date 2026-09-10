@@ -14,6 +14,8 @@ if PROJECT_DIR not in sys.path:
 
 
 def run_packaged_smoke_test():
+    from PySide6.QtMultimedia import QAudioSource  # noqa: F401
+    from PySide6.QtWebSockets import QWebSocket  # noqa: F401
     from src.config.build_info import APP_VERSION, BUILD_CHANNEL
     from supermenu_core.config.openai_models import (
         AVAILABLE_MODELS,
@@ -24,6 +26,7 @@ def run_packaged_smoke_test():
     from src.utils.permissions import current_permission_status
 
     status = packaged_resource_status()
+    status["live_speech_modules_ok"] = True
     status["models"] = AVAILABLE_MODELS
     status["default_model"] = DEFAULT_OPENAI_MODEL
     status["app_version"] = APP_VERSION

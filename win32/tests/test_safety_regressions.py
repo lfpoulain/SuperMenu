@@ -45,7 +45,7 @@ def test_recording_dialog_stop_switches_to_processing():
 
     assert calls == ["stop"]
     assert dialog._state == "processing"
-    assert dialog.stop_button.isHidden() is True
+    assert dialog.stop_button.isEnabled() is False
 
 
 def test_audio_callback_never_exceeds_the_recording_limit(monkeypatch):

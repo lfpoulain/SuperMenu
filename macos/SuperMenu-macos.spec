@@ -12,7 +12,8 @@ codesign_identity = os.environ.get("MACOS_CODESIGN_IDENTITY") or None
 a = Analysis(
     ["run.py"],
     pathex=[str(project_dir), str(shared_dir)],
-    binaries=[("build/native/SuperMenuFoundationModels", "native")],
+    binaries=[("build/native/SuperMenuFoundationModels", "native"),
+              ("build/native/SuperMenuSpeech", "native")],
     datas=[
         ("resources", "resources"),
         ("VERSION", "."),
@@ -77,5 +78,6 @@ app = BUNDLE(
         "LSMinimumSystemVersion": "12.0",
         "LSUIElement": True,
         "NSHighResolutionCapable": True,
+        "NSMicrophoneUsageDescription": "SuperMenu utilise le microphone uniquement pendant votre dictée pour transcrire votre voix en texte.",
     },
 )

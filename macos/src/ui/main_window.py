@@ -478,6 +478,18 @@ class MainWindow(QMainWindow):
         self.channel_combo.setCurrentIndex(max(0, channel_index))
         general_form.addRow("Canal de mise à jour", self.channel_combo)
         layout.addWidget(general_group)
+        from supermenu_core.ui.speech_settings import SpeechSettingsWidget
+        from src.audio.speech_backend import create_speech_backend
+
+        self.speech_settings = SpeechSettingsWidget(
+            self.settings, lambda options: create_speech_backend(self.settings, options),
+            platform="darwin",
+        )
+        self.speech_settings.dictation_requested.connect(self.start_dictation)
+        self.api_key.textChanged.connect(self.speech_settings.api_key_input.setText)
+        self.speech_settings.api_key_input.textChanged.connect(self.api_key.setText)
+        QApplication.instance().aboutToQuit.connect(lambda: self.speech_settings.cancel(silent=True))
+        layout.addWidget(self.speech_settings)
         layout.addStretch()
 
         scroll.setWidget(content)
@@ -1143,6 +1155,8 @@ class MainWindow(QMainWindow):
     def save_settings(self):
         if not self._validate_endpoint_settings():
             return False
+        if not self.speech_settings.save():
+            return False
         current_prompt = self.prompt_list.currentItem()
         if current_prompt is not None and not self.save_current_prompt(False):
             return False
@@ -1195,6 +1209,9 @@ class MainWindow(QMainWindow):
         prompt_menu_action = QAction("Afficher le menu des prompts", self)
         prompt_menu_action.triggered.connect(self.show_prompt_menu)
         menu.addAction(prompt_menu_action)
+        dictation_action = QAction("Dicter du texte…", self)
+        dictation_action.triggered.connect(self.start_dictation)
+        menu.addAction(dictation_action)
         response_action = QAction("Afficher la dernière réponse", self)
         response_action.triggered.connect(
             lambda: self.context_menu_manager
@@ -1234,6 +1251,10 @@ class MainWindow(QMainWindow):
         self.show()
         self.raise_()
         self.activateWindow()
+
+    def start_dictation(self):
+        if self.context_menu_manager:
+            self.context_menu_manager.start_dictation(from_ui=True)
 
     def show_prompt_menu(self):
         """Open the prompt menu from Qt, independently of global hotkeys."""

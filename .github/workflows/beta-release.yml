@@ -358,6 +358,15 @@ jobs:
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
 
+            Dictée en direct : moteur vocal indépendant du moteur de texte.
+            Windows : OpenAI GPT Live Transcribe ou Foundry Local avec Nemotron 3.5
+            multilingue (français, CUDA prioritaire, modèle vocal d’environ 756 Mo).
+            Mac : OpenAI GPT Live Transcribe ou Apple Speech local (macOS 26+).
+            Dans Dictée et transcription en direct, vérifier le moteur, télécharger
+            le modèle local si nécessaire, enregistrer puis Dicter.
+            Nouvelle fenêtre avec transcription en direct, niveau du microphone,
+            copie du texte, finalisation et annulation. Aucun audio sauvegardé sur disque.
+
             Amélioration Mac et Windows : vérification des modèles locaux avec progression
             visible, confirmation verte « Prêt à utiliser » et heure de vérification.
             Les modèles à télécharger, avertissements et erreurs ont chacun un état
@@ -369,7 +378,7 @@ jobs:
             Dans Réglages > Moteur IA, choisir IA locale Microsoft, vérifier, télécharger
             le modèle puis Enregistrer la configuration. Aucune clé API ni installation
             de Foundry/Ollama nécessaire pour le texte. Windows 11 24H2 minimum.
-            Correction, reformulation et traduction locales ; dictée toujours via OpenAI.
+            Correction, reformulation et traduction locales ; dictée locale avec Nemotron 3.5.
 
             Nouveauté macOS : Apple Foundation Models. Dans Paramètres > Fournisseur IA,
             choisir Apple Intelligence — local (bêta), vérifier la disponibilité puis Enregistrer.

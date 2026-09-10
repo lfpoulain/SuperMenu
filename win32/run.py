@@ -20,6 +20,8 @@ if project_dir not in sys.path:
 def run_packaged_smoke_test():
     """Validate bundled assets without starting the desktop event loop."""
     from PySide6.QtCore import qVersion
+    from PySide6.QtMultimedia import QAudioSource  # noqa: F401
+    from PySide6.QtWebSockets import QWebSocket  # noqa: F401
     from supermenu_core.config.openai_models import (
         AVAILABLE_MODELS,
         DEFAULT_OPENAI_MODEL,
@@ -29,6 +31,7 @@ def run_packaged_smoke_test():
 
     status = packaged_resource_status()
     status["qt_version"] = qVersion()
+    status["live_speech_modules_ok"] = True
     expected_models = [
         "gpt-5.6-sol",
         "gpt-5.6-terra",
@@ -93,6 +96,9 @@ def run_foundry_smoke_test():
 # Importer et lancer l'application
 if __name__ == "__main__":
     try:
+        if "--speech-worker" in sys.argv:
+            from src.audio.foundry_speech_worker import main
+            sys.exit(main())
         if "--foundry-worker" in sys.argv:
             from src.api.foundry_worker import main
             sys.exit(main())

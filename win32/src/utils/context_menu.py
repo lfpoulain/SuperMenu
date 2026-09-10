@@ -373,6 +373,7 @@ class ContextMenuManager(QObject):
             lambda: "",
         )
         return VoiceRecognition(
+            settings=self.settings,
             api_key=self.settings.get_api_key(),
             microphone_index=self.settings.get_microphone_index(),
             callback=callback,

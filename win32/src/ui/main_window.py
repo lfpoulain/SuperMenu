@@ -616,8 +616,8 @@ class MainWindow(QMainWindow):
         self.update_custom_reasoning_effort_ui()
 
         note_label = QLabel(
-            "Note : la dictée utilise toujours l'API OpenAI "
-            "(gpt-transcribe), même avec un endpoint local."
+            "La dictée utilise le moteur vocal choisi dans les réglages, "
+            "indépendamment de ce moteur de texte."
         )
         note_label.setWordWrap(True)
         note_label.setStyleSheet("color: #666; font-style: italic;")
@@ -705,108 +705,24 @@ class MainWindow(QMainWindow):
         change_screenshot_hotkey_button.clicked.connect(self.change_screenshot_hotkey)
         hotkey_layout.addWidget(change_screenshot_hotkey_button)
         
-        # Audio and transcription section
-        microphone_group = QGroupBox("🎙️ Dictée et transcription")
-        microphone_layout = QVBoxLayout(microphone_group)
+        # Shared voice controls keep the speech engine independent of text settings.
+        from supermenu_core.ui.speech_settings import SpeechSettingsWidget
+        from src.audio.speech_backend import create_speech_backend
 
-        transcription_info = QLabel(
-            "<b>GPT Transcribe</b> — transcription fidèle après l'arrêt de "
-            "l'enregistrement. Laissez les langues vides pour activer la "
-            "détection automatique."
+        self.speech_settings = SpeechSettingsWidget(
+            self.settings, lambda options: create_speech_backend(self.settings, options), self
         )
-        transcription_info.setWordWrap(True)
-        transcription_info.setStyleSheet(
-            "color: #8d98a7; margin-bottom: 6px;"
-        )
-        microphone_layout.addWidget(transcription_info)
-
-        microphone_label = QLabel("Microphone :")
-        microphone_layout.addWidget(microphone_label)
-
-        self.microphone_combo = NoWheelComboBox()
-        self.populate_microphone_combo()
-        self.microphone_combo.currentIndexChanged.connect(
-            self.on_audio_settings_changed
-        )
-        microphone_row = QHBoxLayout()
-        microphone_row.setContentsMargins(0, 0, 0, 0)
-        microphone_row.setSpacing(4)
-        microphone_row.addWidget(self.microphone_combo)
-
-        refresh_microphones_button = QPushButton("Actualiser")
-        refresh_microphones_button.setIcon(
-            self.style().standardIcon(QStyle.SP_BrowserReload)
-        )
-        refresh_microphones_button.clicked.connect(
-            self.populate_microphone_combo
-        )
-        microphone_row.addWidget(refresh_microphones_button)
-        microphone_layout.addLayout(microphone_row)
-
-        language_label = QLabel("Langues attendues :")
-        microphone_layout.addWidget(language_label)
-        self.transcription_languages_input = QLineEdit()
-        self.transcription_languages_input.setPlaceholderText(
-            "fr, en — vide = détection automatique"
-        )
-        self.transcription_languages_input.setText(
-            self.settings.get_transcription_languages()
-        )
-        self.transcription_languages_input.setToolTip(
-            "Codes de langue séparés par des virgules, par exemple fr, en "
-            "ou zh-cn. GPT Transcribe peut détecter plusieurs langues."
-        )
-        self.transcription_languages_input.textChanged.connect(
-            self.on_audio_settings_changed
-        )
-        microphone_layout.addWidget(self.transcription_languages_input)
-
-        keywords_label = QLabel("Vocabulaire à reconnaître :")
-        microphone_layout.addWidget(keywords_label)
-        self.transcription_keywords_input = QLineEdit()
-        self.transcription_keywords_input.setPlaceholderText(
-            "SuperMenu, PySide6, noms propres…"
-        )
-        self.transcription_keywords_input.setText(
-            self.settings.get_transcription_keywords()
-        )
-        self.transcription_keywords_input.setToolTip(
-            "Termes littéraux séparés par des virgules. N'ajoutez que les "
-            "mots réellement susceptibles d'être prononcés."
-        )
-        self.transcription_keywords_input.textChanged.connect(
-            self.on_audio_settings_changed
-        )
-        microphone_layout.addWidget(self.transcription_keywords_input)
-
-        context_label = QLabel("Contexte facultatif :")
-        microphone_layout.addWidget(context_label)
-        self.transcription_prompt_input = QTextEdit()
-        self.transcription_prompt_input.setAcceptRichText(False)
-        self.transcription_prompt_input.setMaximumHeight(72)
-        self.transcription_prompt_input.setPlaceholderText(
-            "Ex. Dictée technique sur une application Python et Qt."
-        )
-        self.transcription_prompt_input.setPlainText(
-            self.settings.get_transcription_prompt()
-        )
-        self.transcription_prompt_input.setToolTip(
-            "Contexte court pour améliorer les noms, acronymes et termes "
-            "spécifiques. Ce n'est pas un prompt de réécriture."
-        )
-        self.transcription_prompt_input.textChanged.connect(
-            self.on_audio_settings_changed
-        )
-        microphone_layout.addWidget(self.transcription_prompt_input)
-
-        self.save_microphone_button = QPushButton(
-            "💾 Enregistrer les réglages de dictée"
-        )
-        self.save_microphone_button.clicked.connect(
-            self.save_audio_settings
-        )
-        self.save_microphone_button.setEnabled(False)
-        microphone_layout.addWidget(self.save_microphone_button)
+        microphone_group = self.speech_settings
+        # Compatibility names used by existing diagnostics and settings reloads.
+        self.microphone_combo = self.speech_settings.microphone_combo
+        self.transcription_languages_input = self.speech_settings.languages_input
+        self.transcription_keywords_input = self.speech_settings.keywords_input
+        self.transcription_prompt_input = self.speech_settings.prompt_input
+        self.save_microphone_button = self.speech_settings.save_button
+        self.speech_settings.dictation_requested.connect(self.start_dictation)
+        self.api_key_input.textChanged.connect(self.speech_settings.api_key_input.setText)
+        self.speech_settings.api_key_input.textChanged.connect(self.api_key_input.setText)
+        QApplication.instance().aboutToQuit.connect(lambda: self.speech_settings.cancel(silent=True))
 
         # Screenshot section
         screenshot_group = QGroupBox("📷 Capture d'écran")
@@ -1251,101 +1167,20 @@ class MainWindow(QMainWindow):
     
 
 
+    def start_dictation(self):
+        if self.context_menu_manager is not None:
+            from src.utils.window_target import PasteTarget
+            self.context_menu_manager._handle_voice_action(target=PasteTarget.capture())
+
     def populate_microphone_combo(self):
-        """Rafraîchir les microphones sans perdre le choix enregistré."""
-        from src.audio.voice_recognition import VoiceRecognition
-
-        self.microphone_combo.blockSignals(True)
-        self.microphone_combo.clear()
-        self.microphone_combo.addItem("Microphone par défaut du système", -1)
-        microphones = VoiceRecognition.list_microphones()
-
-        for index, name in microphones:
-            self.microphone_combo.addItem(name, index)
-
-        current_mic_index = self.settings.get_microphone_index()
-        selected_index = 0
-        if current_mic_index is not None:
-            for i in range(1, self.microphone_combo.count()):
-                if self.microphone_combo.itemData(i) == current_mic_index:
-                    selected_index = i
-                    break
-        self.microphone_combo.setCurrentIndex(selected_index)
-        self.microphone_combo.blockSignals(False)
-
-        self._update_microphone_ui_state()
-
-    def on_microphone_selection_changed(self, *args):
-        """Compatibilité avec les anciens branchements internes."""
-        self.on_audio_settings_changed(*args)
-
-    def on_audio_settings_changed(self, *args):
-        self._update_microphone_ui_state()
-
-    def _update_microphone_ui_state(self):
-        try:
-            selected_index = self.microphone_combo.currentIndex()
-            current_ui_value = self.microphone_combo.itemData(selected_index)
-            saved_value = self.settings.get_microphone_index()
-
-            if saved_value is None:
-                saved_value = -1
-
-            is_saved = (
-                current_ui_value == saved_value
-                and self.transcription_languages_input.text().strip()
-                == self.settings.get_transcription_languages()
-                and self.transcription_keywords_input.text().strip()
-                == self.settings.get_transcription_keywords()
-                and self.transcription_prompt_input.toPlainText().strip()
-                == self.settings.get_transcription_prompt()
-            )
-            self.save_microphone_button.setEnabled(not is_saved)
-        except Exception:
-            pass
-
-    def save_microphone_selection(self):
-        """Compatibilité : enregistrer tous les réglages de dictée."""
-        self.save_audio_settings()
+        if hasattr(self, "speech_settings"):
+            self.speech_settings.refresh_microphones()
 
     def save_audio_settings(self):
-        """Valider puis enregistrer le microphone et les indices GPT."""
-        from src.audio.transcription import (
-            parse_transcription_keywords,
-            parse_transcription_languages,
-        )
+        return self.speech_settings.save()
 
-        selected_index = self.microphone_combo.currentIndex()
-        mic_index = self.microphone_combo.itemData(selected_index)
-        languages = self.transcription_languages_input.text().strip()
-        keywords = self.transcription_keywords_input.text().strip()
-        prompt = self.transcription_prompt_input.toPlainText().strip()
-
-        try:
-            parse_transcription_languages(languages)
-            parse_transcription_keywords(keywords)
-        except ValueError as exc:
-            QMessageBox.warning(
-                self,
-                "Réglages de transcription invalides",
-                str(exc),
-            )
-            return
-
-        self.settings.set_microphone_index(mic_index)
-        self.settings.set_transcription_languages(languages)
-        self.settings.set_transcription_keywords(keywords)
-        self.settings.set_transcription_prompt(prompt)
-        self.settings.sync()
-
-        default_text = "💾 Enregistrer les réglages de dictée"
-        self.save_microphone_button.setText("✅ Enregistré")
-        QTimer.singleShot(
-            900,
-            lambda: self.save_microphone_button.setText(default_text),
-        )
-
-        self._update_microphone_ui_state()
+    def save_microphone_selection(self):
+        return self.save_audio_settings()
 
     def on_screenshot_capture_mode_changed(self, *args):
         self._update_screenshot_capture_mode_ui_state()
@@ -1728,6 +1563,9 @@ class MainWindow(QMainWindow):
             self._refresh_update_channel_ui()
 
             self.populate_microphone_combo()
+            self.speech_settings.provider_combo.setCurrentIndex(0)
+            self.speech_settings.device_combo.setCurrentIndex(0)
+            self.speech_settings.microphone_combo.setCurrentIndex(0)
             self.transcription_languages_input.setText(
                 self.settings.get_transcription_languages()
             )
@@ -1737,7 +1575,7 @@ class MainWindow(QMainWindow):
             self.transcription_prompt_input.setPlainText(
                 self.settings.get_transcription_prompt()
             )
-            self._update_microphone_ui_state()
+            self.speech_settings._changed()
 
             # Load the first prompts
             if self.prompt_combo.count() > 0:

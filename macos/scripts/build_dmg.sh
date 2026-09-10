@@ -12,6 +12,7 @@ dmg_path="${project_dir}/dist/SuperMenu-${version}-macOS-arm64.dmg"
 cd "${project_dir}"
 bash "${script_dir}/create_icon.sh"
 bash "${script_dir}/build_foundation_helper.sh"
+bash "${script_dir}/build_speech_helper.sh"
 python -m PyInstaller --noconfirm --clean SuperMenu-macos.spec
 
 if [[ -n "${MACOS_CODESIGN_IDENTITY:-}" ]]; then
@@ -23,6 +24,9 @@ if [[ -n "${MACOS_CODESIGN_IDENTITY:-}" ]]; then
 fi
 
 "${app_path}/Contents/MacOS/SuperMenu" --smoke-test
+printf '%s\n' '{"action":"probe","language":"fr"}' | \
+    "${app_path}/Contents/Frameworks/native/SuperMenuSpeech" | \
+    python -c 'import json, sys; r = json.load(sys.stdin); assert r.get("event") == "result" or r.get("code") == "os_unsupported", r'
 
 # Exercise the signed, bundled helper before notarizing and publishing it.
 printf '%s' '{"action":"availability"}' | \

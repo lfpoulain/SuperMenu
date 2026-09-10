@@ -12,6 +12,19 @@ package `../shared/supermenu_core`. Le client IA, les modèles, le schéma des
 prompts et les widgets Qt génériques sont ainsi maintenus une seule fois pour
 Windows et macOS.
 
+La bêta propose une **dictée en direct** indépendante du moteur de texte :
+OpenAI GPT Live Transcribe (clé API et facturation OpenAI) ou Foundry Local avec
+Nemotron 3.5 multilingue. Dans **Dictée et transcription en direct**, choisissez
+le moteur et le microphone, vérifiez la disponibilité puis téléchargez le modèle
+local (environ 756 Mo) et enregistrez. Le mode automatique privilégie CUDA sur
+NVIDIA ; le mode CPU est disponible explicitement. La dictée locale ne nécessite
+pas de clé API et n’envoie pas l’audio dans le cloud.
+
+Le texte apparaît pendant que vous parlez, avec un indicateur de niveau du micro.
+**Terminer** arrête le micro puis finalise la transcription ; **Annuler** interrompt
+également le moteur. Le résultat peut être copié ou inséré dans l’application
+ciblée depuis le menu contextuel. Durée maximale : cinq minutes par dictée.
+
 > 💡 **Idée clé** : Ne perds plus de temps à copier-coller vers ChatGPT. SuperMenu amène l'IA directement là où tu travailles.
 
 ---

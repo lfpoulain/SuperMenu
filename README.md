@@ -37,7 +37,7 @@ conserve ses intégrations natives, ses dépendances, ses tests et son packaging
 | OpenAI, Ollama et LM Studio | Oui | Oui |
 | Apple Intelligence local (bêta) | Non | macOS 26+ |
 | Raccourcis globaux et raccourcis par prompt | Win32 | AppKit |
-| Transcription audio | Oui | Non |
+| Transcription audio en direct (bêta) | OpenAI ou Foundry Local / Nemotron 3.5 | OpenAI ou Apple Speech (macOS 26+) |
 | Capture et analyse d’écran | Oui | Non |
 | Distribution | EXE portable + installateur | DMG Apple Silicon |
 | Mise à jour intégrée | Installateur correspondant au canal | DMG correspondant au canal |

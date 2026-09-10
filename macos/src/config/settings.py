@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 
 from PySide6.QtCore import QSettings
+from supermenu_core.audio.settings import SpeechSettingsMixin
 
 from supermenu_core.api.model_capabilities import normalize_reasoning_option
 from supermenu_core.config.prompts import (
@@ -45,7 +46,7 @@ def _normalize_prompts(value) -> dict[str, dict]:
         return {}
 
 
-class Settings:
+class Settings(SpeechSettingsMixin):
     def __init__(self, config_path: str | None = None):
         self.config_path = str(config_path or settings_file())
         Path(self.config_path).parent.mkdir(parents=True, exist_ok=True)

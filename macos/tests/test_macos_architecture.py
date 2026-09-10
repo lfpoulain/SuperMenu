@@ -28,8 +28,9 @@ def test_cross_platform_modules_have_one_shared_source():
     assert not (SOURCE_ROOT / "ui" / "theme_manager.py").exists()
 
 
-def test_macos_has_no_audio_or_capture_subsystem():
-    assert not (SOURCE_ROOT / "audio").exists()
+def test_macos_uses_shared_audio_without_windows_or_screen_capture():
+    assert (SOURCE_ROOT / "audio" / "speech_backend.py").is_file()
+    assert (SHARED_ROOT / "audio" / "microphone.py").is_file()
     assert not (SOURCE_ROOT / "ui" / "screen_capture.py").exists()
 
     source = "\n".join(
@@ -39,7 +40,6 @@ def test_macos_has_no_audio_or_capture_subsystem():
     forbidden = (
         "screen_capture",
         "screenshot",
-        "transcription",
         "pyaudio",
         "win32gui",
         "win32con",

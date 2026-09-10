@@ -76,7 +76,7 @@ class FoundrySettingsWidget(QGroupBox):
             'Modèles sous licence <a href="https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE">Apache 2.0</a>. '
             "16 Go de RAM conseillés pour le 4B, 24 Go pour le 9B. "
             "La vitesse dépend du matériel. Limite : 16 000 caractères par requête. "
-            "Cette bêta locale traite le texte ; la dictée utilise toujours OpenAI."
+            "Le moteur vocal se choisit séparément dans Dictée et transcription en direct."
         )
         note.setOpenExternalLinks(True)
         note.setWordWrap(True)

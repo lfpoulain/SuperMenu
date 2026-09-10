@@ -49,6 +49,7 @@ class ContextMenuManager(QObject):
         self._active_menu = None
         self._prompt_dialog = None
         self._closed = False
+        self._dictation = None
         self._connect_api_client(self.api_client)
 
     def _create_api_client(self):
@@ -135,6 +136,8 @@ class ContextMenuManager(QObject):
         menu.addSeparator()
         custom_action = menu.addAction("Mode personnalisé")
         custom_action.setData(("custom", None))
+        dictation_action = menu.addAction("Dicter du texte…")
+        dictation_action.setData(("dictation", None))
 
         def cleanup_menu():
             if self._active_menu is not menu:
@@ -169,6 +172,8 @@ class ContextMenuManager(QObject):
             log(f"Action du menu déclenchée : {action_kind}")
             if action_kind == "prompt":
                 self._handle_prompt(prompt_id, selected_text, target)
+            elif action_kind == "dictation":
+                self.start_dictation(target=target)
             else:
                 self._handle_custom(selected_text, target)
 
@@ -239,6 +244,36 @@ class ContextMenuManager(QObject):
             logging.INFO if activation_requested else logging.WARNING,
         )
         QTimer.singleShot(0, popup_when_application_is_active)
+
+    def start_dictation(self, *, from_ui=False, target=None):
+        if self._closed:
+            return
+        from src.audio.speech_backend import create_speech_backend
+        from supermenu_core.audio.session import DictationSession
+        from supermenu_core.audio.settings import speech_options
+
+        if self._dictation is not None:
+            self._dictation.cleanup()
+            self._dictation.deleteLater()
+        target = target or PasteTarget.capture(fall_back_to_last_known=from_ui)
+
+        def show_result(text):
+            if self._closed:
+                return
+            self.response_window.set_paste_target(target)
+            self.response_window.set_trigger_position(QCursor.pos())
+            self.response_window.set_standalone_response(text, "SuperMenu — Dictée")
+            self.response_window.present()
+
+        try:
+            self._dictation = DictationSession(
+                lambda options: create_speech_backend(self.settings, options),
+                speech_options(self.settings), show_result, self,
+            )
+            activate_current_application()
+            self._dictation.start_voice_recognition()
+        except ValueError as exc:
+            SafeDialogs.show_information("Réglages de dictée", str(exc))
 
     def show_custom_mode(self) -> None:
         if self._closed or self._selection_pending:
@@ -496,6 +531,8 @@ class ContextMenuManager(QObject):
         if self._closed:
             return
         self._closed = True
+        if self._dictation is not None:
+            self._dictation.cleanup()
         if self._active_menu is not None:
             active_menu = self._active_menu
             self._active_menu = None

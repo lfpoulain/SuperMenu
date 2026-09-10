@@ -27,9 +27,20 @@ métier et les composants Qt génériques proviennent de `../shared`.
 - thèmes clair, sombre et automatique ;
 - mises à jour Stable/Beta dirigées vers le DMG Apple Silicon exact.
 
-La composition macOS n’inclut volontairement ni transcription audio ni capture
-d’écran. Elle ne demande donc ni Microphone, ni Enregistrement de l’écran, ni
-Surveillance de l’entrée.
+La bêta inclut la dictée en direct via OpenAI ou Apple Speech sur macOS 26+.
+Le moteur vocal se choisit indépendamment du moteur de texte, dans
+**Dictée et transcription en direct** : sélectionnez le moteur, vérifiez sa
+disponibilité, téléchargez le modèle de langue Apple si nécessaire puis enregistrez.
+Apple Speech est le framework de reconnaissance vocale ; Foundation Models reste
+le moteur de génération de texte. La dictée Apple fonctionne sur l’appareil.
+OpenAI utilise GPT Live Transcribe, une clé API et la facturation OpenAI.
+
+L’accès au microphone est demandé uniquement au lancement d’une dictée.
+Ouvrez **Dicter du texte…** dans le menu de barre des menus ou dans le menu des
+prompts. Le texte et le niveau du microphone apparaissent en direct. **Terminer**
+arrête le microphone et ouvre le résultat à copier ou à insérer ; **Annuler**
+interrompt la capture et le moteur. Durée maximale : cinq minutes par dictée.
+La composition macOS ne propose pas de capture d’écran.
 
 ## Installer l’application
 
