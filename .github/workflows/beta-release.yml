@@ -358,11 +358,20 @@ jobs:
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
 
+            Correctif microphone : correction d’un contrôle Qt 6.11 qui signalait
+            à tort « Impossible d’ouvrir le microphone » pour toutes les entrées.
+            Réglages simplifiés en quatre rubriques : Texte, Dictée, Raccourcis,
+            Application. Options avancées repliées et actions principales toujours visibles.
+            Nouveau bouton « Tester le micro » : cinq secondes, niveau audio visible,
+            aucun enregistrement ni envoi. Le test s’arrête en quittant la rubrique.
+            Messages distincts pour la vérification, l’activation du GPU, le téléchargement
+            et le chargement en mémoire. Les fichiers installés sont réutilisés.
+
             Dictée en direct : moteur vocal indépendant du moteur de texte.
             Windows : OpenAI GPT Live Transcribe ou Foundry Local avec Nemotron 3.5
             multilingue (français, CUDA prioritaire, modèle vocal d’environ 756 Mo).
             Mac : OpenAI GPT Live Transcribe ou Apple Speech local (macOS 26+).
-            Dans Dictée et transcription en direct, vérifier le moteur, télécharger
+            Dans Réglages (Paramètres sur Mac) > Dictée, vérifier le moteur, télécharger
             le modèle local si nécessaire, enregistrer puis Dicter.
             Nouvelle fenêtre avec transcription en direct, niveau du microphone,
             copie du texte, finalisation et annulation. Aucun audio sauvegardé sur disque.
@@ -375,12 +384,12 @@ jobs:
             Nouveauté Windows : Foundry Local embarqué avec Qwen3.5 4B et Qwen3.5 9B.
             Correctif GPU : activation automatique de CUDA sur NVIDIA, priorité au GPU
             même si un modèle CPU est déjà téléchargé, et choix CPU explicite.
-            Dans Réglages > Moteur IA, choisir IA locale Microsoft, vérifier, télécharger
-            le modèle puis Enregistrer la configuration. Aucune clé API ni installation
+            Dans Réglages > Texte, choisir IA locale Microsoft, vérifier, télécharger
+            le modèle puis Enregistrer le moteur de texte. Aucune clé API ni installation
             de Foundry/Ollama nécessaire pour le texte. Windows 11 24H2 minimum.
             Correction, reformulation et traduction locales ; dictée locale avec Nemotron 3.5.
 
-            Nouveauté macOS : Apple Foundation Models. Dans Paramètres > Fournisseur IA,
+            Nouveauté macOS : Apple Foundation Models. Dans Paramètres > Texte,
             choisir Apple Intelligence — local (bêta), vérifier la disponibilité puis Enregistrer.
             Nécessite macOS 26+ et Apple Intelligence activé avec son modèle téléchargé.
 

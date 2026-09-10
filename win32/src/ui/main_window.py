@@ -169,8 +169,8 @@ class MainWindow(QMainWindow):
 
         # Set window properties
         self.setWindowTitle("SuperMenu - Configuration")
-        self.setMinimumSize(900, 800)
-        self.resize(1000, 820)
+        self.setMinimumSize(860, 700)
+        self.resize(1000, 780)
         
         # Create the central widget
         self.central_widget = QWidget()
@@ -482,32 +482,24 @@ class MainWindow(QMainWindow):
     
     def create_settings_tab(self):
         """Create the settings tab"""
-        from PySide6.QtWidgets import QScrollArea
-        
-        # Create scroll area
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        try:
-            scroll_area.setFrameShape(QScrollArea.NoFrame)
-        except Exception:
-            pass
-        scroll_area.setStyleSheet("QScrollArea { border: none; }")
-        
-        # Create the content widget
-        settings_tab = QWidget()
-        settings_layout = QVBoxLayout(settings_tab)
+        from supermenu_core.ui.settings_panel import SettingsPanel, Disclosure
+
+        self.settings_panel = SettingsPanel()
+        text_page = self.settings_panel.add_page("text", "Texte", "Choisissez l’IA pour corriger, reformuler et traduire vos textes.")
+        voice_page = self.settings_panel.add_page("voice", "Dictée", "Testez votre microphone, puis choisissez où transcrire votre voix.")
+        shortcuts_page = self.settings_panel.add_page("shortcuts", "Raccourcis", "Accédez à SuperMenu depuis vos applications.")
+        app_page = self.settings_panel.add_page("app", "Application", "Personnalisez l’apparence et gérez vos préférences.")
+        self.app_settings_layout = app_page
 
         models_widget = QWidget()
         models_layout = QVBoxLayout(models_widget)
 
-        self.ai_provider_combo = QComboBox()
+        self.ai_provider_combo = NoWheelComboBox()
         self.ai_provider_combo.addItem("OpenAI", "openai")
         self.ai_provider_combo.addItem("Ollama / LM Studio", "custom")
         self.ai_provider_combo.addItem("IA locale Microsoft — Foundry Local", "foundry")
         self.ai_provider_combo.setCurrentIndex(self.ai_provider_combo.findData(self.settings.get_ai_provider()))
-        models_layout.addWidget(QLabel("Moteur IA :"))
+        models_layout.addWidget(QLabel("Moteur de texte"))
         models_layout.addWidget(self.ai_provider_combo)
 
         self.openai_group = QGroupBox("OpenAI")
@@ -519,7 +511,7 @@ class MainWindow(QMainWindow):
         self.api_key_input.setText(self.settings.get_api_key())
 
         model_label = QLabel("Modèle:")
-        self.model_combo = QComboBox()
+        self.model_combo = NoWheelComboBox()
         self.model_combo.addItems(AVAILABLE_MODELS)
         self.model_combo.setCurrentText(self.settings.get_model())
 
@@ -534,8 +526,10 @@ class MainWindow(QMainWindow):
         openai_layout.addWidget(self.api_key_input)
         openai_layout.addWidget(model_label)
         openai_layout.addWidget(self.model_combo)
-        openai_layout.addWidget(reasoning_label)
-        openai_layout.addWidget(self.reasoning_effort_combo)
+        openai_advanced = Disclosure()
+        openai_advanced.content_layout.addWidget(reasoning_label)
+        openai_advanced.content_layout.addWidget(self.reasoning_effort_combo)
+        openai_layout.addWidget(openai_advanced)
 
         self.custom_group = QGroupBox("Endpoint personnalisé (Ollama, etc.)")
         custom_layout = QVBoxLayout(self.custom_group)
@@ -581,10 +575,12 @@ class MainWindow(QMainWindow):
 
         custom_layout.addWidget(custom_endpoint_label)
         custom_layout.addWidget(self.custom_endpoint_input)
-        custom_layout.addWidget(custom_endpoint_api_key_label)
-        custom_layout.addWidget(self.custom_endpoint_api_key_input)
-        custom_layout.addWidget(custom_endpoint_type_label)
-        custom_layout.addWidget(self.custom_endpoint_type_combo)
+        endpoint_advanced = Disclosure()
+        endpoint_options = endpoint_advanced.content_layout
+        endpoint_options.addWidget(custom_endpoint_api_key_label)
+        endpoint_options.addWidget(self.custom_endpoint_api_key_input)
+        endpoint_options.addWidget(custom_endpoint_type_label)
+        endpoint_options.addWidget(self.custom_endpoint_type_combo)
         custom_layout.addWidget(custom_model_label)
         custom_layout.addLayout(custom_model_layout)
 
@@ -593,8 +589,8 @@ class MainWindow(QMainWindow):
         self.custom_reasoning_effort_combo.setToolTip(
             "Les choix sont adaptés aux capacités annoncées par le modèle."
         )
-        custom_layout.addWidget(self.custom_reasoning_label)
-        custom_layout.addWidget(self.custom_reasoning_effort_combo)
+        endpoint_options.addWidget(self.custom_reasoning_label)
+        endpoint_options.addWidget(self.custom_reasoning_effort_combo)
 
         current_custom_model = self.settings.get_custom_model()
         if current_custom_model:
@@ -615,13 +611,7 @@ class MainWindow(QMainWindow):
         )
         self.update_custom_reasoning_effort_ui()
 
-        note_label = QLabel(
-            "La dictée utilise le moteur vocal choisi dans les réglages, "
-            "indépendamment de ce moteur de texte."
-        )
-        note_label.setWordWrap(True)
-        note_label.setStyleSheet("color: #666; font-style: italic;")
-        custom_layout.addWidget(note_label)
+        custom_layout.addWidget(endpoint_advanced)
 
         models_layout.addWidget(self.openai_group)
         models_layout.addWidget(self.custom_group)
@@ -630,7 +620,7 @@ class MainWindow(QMainWindow):
         models_layout.addWidget(self.foundry_group)
         self.ai_provider_combo.currentIndexChanged.connect(self.toggle_custom_endpoint)
 
-        save_api_key_button = QPushButton("Enregistrer la configuration")
+        save_api_key_button = QPushButton("Enregistrer le moteur de texte")
         save_api_key_button.clicked.connect(self.save_api_key)
         models_layout.addWidget(save_api_key_button)
 
@@ -755,8 +745,7 @@ class MainWindow(QMainWindow):
         response_window_layout = QVBoxLayout(response_window_group)
 
         response_window_info = QLabel(
-            "Ouverture automatique robuste : Qt assure l'affichage, puis "
-            "Windows renforce le premier plan si nécessaire."
+            "Retrouvez votre dernière réponse pour la copier ou l’insérer dans votre application."
         )
         response_window_info.setWordWrap(True)
         response_window_layout.addWidget(response_window_info)
@@ -765,13 +754,6 @@ class MainWindow(QMainWindow):
         self.open_response_window_button.clicked.connect(self.open_response_window)
         self.open_response_window_button.setEnabled(self.context_menu_manager is not None)
         response_window_layout.addWidget(self.open_response_window_button)
-
-        settings_shortcuts_audio_widget = QWidget()
-        settings_shortcuts_audio_layout = QHBoxLayout(settings_shortcuts_audio_widget)
-        settings_shortcuts_audio_layout.addWidget(hotkey_group)
-        settings_shortcuts_audio_layout.addWidget(screenshot_group)
-        settings_shortcuts_audio_layout.setStretch(0, 1)
-        settings_shortcuts_audio_layout.setStretch(1, 1)
 
         # Theme section
         theme_group = QGroupBox("🎨 Thème de l'application")
@@ -804,21 +786,19 @@ class MainWindow(QMainWindow):
         save_theme_button.clicked.connect(self.save_theme_selection)
         theme_layout.addWidget(save_theme_button)
         
-        # Add groups to layout
-        settings_layout.addWidget(models_widget)
-        settings_layout.addWidget(settings_shortcuts_audio_widget)
-        settings_layout.addWidget(microphone_group)
-        settings_layout.addWidget(response_window_group)
-        settings_layout.addWidget(import_export_group)
-        settings_layout.addWidget(theme_group)
-        settings_layout.addStretch()
-        
-        # Set the content widget in the scroll area
-        scroll_area.setWidget(settings_tab)
-        
-        # Add tab to tab widget
-        self.tab_widget.addTab(scroll_area, "⚙️ Réglages")
-    
+        text_page.addWidget(models_widget)
+        voice_page.addWidget(microphone_group)
+        self.settings_panel.set_footer("text", save_api_key_button)
+        self.settings_panel.set_footer("voice", self.speech_settings.actions_widget)
+        shortcuts_page.addWidget(hotkey_group)
+        shortcuts_page.addWidget(screenshot_group)
+        app_page.addWidget(theme_group)
+        app_page.addWidget(response_window_group)
+        transfer = Disclosure("Importer ou exporter les prompts")
+        transfer.content_layout.addWidget(import_export_group)
+        app_page.addWidget(transfer)
+        self.tab_widget.addTab(self.settings_panel, "Réglages")
+
     def create_about_tab(self):
         """Create the about tab"""
         about_tab = QWidget()
@@ -885,21 +865,24 @@ class MainWindow(QMainWindow):
         self.update_channel_description = QLabel()
         self.update_channel_description.setWordWrap(True)
         update_channel_layout.addWidget(self.update_channel_description)
-        layout.addWidget(update_channel_group)
+        self.app_settings_layout.insertWidget(3, update_channel_group)
 
         self._refresh_update_channel_ui()
         self.update_channel_combo.currentIndexChanged.connect(
             self._on_update_channel_changed
         )
         
+        from supermenu_core.ui.settings_panel import Disclosure
+        diagnostics = Disclosure("Dossiers et diagnostic")
+        self.app_settings_layout.addWidget(diagnostics)
         # Button to open settings folder
         open_settings_folder_button = QPushButton("📂 Ouvrir le dossier des paramètres")
         open_settings_folder_button.clicked.connect(self.open_settings_folder)
-        layout.addWidget(open_settings_folder_button)
+        diagnostics.content_layout.addWidget(open_settings_folder_button)
 
         open_logs_folder_button = QPushButton("📄 Ouvrir le dossier des logs")
         open_logs_folder_button.clicked.connect(self.open_logs_folder)
-        layout.addWidget(open_logs_folder_button)
+        diagnostics.content_layout.addWidget(open_logs_folder_button)
 
         open_releases_button = QPushButton("Ouvrir la page des releases")
         open_releases_button.clicked.connect(self.open_releases_page)
@@ -907,7 +890,7 @@ class MainWindow(QMainWindow):
 
         check_updates_button = QPushButton("Vérifier les mises à jour")
         check_updates_button.clicked.connect(self.check_for_updates)
-        layout.addWidget(check_updates_button)
+        update_channel_layout.addWidget(check_updates_button)
         
         # Add the tab
         self.tab_widget.addTab(about_tab, "ℹ️ À propos")
@@ -1135,10 +1118,13 @@ class MainWindow(QMainWindow):
         """Create the bottom buttons"""
         buttons_layout = QHBoxLayout()
         
-        # Reset all button
+        from supermenu_core.ui.settings_panel import Disclosure
+
+        reset_section = Disclosure("Réinitialisation")
         reset_all_button = QPushButton("Réinitialiser tous les paramètres")
         reset_all_button.clicked.connect(self.reset_all_settings)
-        buttons_layout.addWidget(reset_all_button)
+        reset_section.content_layout.addWidget(reset_all_button)
+        self.app_settings_layout.addWidget(reset_section)
         
         # Spacer
         buttons_layout.addStretch()

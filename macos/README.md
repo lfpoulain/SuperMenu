@@ -29,13 +29,19 @@ métier et les composants Qt génériques proviennent de `../shared`.
 
 La bêta inclut la dictée en direct via OpenAI ou Apple Speech sur macOS 26+.
 Le moteur vocal se choisit indépendamment du moteur de texte, dans
-**Dictée et transcription en direct** : sélectionnez le moteur, vérifiez sa
+**Paramètres > Dictée** : sélectionnez le moteur, vérifiez sa
 disponibilité, téléchargez le modèle de langue Apple si nécessaire puis enregistrez.
 Apple Speech est le framework de reconnaissance vocale ; Foundation Models reste
 le moteur de génération de texte. La dictée Apple fonctionne sur l’appareil.
 OpenAI utilise GPT Live Transcribe, une clé API et la facturation OpenAI.
 
-L’accès au microphone est demandé uniquement au lancement d’une dictée.
+Les paramètres sont répartis en **Texte**, **Dictée**, **Raccourcis** et
+**Application**, avec les options avancées repliées. Dans Dictée, **Tester le
+micro** vérifie l’entrée choisie pendant cinq secondes sans conserver ni
+transmettre d’audio. La préparation distingue la vérification, le téléchargement
+éventuel et le chargement en mémoire du modèle installé.
+
+L’accès au microphone est demandé au lancement d’une dictée ou du test du micro.
 Ouvrez **Dicter du texte…** dans le menu de barre des menus ou dans le menu des
 prompts. Le texte et le niveau du microphone apparaissent en direct. **Terminer**
 arrête le microphone et ouvre le résultat à copier ou à insérer ; **Annuler**

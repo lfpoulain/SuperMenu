@@ -129,7 +129,8 @@ class FoundryRuntime:
                 )
                 progress(
                     {
-                        "stage": f"Préparation de {label} — téléchargement des composants au premier lancement…"
+                        "phase": "hardware",
+                        "stage": f"Activation de {label}… Les composants installés sont réutilisés ; téléchargement uniquement si nécessaire."
                     }
                 )
                 # No callback: SDK 1.2.x has a native disposal race in its EP
@@ -264,7 +265,7 @@ class FoundryRuntime:
             self.loaded_model.unload()
             self.loaded_model = None
         if self.loaded_model is None:
-            progress({"stage": "Chargement du modèle en mémoire…"})
+            progress({"phase": "load", "stage": "Chargement du modèle installé en mémoire… Aucun téléchargement du modèle."})
             configure_text_model(self.root, model.id)
             model.load()
             self.loaded_model = model

@@ -96,6 +96,12 @@ def run_foundry_smoke_test():
 # Importer et lancer l'application
 if __name__ == "__main__":
     try:
+        if "--microphone-smoke-test" in sys.argv:
+            from supermenu_core.audio.diagnostics import run_microphone_check
+            from src.api.foundry_worker import pipe_stream
+            sys.stdout = pipe_stream("stdout", -11, "w")
+            rate = 24000 if "--24000" in sys.argv else 16000
+            sys.exit(run_microphone_check(lambda result: print(json.dumps(result), flush=True), rate))
         if "--speech-worker" in sys.argv:
             from src.audio.foundry_speech_worker import main
             sys.exit(main())

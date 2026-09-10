@@ -63,16 +63,21 @@ class DictationSession(QObject):
             backend.transcript.connect(current(self.recording_dialog.set_transcript))
             backend.completed.connect(current(self._completed))
             backend.failed.connect(current(self._error))
-            backend.progress.connect(
-                current(
-                    lambda message, _percent: self.recording_dialog.hint_label.setText(
-                        message
-                    )
-                )
-            )
+            backend.progress.connect(current(self._progress))
             backend.start()
         except Exception as exc:
             self._error(str(exc))
+
+    def _progress(self, message, _percent):
+        titles = {
+            "verify": "Vérification…",
+            "hardware": "Activation du GPU…",
+            "load": "Chargement en mémoire…",
+            "download": "Téléchargement…",
+            "connect": "Connexion…",
+        }
+        self.recording_dialog._title(titles.get(self.backend.phase, "Préparation…"))
+        self.recording_dialog.hint_label.setText(message)
 
     def _ready(self):
         if self.microphone is not None:

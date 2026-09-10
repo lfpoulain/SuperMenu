@@ -228,6 +228,8 @@ def test_bottom_buttons_are_added_and_close_is_connected():
         def __init__(self):
             self.container = QWidget()
             self.main_layout = QVBoxLayout(self.container)
+            self.settings_page = QWidget()
+            self.app_settings_layout = QVBoxLayout(self.settings_page)
             self.reset_calls = 0
             self.close_calls = 0
 
@@ -242,9 +244,14 @@ def test_bottom_buttons_are_added_and_close_is_connected():
 
     assert fake.main_layout.count() == 1
     buttons_layout = fake.main_layout.itemAt(0).layout()
-    assert buttons_layout.count() == 3
-    buttons_layout.itemAt(2).widget().click()
+    assert buttons_layout.count() == 2
+    buttons_layout.itemAt(1).widget().click()
     assert fake.close_calls == 1
+    reset_section = fake.app_settings_layout.itemAt(0).widget()
+    assert reset_section.content.isHidden()
+    reset_section.toggle.click()
+    reset_section.content_layout.itemAt(0).widget().click()
+    assert fake.reset_calls == 1
 
 
 def test_import_refresh_uses_existing_prompt_loaders(monkeypatch):

@@ -6,14 +6,15 @@ outil en ligne de commande, compte Microsoft ou abonnement IA n'est nécessaire.
 ## Utilisation
 
 1. Installer la [bêta PC](https://github.com/lfpoulain/SuperMenu/releases/tag/beta),
-   ou choisir le canal Beta dans À propos puis rechercher une mise à jour.
-2. Dans **Réglages > Moteur IA**, choisir **IA locale Microsoft — Foundry Local**.
-3. Garder **Automatique — GPU en priorité**, puis cliquer sur **Vérifier / préparer le GPU**.
-   Cette étape installe les composants CUDA sur NVIDIA (ou WebGPU sur les autres GPU).
+   ou choisir le canal Beta dans **Réglages > Application** puis rechercher une mise à jour.
+2. Dans **Réglages > Texte**, choisir **IA locale Microsoft — Foundry Local**.
+3. Cliquer sur **Vérifier**. Le GPU est utilisé en priorité ; ce choix peut se modifier
+   dans **Matériel et détails du modèle**.
+   Cette étape active CUDA sur NVIDIA (ou WebGPU sur les autres GPU), en réutilisant les composants déjà installés.
    Le premier téléchargement peut prendre quelques minutes. Choisir ensuite **Qwen3.5 4B** ou **Qwen3.5 9B**.
    La taille du téléchargement, sa présence sur le disque et le matériel
    d'exécution sont lus dans le catalogue Microsoft pour ce PC.
-4. Cliquer sur **Télécharger le modèle**, puis **Enregistrer la configuration**.
+4. Si le modèle manque, cliquer sur **Télécharger le modèle**, puis **Enregistrer le moteur de texte**.
 5. Sélectionner du texte et utiliser les actions habituelles de SuperMenu.
 
 Le 4B est le choix par défaut. Prévoir 16 Go de RAM pour le 4B, 24 Go pour le 9B
@@ -38,7 +39,8 @@ silencieusement sur le CPU.
   rafraîchir son catalogue au démarrage ou reprendre le catalogue en cache hors ligne.
 - Cette bêta traite le texte : correction, reformulation, résumé et traduction.
   Les captures d'écran affichent un message de fonctionnalité non disponible.
-  La transcription vocale continue d'utiliser l'API OpenAI.
+  La transcription vocale se choisit dans **Réglages > Dictée** : OpenAI ou
+  Foundry Local avec Nemotron 3.5 (modèle séparé d’environ 756 Mo).
 - Jusqu'à 16 000 caractères par requête, avec une limite supplémentaire de
   24 000 octets UTF-8 pour préserver le contexte multilingue. La sortie est
   limitée à 2 048 tokens. Une réponse interrompue n'est jamais insérée dans le document.

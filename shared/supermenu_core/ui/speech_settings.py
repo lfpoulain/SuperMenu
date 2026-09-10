@@ -5,7 +5,6 @@ import sys
 
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
-    QComboBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -13,11 +12,14 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTextEdit,
     QVBoxLayout,
+    QWidget,
 )
 
 from supermenu_core.audio.microphone import microphones
 from supermenu_core.audio.settings import languages, local_language
 from .verification_status import VerificationStatus
+from .settings_panel import Disclosure, NoWheelComboBox as QComboBox
+from .microphone_test import MicrophoneTest
 
 
 class SpeechSettingsWidget(QGroupBox):
@@ -25,37 +27,12 @@ class SpeechSettingsWidget(QGroupBox):
     dictation_requested = Signal()
 
     def __init__(self, settings, backend_factory, parent=None, *, platform=None):
-        super().__init__("Dictée et transcription en direct", parent)
+        super().__init__("Microphone et moteur vocal", parent)
         self.settings, self.backend_factory = settings, backend_factory
         self.backend = None
         self.platform = platform or sys.platform
         layout = QVBoxLayout(self)
-        description = QLabel(
-            "Choisissez le moteur qui transforme votre voix en texte. Ce choix est indépendant du moteur de correction et de traduction."
-        )
-        description.setWordWrap(True)
-        layout.addWidget(description)
-        self.provider_combo = QComboBox()
-        self.provider_combo.addItem("OpenAI — GPT Live Transcribe (en ligne)", "openai")
-        if self.platform == "darwin":
-            self.provider_combo.addItem("Apple Speech — local sur ce Mac", "apple")
-        else:
-            self.provider_combo.addItem(
-                "Foundry Local — Nemotron 3.5 (local)", "foundry"
-            )
-        index = self.provider_combo.findData(settings.get_speech_provider())
-        self.provider_combo.setCurrentIndex(max(0, index))
-        layout.addWidget(self.provider_combo)
-        self.description = QLabel()
-        self.description.setWordWrap(True)
-        layout.addWidget(self.description)
-        self.device_combo = QComboBox()
-        self.device_combo.addItem("Automatique — CUDA en priorité", "auto")
-        self.device_combo.addItem("CPU uniquement", "cpu")
-        self.device_combo.setCurrentIndex(
-            self.device_combo.findData(settings.get_speech_device())
-        )
-        layout.addWidget(self.device_combo)
+        layout.setSpacing(10)
         layout.addWidget(QLabel("Microphone"))
         self.microphone_combo = QComboBox()
         mic_row = QHBoxLayout()
@@ -65,40 +42,69 @@ class SpeechSettingsWidget(QGroupBox):
         mic_row.addWidget(refresh)
         layout.addLayout(mic_row)
         self.refresh_microphones()
-        layout.addWidget(QLabel("Langue de dictée"))
+        self.microphone_test = MicrophoneTest(
+            lambda: self.microphone_combo.currentData(), self
+        )
+        layout.addWidget(self.microphone_test)
+        self.microphone_combo.currentIndexChanged.connect(
+            lambda: self.microphone_test.cancel()
+        )
+        layout.addSpacing(8)
+        layout.addWidget(QLabel("Moteur de transcription"))
+        self.provider_combo = QComboBox()
+        self.provider_combo.addItem("OpenAI · en ligne", "openai")
+        if self.platform == "darwin":
+            self.provider_combo.addItem("Apple Speech · sur ce Mac", "apple")
+        else:
+            self.provider_combo.addItem("Nemotron 3.5 · sur ce PC", "foundry")
+        self.provider_combo.setCurrentIndex(
+            max(0, self.provider_combo.findData(settings.get_speech_provider()))
+        )
+        layout.addWidget(self.provider_combo)
+        self.description = QLabel()
+        self.description.setWordWrap(True)
+        layout.addWidget(self.description)
+        self.cloud_group = QGroupBox("Clé OpenAI")
+        cloud = QVBoxLayout(self.cloud_group)
+        self.api_key_input = QLineEdit(settings.get_api_key() or "")
+        self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_key_input.setPlaceholderText(
+            "Clé API partagée avec le moteur de texte"
+        )
+        cloud.addWidget(self.api_key_input)
+        layout.addWidget(self.cloud_group)
+        language_row = QHBoxLayout()
+        language_row.addWidget(QLabel("Langue"))
+        self.language_combo = QComboBox()
+        for title, code in (
+            ("Français", "fr"),
+            ("Français (Canada)", "fr-ca"),
+            ("Anglais", "en"),
+            ("Espagnol", "es"),
+            ("Allemand", "de"),
+            ("Italien", "it"),
+            ("Détection automatique", ""),
+            ("Personnaliser…", None),
+        ):
+            self.language_combo.addItem(title, code)
+        language_row.addWidget(self.language_combo, 1)
+        layout.addLayout(language_row)
         self.languages_input = QLineEdit(settings.get_transcription_languages())
-        self.languages_input.setPlaceholderText("fr — vide = détection automatique")
+        self.languages_input.setPlaceholderText("Codes de langue, par exemple fr, en")
         layout.addWidget(self.languages_input)
         self.language_hint = QLabel()
         self.language_hint.setWordWrap(True)
         layout.addWidget(self.language_hint)
-        self.cloud_group = QGroupBox("OpenAI")
-        cloud = QVBoxLayout(self.cloud_group)
-        cloud.addWidget(QLabel("Clé API OpenAI — partagée avec le moteur de texte"))
-        self.api_key_input = QLineEdit(settings.get_api_key() or "")
-        self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_key_input.setPlaceholderText("Clé API OpenAI")
-        cloud.addWidget(self.api_key_input)
-        cloud.addWidget(QLabel("Vocabulaire et contexte facultatifs"))
-        self.keywords_input = QLineEdit(settings.get_transcription_keywords())
-        self.keywords_input.setPlaceholderText("Vocabulaire : SuperMenu, noms propres…")
-        cloud.addWidget(self.keywords_input)
-        self.prompt_input = QTextEdit()
-        self.prompt_input.setAcceptRichText(False)
-        self.prompt_input.setMaximumHeight(65)
-        self.prompt_input.setPlaceholderText(
-            "Contexte : dictée technique sur une application Python…"
-        )
-        self.prompt_input.setPlainText(settings.get_transcription_prompt())
-        cloud.addWidget(self.prompt_input)
-        layout.addWidget(self.cloud_group)
+        self.language_combo.currentIndexChanged.connect(self._choose_language)
+        self.languages_input.textChanged.connect(self._sync_language)
+        self._sync_language()
         self.status = VerificationStatus()
         layout.addWidget(self.status)
         actions = QHBoxLayout()
-        self.check_button = QPushButton("Vérifier")
+        self.check_button = QPushButton("Vérifier le moteur")
         self.check_button.clicked.connect(lambda: self.prepare("probe"))
         actions.addWidget(self.check_button)
-        self.download_button = QPushButton("Télécharger le modèle vocal")
+        self.download_button = QPushButton("Télécharger le modèle")
         self.download_button.clicked.connect(lambda: self.prepare("download"))
         actions.addWidget(self.download_button)
         self.cancel_button = QPushButton("Annuler")
@@ -106,23 +112,77 @@ class SpeechSettingsWidget(QGroupBox):
         self.cancel_button.hide()
         actions.addWidget(self.cancel_button)
         layout.addLayout(actions)
-        bottom = QHBoxLayout()
-        self.save_button = QPushButton("Enregistrer la dictée")
+        self.advanced = Disclosure()
+        advanced = self.advanced.content_layout
+        self.device_label = QLabel("Calcul local")
+        advanced.addWidget(self.device_label)
+        self.device_combo = QComboBox()
+        self.device_combo.addItem("Automatique — CUDA en priorité", "auto")
+        self.device_combo.addItem("CPU uniquement", "cpu")
+        self.device_combo.setCurrentIndex(
+            self.device_combo.findData(settings.get_speech_device())
+        )
+        advanced.addWidget(self.device_combo)
+        self.context_options = QWidget()
+        context = QVBoxLayout(self.context_options)
+        context.setContentsMargins(0, 0, 0, 0)
+        context.addWidget(QLabel("Vocabulaire et contexte OpenAI facultatifs"))
+        self.keywords_input = QLineEdit(settings.get_transcription_keywords())
+        self.keywords_input.setPlaceholderText("SuperMenu, noms propres…")
+        context.addWidget(self.keywords_input)
+        self.prompt_input = QTextEdit()
+        self.prompt_input.setAcceptRichText(False)
+        self.prompt_input.setMaximumHeight(65)
+        self.prompt_input.setPlaceholderText("Contexte de la dictée…")
+        self.prompt_input.setPlainText(settings.get_transcription_prompt())
+        context.addWidget(self.prompt_input)
+        advanced.addWidget(self.context_options)
+        layout.addWidget(self.advanced)
+        self.actions_widget = QWidget()
+        bottom = QHBoxLayout(self.actions_widget)
+        bottom.setContentsMargins(0, 0, 0, 0)
+        self.save_button = QPushButton("Enregistrer")
         self.save_button.clicked.connect(self.save)
         bottom.addWidget(self.save_button)
         self.test_button = QPushButton("Dicter")
         self.test_button.clicked.connect(self._dictate)
         bottom.addWidget(self.test_button)
-        layout.addLayout(bottom)
+        layout.addWidget(self.actions_widget)
         for widget in (self.provider_combo, self.device_combo):
             widget.currentIndexChanged.connect(self._changed)
         self.languages_input.textChanged.connect(self._changed)
         self.api_key_input.textChanged.connect(self._changed)
         self._changed()
 
+    def _choose_language(self):
+        code = self.language_combo.currentData()
+        self.languages_input.setVisible(code is None)
+        self.language_hint.setVisible(code is None)
+        if code is not None:
+            self.languages_input.setText(code)
+        else:
+            self.languages_input.setFocus()
+
+    def _sync_language(self):
+        # Keep the custom editor open while typing a list such as "fr, en",
+        # even when its first characters match a preset.
+        if self.language_combo.currentData() is None:
+            return
+        code = self.languages_input.text().strip().lower()
+        index = self.language_combo.findData(code)
+        self.language_combo.blockSignals(True)
+        self.language_combo.setCurrentIndex(
+            index if index >= 0 else self.language_combo.count() - 1
+        )
+        self.language_combo.blockSignals(False)
+        self.languages_input.setVisible(index < 0)
+        self.language_hint.setVisible(index < 0)
+
     def refresh_microphones(self):
         selected = (
-            self.microphone_combo.currentData() or self.settings.get_speech_microphone()
+            self.microphone_combo.currentData()
+            if self.microphone_combo.count()
+            else self.settings.get_speech_microphone()
         )
         self.microphone_combo.clear()
         self.microphone_combo.addItem("Microphone par défaut du système", "")
@@ -167,21 +227,24 @@ class SpeechSettingsWidget(QGroupBox):
         self.cancel(silent=True)
         provider = self.provider_combo.currentData()
         self.device_combo.setVisible(provider == "foundry")
+        self.device_label.setVisible(provider == "foundry")
+        self.context_options.setVisible(provider == "openai")
+        self.advanced.setVisible(provider != "apple")
         self.cloud_group.setVisible(provider == "openai")
-        self.download_button.setVisible(provider != "openai")
+        self.download_button.hide()
         self.download_button.setEnabled(False)
         self.description.setText(
             {
-                "openai": "L’audio est envoyé à OpenAI pendant la dictée. Utilise votre clé API OpenAI et la facturation de GPT Live Transcribe.",
-                "apple": "Reconnaissance vocale Apple sur l’appareil, via Apple Speech. macOS 26+ et modèle de langue installé. Aucun audio envoyé dans le cloud.",
-                "foundry": "Nemotron 3.5 multilingue reconnaît le français en direct. Environ 756 Mo à télécharger une fois, puis transcription sur ce PC.",
+                "openai": "GPT Live Transcribe. Audio envoyé à OpenAI ; facturation selon votre usage.",
+                "apple": "Votre voix reste sur ce Mac. Nécessite macOS 26 et le modèle de langue Apple.",
+                "foundry": "Foundry Local. Votre voix reste sur ce PC. Modèle de 756 Mo à télécharger une fois.",
             }[provider]
         )
         self.language_hint.setText(
             {
-                "openai": "Une ou plusieurs langues, par exemple fr, en. Vide : détection automatique.",
-                "apple": "Une seule langue requise, par exemple fr ou en. Le modèle correspondant sera vérifié.",
-                "foundry": "Une seule langue, par exemple fr. Vide : détection automatique des langues.",
+                "openai": "Plusieurs langues possibles avec Personnaliser.",
+                "apple": "Choisissez une langue précise pour le modèle Apple.",
+                "foundry": "Choisissez votre langue ou la détection automatique.",
             }[provider]
         )
         self.status.set_status(
@@ -195,6 +258,7 @@ class SpeechSettingsWidget(QGroupBox):
             self.provider_combo,
             self.device_combo,
             self.languages_input,
+            self.language_combo,
             self.check_button,
             self.save_button,
             self.test_button,
@@ -221,7 +285,11 @@ class SpeechSettingsWidget(QGroupBox):
                     if action == "probe"
                     else "Installation du modèle vocal…"
                 ),
-                "La première préparation peut prendre quelques minutes.",
+                (
+                    "Vérification de l’installation et activation du moteur. Les fichiers déjà présents sont réutilisés."
+                    if action == "probe"
+                    else "Téléchargement sur cet appareil. Le modèle sera conservé entre les mises à jour."
+                ),
             )
             backend.result.connect(lambda result: self._result(backend, result))
             backend.ready.connect(
@@ -240,7 +308,16 @@ class SpeechSettingsWidget(QGroupBox):
 
     def _progress(self, backend, message, percent):
         if self.backend is backend:
-            self.status.detail.setText(message)
+            titles = {
+                "verify": "Vérification du modèle",
+                "hardware": "Activation du GPU",
+                "load": "Chargement en mémoire",
+                "download": "Téléchargement du modèle",
+                "connect": "Connexion à OpenAI",
+            }
+            self.status.set_status(
+                "busy", titles.get(backend.phase, self.status.title.text()), message
+            )
             if percent >= 0:
                 self.status.set_progress(percent)
 
@@ -249,6 +326,7 @@ class SpeechSettingsWidget(QGroupBox):
             return
         self.cancel(silent=True)
         cached = result.get("cached", False)
+        self.download_button.setVisible(not cached)
         self.download_button.setEnabled(not cached)
         device = result.get("device", "Sur cet appareil")
         self.status.set_status(
@@ -298,12 +376,15 @@ class SpeechSettingsWidget(QGroupBox):
         self.settings.set_transcription_keywords(self.keywords_input.text().strip())
         self.settings.sync()
         self.save_button.setText("Enregistré")
-        QTimer.singleShot(
-            1200, self, lambda: self.save_button.setText("Enregistrer la dictée")
-        )
+        QTimer.singleShot(1200, self, lambda: self.save_button.setText("Enregistrer"))
         self.settings_saved.emit()
         return True
 
     def _dictate(self):
+        self.microphone_test.cancel(silent=True)
         if self.save():
             self.dictation_requested.emit()
+
+    def hideEvent(self, event):
+        self.microphone_test.cancel(silent=True)
+        super().hideEvent(event)

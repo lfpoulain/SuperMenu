@@ -14,11 +14,22 @@ Windows et macOS.
 
 La bêta propose une **dictée en direct** indépendante du moteur de texte :
 OpenAI GPT Live Transcribe (clé API et facturation OpenAI) ou Foundry Local avec
-Nemotron 3.5 multilingue. Dans **Dictée et transcription en direct**, choisissez
+Nemotron 3.5 multilingue. Dans **Réglages > Dictée**, choisissez
 le moteur et le microphone, vérifiez la disponibilité puis téléchargez le modèle
 local (environ 756 Mo) et enregistrez. Le mode automatique privilégie CUDA sur
 NVIDIA ; le mode CPU est disponible explicitement. La dictée locale ne nécessite
 pas de clé API et n’envoie pas l’audio dans le cloud.
+
+Les réglages sont répartis en quatre rubriques : **Texte**, **Dictée**,
+**Raccourcis** et **Application**. Les options avancées restent repliées.
+Dans Dictée, **Tester le micro** vérifie l’entrée choisie pendant cinq secondes,
+sans conserver ni transmettre d’audio. Ce test s’arrête en quittant la rubrique.
+Le correctif de capture Qt 6.11 permet aux microphones de s’ouvrir normalement.
+
+La préparation indique chaque étape : **vérification** des fichiers existants,
+**activation du GPU** (composants réutilisés si présents), **téléchargement** du
+modèle manquant, puis **chargement en mémoire** du modèle installé. Les modèles
+locaux sont conservés entre les mises à jour de SuperMenu.
 
 Le texte apparaît pendant que vous parlez, avec un indicateur de niveau du micro.
 **Terminer** arrête le micro puis finalise la transcription ; **Annuler** interrompt

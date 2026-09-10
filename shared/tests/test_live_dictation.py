@@ -224,3 +224,37 @@ def test_apple_requires_exactly_one_language_and_foundry_allows_auto():
     for provider, value in (("apple", ""), ("apple", "fr,en"), ("foundry", "fr,en")):
         with pytest.raises(ValueError):
             local_language(value, provider)
+
+
+def test_custom_language_editor_stays_open_when_typing_a_preset(app, tmp_path):
+    settings = Settings(tmp_path / "settings.ini")
+    widget = SpeechSettingsWidget(
+        settings, lambda options: FakeBackend(), platform="win32"
+    )
+    widget.language_combo.setCurrentIndex(widget.language_combo.findData(None))
+    widget.languages_input.setText("")
+    widget.languages_input.setText("fr")
+    assert widget.language_combo.currentData() is None
+    assert not widget.languages_input.isHidden()
+    widget.languages_input.setText("fr, en")
+    assert widget.options()["languages"] == ["fr", "en"]
+    widget.language_combo.setCurrentIndex(widget.language_combo.findData("de"))
+    assert widget.languages_input.isHidden()
+    assert widget.options()["languages"] == ["de"]
+
+
+def test_microphone_refresh_keeps_unsaved_default_choice(app, tmp_path, monkeypatch):
+    from supermenu_core.ui import speech_settings
+
+    settings = Settings(tmp_path / "settings.ini")
+    settings.set_speech_microphone("saved-mic")
+    monkeypatch.setattr(
+        speech_settings, "microphones", lambda: [("saved-mic", "Input")]
+    )
+    widget = SpeechSettingsWidget(
+        settings, lambda options: FakeBackend(), platform="win32"
+    )
+    assert widget.microphone_combo.currentData() == "saved-mic"
+    widget.microphone_combo.setCurrentIndex(0)
+    widget.refresh_microphones()
+    assert widget.microphone_combo.currentData() == ""

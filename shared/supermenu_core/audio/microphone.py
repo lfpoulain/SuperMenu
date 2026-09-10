@@ -3,8 +3,8 @@
 from array import array
 import audioop
 
-from PySide6.QtCore import QObject, QTimer, Signal
-from PySide6.QtMultimedia import QAudio, QAudioFormat, QAudioSource, QMediaDevices
+from PySide6.QtCore import QObject, QTimer, Signal, Slot
+from PySide6.QtMultimedia import QtAudio, QAudioFormat, QAudioSource, QMediaDevices
 
 
 def microphones():
@@ -94,7 +94,9 @@ class Microphone(QObject):
         self.source = QAudioSource(device, fmt, self)
         self.source.setBufferSize(fmt.bytesForDuration(250_000))
         self.stream = self.source.start()
-        if self.stream is None or self.source.error() != QAudio.Error.NoError:
+        # Qt 6.11 returns QtAudio enums; the deprecated QAudio enums compare
+        # unequal even for NoError, incorrectly rejecting every working input.
+        if self.stream is None or self.source.error() != QtAudio.Error.NoError:
             self.stop()
             raise RuntimeError(
                 "Impossible d’ouvrir le microphone. Vérifiez son autorisation et le périphérique choisi."
@@ -102,11 +104,14 @@ class Microphone(QObject):
         self.source.stateChanged.connect(self._state_changed)
         self.timer.start()
 
-    def _state_changed(self, state):
+    @Slot()
+    def _state_changed(self):
+        # Qt 6.11 still advertises QAudio::State in the signal's meta-signature.
+        # Read the current QtAudio state instead of converting that legacy argument.
         if (
             self.source
-            and state == QAudio.State.StoppedState
-            and self.source.error() != QAudio.Error.NoError
+            and self.source.state() == QtAudio.State.StoppedState
+            and self.source.error() != QtAudio.Error.NoError
         ):
             self.failed.emit("Le microphone a été interrompu ou déconnecté.")
 

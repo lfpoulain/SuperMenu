@@ -11,6 +11,7 @@ from .settings import OPENAI_SPEECH_MODEL
 
 
 class SpeechBackend(QObject):
+    phase = ""
     ready = Signal()
     transcript = Signal(str)
     completed = Signal(str)
@@ -83,6 +84,7 @@ class ProcessSpeechBackend(SpeechBackend):
                 elif kind == "transcript":
                     self.transcript.emit(str(event["text"]))
                 elif kind == "progress":
+                    self.phase = str(event.get("phase", ""))
                     self.progress.emit(
                         str(event.get("message", "Préparation…")),
                         int(event.get("percent", -1)),
@@ -156,6 +158,11 @@ class OpenAISpeechBackend(SpeechBackend):
                 ),
             )
             return
+        self.phase = "connect"
+        self.progress.emit(
+            "Connexion à OpenAI… Aucun audio envoyé avant l’ouverture du microphone.",
+            -1,
+        )
         request = QNetworkRequest(
             QUrl("wss://api.openai.com/v1/realtime?intent=transcription")
         )

@@ -61,7 +61,7 @@ struct SpeechHelper {
                                             reportingOptions: [.volatileResults], attributeOptions: [])
         let action = request["action"] as? String ?? "start"
         if action == "download" {
-            Output.send(["event": "progress", "message": "Installation du modèle Apple Speech pour \(locale.identifier)…"])
+            Output.send(["event": "progress", "phase": "download", "message": "Téléchargement et installation du modèle Apple Speech pour \(locale.identifier)…"])
             if let installation = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
                 try await installation.downloadAndInstall()
             }
@@ -74,6 +74,7 @@ struct SpeechHelper {
             return
         }
         guard action == "start", cached else { throw SpeechError.missingModel }
+        Output.send(["event": "progress", "phase": "load", "message": "Chargement du modèle Apple Speech installé en mémoire…"])
         guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]),
               let inputFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000,
                                               channels: 1, interleaved: false),

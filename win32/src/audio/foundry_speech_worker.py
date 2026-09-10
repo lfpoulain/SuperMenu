@@ -12,7 +12,14 @@ from src.api.foundry_worker import FoundryRuntime, LocalError, pipe_stream
 
 def select_speech_model(runtime, device, emit):
     runtime.prepare_hardware(
-        device, lambda p: emit({"event": "progress", "message": p["stage"]})
+        device,
+        lambda p: emit(
+            {
+                "event": "progress",
+                "phase": p.get("phase", "hardware"),
+                "message": p["stage"],
+            }
+        ),
     )
     if runtime.hardware_warning and device != "cpu":
         raise LocalError(runtime.hardware_warning)
@@ -55,6 +62,13 @@ def run(source, emit, runtime=None):
     action = request.get("action", "start")
     if action not in {"probe", "download", "start"}:
         raise LocalError("Opération vocale inconnue.")
+    emit(
+        {
+            "event": "progress",
+            "phase": "verify",
+            "message": "Vérification de Nemotron et des fichiers déjà installés…",
+        }
+    )
     model = select_speech_model(runtime, request.get("device", "auto"), emit)
     if action == "probe":
         emit({"event": "result", "data": describe(model)})
@@ -70,6 +84,7 @@ def run(source, emit, runtime=None):
                     emit(
                         {
                             "event": "progress",
+                            "phase": "download",
                             "message": "Téléchargement de Nemotron 3.5…",
                             "percent": value,
                         }
@@ -89,7 +104,9 @@ def run(source, emit, runtime=None):
         emit(
             {
                 "event": "progress",
-                "message": "Chargement de Nemotron 3.5 · " + describe(model)["device"],
+                "phase": "load",
+                "message": "Nemotron est déjà sur ce PC. Chargement en mémoire · "
+                + describe(model)["device"],
             }
         )
         model.load()

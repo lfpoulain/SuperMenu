@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QSplitter,
     QStyle,
     QSystemTrayIcon,
@@ -153,8 +152,8 @@ class MainWindow(QMainWindow):
         self._keys = KeyEventPoster()
 
         self.setWindowTitle("SuperMenu - Configuration")
-        self.setMinimumSize(900, 800)
-        self.resize(1000, 820)
+        self.setMinimumSize(860, 700)
+        self.resize(1000, 780)
         self.setWindowIcon(QIcon(resource_path("resources", "icons", "icon.png")))
 
         root = QWidget()
@@ -275,14 +274,15 @@ class MainWindow(QMainWindow):
         return tab
 
     def _create_settings_tab(self):
-        container = QWidget()
-        container_layout = QVBoxLayout(container)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        content = QWidget()
-        layout = QVBoxLayout(content)
+        from supermenu_core.ui.settings_panel import SettingsPanel, Disclosure
 
-        layout.addWidget(QLabel("Fournisseur IA :"))
+        container = self.settings_panel = SettingsPanel()
+        layout = container.add_page("text", "Texte", "Choisissez l’IA pour corriger, reformuler et traduire vos textes.")
+        voice_page = container.add_page("voice", "Dictée", "Testez votre microphone, puis choisissez où transcrire votre voix.")
+        shortcuts_page = container.add_page("shortcuts", "Raccourcis", "Accédez à SuperMenu depuis vos applications.")
+        app_page = container.add_page("app", "Application", "Gérez l’apparence, les mises à jour et les autorisations du Mac.")
+
+        layout.addWidget(QLabel("Moteur de texte"))
         self.provider_combo = NoWheelComboBox()
         self.provider_combo.addItem("OpenAI", "openai")
         self.provider_combo.addItem("Ollama / LM Studio", "custom")
@@ -306,9 +306,11 @@ class MainWindow(QMainWindow):
         self.model_combo.setCurrentText(self.settings.get_model())
         self.model_combo.currentTextChanged.connect(self._refresh_reasoning_options)
         api_layout.addWidget(self.model_combo)
-        api_layout.addWidget(QLabel("Raisonnement :"))
+        openai_advanced = Disclosure()
+        openai_advanced.content_layout.addWidget(QLabel("Raisonnement"))
         self.reasoning_combo = NoWheelComboBox()
-        api_layout.addWidget(self.reasoning_combo)
+        openai_advanced.content_layout.addWidget(self.reasoning_combo)
+        api_layout.addWidget(openai_advanced)
         layout.addWidget(api_group)
 
         endpoint_group = QGroupBox("Endpoint personnalisé (Ollama, etc.)")
@@ -320,7 +322,9 @@ class MainWindow(QMainWindow):
         self.custom_endpoint = QLineEdit(self.settings.get_custom_endpoint())
         self.custom_endpoint.setPlaceholderText("http://localhost:11434")
         endpoint_layout.addWidget(self.custom_endpoint)
-        endpoint_layout.addWidget(QLabel("Jeton de l’endpoint (optionnel) :"))
+        endpoint_advanced = Disclosure()
+        endpoint_options = endpoint_advanced.content_layout
+        endpoint_options.addWidget(QLabel("Jeton de l’endpoint (optionnel) :"))
         self.custom_endpoint_api_key = QLineEdit(
             self.settings.get_custom_endpoint_api_key()
         )
@@ -328,8 +332,8 @@ class MainWindow(QMainWindow):
         self.custom_endpoint_api_key.setPlaceholderText(
             "Jeton distinct de la clé OpenAI"
         )
-        endpoint_layout.addWidget(self.custom_endpoint_api_key)
-        endpoint_layout.addWidget(QLabel("Type d’endpoint :"))
+        endpoint_options.addWidget(self.custom_endpoint_api_key)
+        endpoint_options.addWidget(QLabel("Type d’endpoint :"))
         self.endpoint_type = NoWheelComboBox()
         self.endpoint_type.addItem("Ollama", "ollama")
         self.endpoint_type.addItem("LM Studio", "lmstudio")
@@ -337,7 +341,7 @@ class MainWindow(QMainWindow):
             self.settings.get_custom_endpoint_type()
         )
         self.endpoint_type.setCurrentIndex(max(0, type_index))
-        endpoint_layout.addWidget(self.endpoint_type)
+        endpoint_options.addWidget(self.endpoint_type)
         endpoint_layout.addWidget(QLabel("Modèle :"))
         custom_model_row = QHBoxLayout()
         self.custom_model = NoWheelComboBox()
@@ -354,9 +358,9 @@ class MainWindow(QMainWindow):
         custom_model_row.addWidget(refresh_models)
         endpoint_layout.addLayout(custom_model_row)
         self.custom_reasoning_label = QLabel("Raisonnement / think :")
-        endpoint_layout.addWidget(self.custom_reasoning_label)
+        endpoint_options.addWidget(self.custom_reasoning_label)
         self.custom_reasoning = NoWheelComboBox()
-        endpoint_layout.addWidget(self.custom_reasoning)
+        endpoint_options.addWidget(self.custom_reasoning)
         self.custom_endpoint.textChanged.connect(
             self._invalidate_custom_model_details
         )
@@ -367,6 +371,7 @@ class MainWindow(QMainWindow):
             self._update_custom_reasoning_options
         )
         self._update_custom_reasoning_options()
+        endpoint_layout.addWidget(endpoint_advanced)
         layout.addWidget(endpoint_group)
 
         self.apple_group = QGroupBox("Apple Intelligence")
@@ -423,7 +428,7 @@ class MainWindow(QMainWindow):
         test_menu_button = QPushButton("Afficher le menu des prompts")
         test_menu_button.clicked.connect(self.show_prompt_menu)
         shortcuts_form.addRow("Test sans raccourci", test_menu_button)
-        layout.addWidget(shortcuts_group)
+        shortcuts_page.addWidget(shortcuts_group)
 
         permissions_group = QGroupBox("🔐 Autorisations macOS")
         permissions_layout = QVBoxLayout(permissions_group)
@@ -459,7 +464,7 @@ class MainWindow(QMainWindow):
         quit_button.clicked.connect(self.quit_application)
         status_row.addWidget(quit_button)
         permissions_layout.addLayout(status_row)
-        layout.addWidget(permissions_group)
+        app_page.addWidget(permissions_group)
 
         general_group = QGroupBox("🎨 Interface et mises à jour")
         general_form = _create_form_layout(general_group)
@@ -477,7 +482,7 @@ class MainWindow(QMainWindow):
         )
         self.channel_combo.setCurrentIndex(max(0, channel_index))
         general_form.addRow("Canal de mise à jour", self.channel_combo)
-        layout.addWidget(general_group)
+        app_page.insertWidget(2, general_group)
         from supermenu_core.ui.speech_settings import SpeechSettingsWidget
         from src.audio.speech_backend import create_speech_backend
 
@@ -489,11 +494,9 @@ class MainWindow(QMainWindow):
         self.api_key.textChanged.connect(self.speech_settings.api_key_input.setText)
         self.speech_settings.api_key_input.textChanged.connect(self.api_key.setText)
         QApplication.instance().aboutToQuit.connect(lambda: self.speech_settings.cancel(silent=True))
-        layout.addWidget(self.speech_settings)
-        layout.addStretch()
-
-        scroll.setWidget(content)
-        container_layout.addWidget(scroll)
+        self.speech_settings.save_button.hide()
+        voice_page.addWidget(self.speech_settings)
+        self.settings_panel.set_footer("voice", self.speech_settings.actions_widget)
         self._refresh_reasoning_options(self.settings.get_model())
         self.toggle_provider()
         self.refresh_permission_status()
@@ -1266,6 +1269,7 @@ class MainWindow(QMainWindow):
 
     def show_permission_setup(self):
         self.tabs.setCurrentIndex(1)
+        self.settings_panel.select_page("app")
         self.show_main_window()
 
     def schedule_startup_update_check(self):

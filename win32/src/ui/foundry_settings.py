@@ -3,7 +3,6 @@
 from datetime import datetime
 
 from PySide6.QtWidgets import (
-    QComboBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -12,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from supermenu_core.ui.verification_status import VerificationStatus
+from supermenu_core.ui.settings_panel import Disclosure, NoWheelComboBox as QComboBox
 from src.api.foundry_client import get_foundry_service
 from src.api.foundry_worker import platform_error
 from src.config.foundry_models import FOUNDRY_MODELS
@@ -19,7 +19,7 @@ from src.config.foundry_models import FOUNDRY_MODELS
 
 class FoundrySettingsWidget(QGroupBox):
     def __init__(self, settings, parent=None):
-        super().__init__("IA locale Microsoft — Foundry Local (bêta)", parent)
+        super().__init__("Foundry Local", parent)
         self.service = get_foundry_service()
         self.request_id = None
         self.operation = None
@@ -30,8 +30,7 @@ class FoundrySettingsWidget(QGroupBox):
         layout = QVBoxLayout(self)
         description = QLabel(
             "Correction, reformulation et traduction sur ce PC, sans clé API. "
-            "Windows 11 24H2 minimum. Une connexion est nécessaire au premier téléchargement."
-            " Vérifier prépare les composants GPU, avec un téléchargement au premier lancement."
+            "Windows 11 24H2 minimum. Les modèles téléchargés sont conservés entre les mises à jour."
         )
         description.setWordWrap(True)
         layout.addWidget(description)
@@ -50,7 +49,6 @@ class FoundrySettingsWidget(QGroupBox):
             self.device_combo.findData(settings.get_foundry_device())
         )
         self.device_combo.currentIndexChanged.connect(self.device_changed)
-        layout.addWidget(self.device_combo)
         self.model_info = QLabel()
         self.model_info.setWordWrap(True)
         layout.addWidget(self.model_info)
@@ -59,7 +57,7 @@ class FoundrySettingsWidget(QGroupBox):
         self.progress_bar = self.verification.progress_bar
         layout.addWidget(self.verification)
         buttons = QHBoxLayout()
-        self.check_button = QPushButton("Vérifier / préparer le GPU")
+        self.check_button = QPushButton("Vérifier le modèle")
         self.check_button.clicked.connect(self.probe)
         self.download_button = QPushButton("Télécharger le modèle")
         self.download_button.clicked.connect(self.download)
@@ -71,16 +69,20 @@ class FoundrySettingsWidget(QGroupBox):
         layout.addLayout(buttons)
         self.cache_label = QLabel()
         self.cache_label.setWordWrap(True)
-        layout.addWidget(self.cache_label)
+        advanced = Disclosure("Matériel et détails du modèle")
+        advanced.content_layout.addWidget(QLabel("Calcul local"))
+        advanced.content_layout.addWidget(self.device_combo)
+        advanced.content_layout.addWidget(self.cache_label)
+        layout.addWidget(advanced)
         note = QLabel(
             'Modèles sous licence <a href="https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE">Apache 2.0</a>. '
             "16 Go de RAM conseillés pour le 4B, 24 Go pour le 9B. "
             "La vitesse dépend du matériel. Limite : 16 000 caractères par requête. "
-            "Le moteur vocal se choisit séparément dans Dictée et transcription en direct."
+            "Le moteur vocal se choisit dans la rubrique Dictée."
         )
         note.setOpenExternalLinks(True)
         note.setWordWrap(True)
-        layout.addWidget(note)
+        advanced.content_layout.addWidget(note)
         self.service.completed.connect(self.completed)
         self.service.failed.connect(self.failed)
         self.service.progress.connect(self.progress)
@@ -166,6 +168,7 @@ class FoundrySettingsWidget(QGroupBox):
 
     def update_controls(self):
         info = self.models.get(self.selected_model())
+        self.download_button.setVisible(bool(info and not info["cached"]))
         self.download_button.setEnabled(
             bool(info and not info["cached"] and not self.request_id)
         )
@@ -175,7 +178,7 @@ class FoundrySettingsWidget(QGroupBox):
         self.check_button.setText(
             "Vérification en cours…"
             if self.operation == "probe"
-            else "Vérifier à nouveau" if self.probed else "Vérifier / préparer le GPU"
+            else "Vérifier à nouveau" if self.probed else "Vérifier le modèle"
         )
         self.download_button.setText(
             "Téléchargement en cours…"
@@ -200,8 +203,7 @@ class FoundrySettingsWidget(QGroupBox):
                 else "Téléchargement du modèle…"
             ),
             (
-                "Recherche des modèles et préparation du matériel. "
-                "Au premier lancement, le téléchargement des composants GPU peut prendre quelques minutes."
+                "Vérification des fichiers et du matériel. Les composants déjà installés sont réutilisés."
                 if operation == "probe"
                 else "Le modèle sera disponible sur ce PC à la fin du téléchargement."
             ),
@@ -268,9 +270,16 @@ class FoundrySettingsWidget(QGroupBox):
             return
         if "stage" in progress:
             self.verification.set_status(
-                "busy", self.verification.title.text(), progress["stage"]
+                "busy",
+                (
+                    "Activation du GPU"
+                    if progress.get("phase") == "hardware"
+                    else self.verification.title.text()
+                ),
+                progress["stage"],
             )
         if "percent" in progress:
+            self.verification.title.setText("Téléchargement du modèle")
             self.verification.set_progress(progress["percent"])
 
     def cancel(self):
