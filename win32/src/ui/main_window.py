@@ -11,11 +11,11 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QTabWidget,
     QTextEdit, QGroupBox,
     QMessageBox, QSystemTrayIcon, QCheckBox, QApplication, QDialog,
-    QStyle, QInputDialog, QFileDialog, QListWidget, QListWidgetItem, QAbstractItemView, QSplitter
+    QStyle, QInputDialog, QFileDialog, QListWidgetItem, QAbstractItemView, QSplitter
 )
-from PySide6.QtCore import Qt, QSize, Signal, QTimer, QThread
+from PySide6.QtCore import Qt, Signal, QTimer, QThread
 from PySide6.QtGui import QIcon, QAction
-from supermenu_core.ui.controls import ChoiceBox, Menu
+from supermenu_core.ui.controls import ChoiceBox, Menu, SidebarList, SIDEBAR_WIDTH
 
 from src.config.build_info import APP_VERSION
 from supermenu_core.config.openai_models import (
@@ -166,8 +166,9 @@ class MainWindow(QMainWindow):
 
         # Set window properties
         self.setWindowTitle("SuperMenu - Configuration")
-        self.setMinimumSize(860, 700)
-        self.resize(1100, 820)
+        self.setMinimumSize(820, 620)
+        self.resize(1000, 720)
+        self.setWindowIcon(QIcon(resource_path("resources", "icons", "icon.png")))
         
         # Create the central widget
         from supermenu_core.ui.window_header import WindowHeader
@@ -178,9 +179,9 @@ class MainWindow(QMainWindow):
         
         # Create the main layout
         self.main_layout = QVBoxLayout(self.central_widget)
-        self.main_layout.setContentsMargins(24, 20, 24, 16)
-        self.main_layout.setSpacing(12)
-        self.main_layout.addWidget(WindowHeader())
+        self.main_layout.setContentsMargins(16, 12, 16, 12)
+        self.main_layout.setSpacing(8)
+        self.main_layout.addWidget(WindowHeader(icon=self.windowIcon()))
         
         # Create the tab widget
         self.tab_widget = QTabWidget()
@@ -199,32 +200,34 @@ class MainWindow(QMainWindow):
         """Create the prompts settings tab"""
         prompts_tab = QWidget()
         layout = QVBoxLayout(prompts_tab)
+        layout.setContentsMargins(8, 8, 8, 8)
 
         self.prompt_combo = ChoiceBox()
         self.populate_prompt_combo()
         self.prompt_combo.hide()
 
         splitter = QSplitter(Qt.Horizontal)
-        splitter.setHandleWidth(0)
+        splitter.setHandleWidth(12)
         splitter.setChildrenCollapsible(False)
 
         left_panel = QWidget()
-        left_panel.setFixedWidth(260)
+        left_panel.setFixedWidth(SIDEBAR_WIDTH)
         left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(6)
 
         self.prompt_search_input = QLineEdit()
         self.prompt_search_input.setPlaceholderText("Rechercher un prompt…")
         self.prompt_search_input.textChanged.connect(self._apply_prompt_filter)
         left_layout.addWidget(self.prompt_search_input)
 
-        self.prompt_order_list = QListWidget()
+        self.prompt_order_list = SidebarList()
         self.prompt_order_list.setSelectionMode(QAbstractItemView.SingleSelection)
         self.prompt_order_list.setDragDropMode(QAbstractItemView.InternalMove)
         self.prompt_order_list.setDefaultDropAction(Qt.MoveAction)
         self.prompt_order_list.setDropIndicatorShown(True)
         self.prompt_order_list.model().rowsMoved.connect(self.on_prompt_order_changed)
         self.prompt_order_list.currentItemChanged.connect(self._on_prompt_list_current_changed)
-        self.prompt_order_list.setSpacing(6)
         left_layout.addWidget(self.prompt_order_list)
 
         left_buttons = QHBoxLayout()
@@ -241,6 +244,8 @@ class MainWindow(QMainWindow):
 
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(6)
         
         # Prompt editing
         prompt_group = QGroupBox("Votre prompt")
@@ -333,7 +338,7 @@ class MainWindow(QMainWindow):
         self.populate_prompt_order_list()
 
     def create_voice_prompts_tab(self):
-        self.voice_prompt_editor = VoicePromptEditor(self.settings, self)
+        self.voice_prompt_editor = VoicePromptEditor(self.settings, self, list_factory=SidebarList, sidebar_width=SIDEBAR_WIDTH)
         self.voice_prompt_editor.run_button.hide()
         self.voice_prompt_editor.import_requested.connect(self.import_all_prompts)
         self.voice_prompt_editor.export_requested.connect(self.export_all_prompts)
@@ -504,13 +509,13 @@ class MainWindow(QMainWindow):
         export_button = QPushButton("Exporter tous les Prompts")
         # Icône retirée
         export_button.clicked.connect(self.export_all_prompts)
-        export_button.setMinimumHeight(40)
+        export_button.setMinimumHeight(30)
         buttons_layout.addWidget(export_button)
         
         import_button = QPushButton("Importer tous les Prompts")
         # Icône retirée
         import_button.clicked.connect(self.import_all_prompts)
-        import_button.setMinimumHeight(40)
+        import_button.setMinimumHeight(30)
         buttons_layout.addWidget(import_button)
         
         import_export_layout.addLayout(buttons_layout)
@@ -1714,7 +1719,7 @@ class MainWindow(QMainWindow):
                 if is_filtered and query not in (name or "").lower():
                     continue
                 item = QListWidgetItem(name)
-                item.setSizeHint(QSize(0, 44))
+                item.setToolTip(item.text())
                 item.setData(Qt.UserRole, prompt_id)
                 self.prompt_order_list.addItem(item)
 

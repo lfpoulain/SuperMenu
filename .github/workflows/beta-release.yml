@@ -358,6 +358,11 @@ jobs:
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
 
+            Interface affinée sur Windows et Mac : fenêtres plus compactes,
+            espacements réduits, listes latérales harmonisées, boutons plus lisibles
+            en clair et en sombre, et logo de l’application dans l’en-tête.
+            Les champs de prompts restent accessibles par défilement à petite taille.
+
             Prompts vocaux sur Mac : nouvel onglet Voix et sous-menu vocal avec
             dictée simple, prompts enregistrés et prompt vocal personnalisé.
             La transcription utilise OpenAI ou Apple Speech, puis le moteur de

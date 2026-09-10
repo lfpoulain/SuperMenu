@@ -33,7 +33,7 @@ def test_prompt_fields_do_not_overlap_in_compact_window(monkeypatch, tmp_path):
     try:
         for theme in ("light", "dark"):
             ThemeManager.apply_theme(app, theme)
-            window.resize(860, 700)
+            window.resize(window.minimumSize())
             window.show()
             for tab, instruction, status in (
                 (0, window.prompt_text_input, window.prompt_status_input),

@@ -34,7 +34,7 @@ class SpeechSettingsWidget(QGroupBox):
         self.backend = None
         self.platform = platform or sys.platform
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
+        layout.setSpacing(6)
         layout.addWidget(QLabel("Microphone"))
         self.microphone_combo = ChoiceBox()
         mic_row = QHBoxLayout()

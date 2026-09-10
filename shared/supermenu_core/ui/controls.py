@@ -1,7 +1,22 @@
 """Desktop controls with shared popup, selection and keyboard behaviour."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QComboBox, QListView, QMenu, QWidget
+from PySide6.QtWidgets import QComboBox, QListView, QListWidget, QMenu, QWidget
+
+
+SIDEBAR_WIDTH = 220
+
+
+class SidebarList(QListWidget):
+    """The same compact, framed navigation for prompts, voice and settings."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setUniformItemSizes(True)
+        self.setSpacing(3)
+        self.setMouseTracking(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setTextElideMode(Qt.TextElideMode.ElideRight)
 
 
 class ChoiceBox(QComboBox):

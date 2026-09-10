@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
@@ -27,7 +26,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from supermenu_core.ui.controls import ChoiceBox, Menu
+from supermenu_core.ui.controls import ChoiceBox, Menu, SidebarList, SIDEBAR_WIDTH
 
 from src.config.build_info import APP_VERSION
 from src.api.apple_foundation_client import FoundationModelsRequest
@@ -131,8 +130,8 @@ class MainWindow(QMainWindow):
         self._keys = KeyEventPoster()
 
         self.setWindowTitle("SuperMenu - Configuration")
-        self.setMinimumSize(860, 700)
-        self.resize(1100, 820)
+        self.setMinimumSize(820, 620)
+        self.resize(1000, 720)
         self.setWindowIcon(QIcon(resource_path("resources", "icons", "icon.png")))
 
         from supermenu_core.ui.window_header import WindowHeader
@@ -140,12 +139,12 @@ class MainWindow(QMainWindow):
         root = QWidget()
         root.setObjectName("desktopRoot")
         root_layout = QVBoxLayout(root)
-        root_layout.setContentsMargins(24, 20, 24, 16)
-        root_layout.setSpacing(12)
-        root_layout.addWidget(WindowHeader())
+        root_layout.setContentsMargins(16, 12, 16, 12)
+        root_layout.setSpacing(8)
+        root_layout.addWidget(WindowHeader(icon=self.windowIcon()))
         self.tabs = QTabWidget()
         self.tabs.addTab(self._create_prompts_tab(), "Prompts")
-        self.voice_prompt_editor = VoicePromptEditor(self.settings, self)
+        self.voice_prompt_editor = VoicePromptEditor(self.settings, self, list_factory=SidebarList, sidebar_width=SIDEBAR_WIDTH)
         self.voice_prompt_editor.run_requested.connect(self.run_voice_prompt)
         self.voice_prompt_editor.import_requested.connect(self.import_prompts)
         self.voice_prompt_editor.export_requested.connect(self.export_prompts)
@@ -182,18 +181,21 @@ class MainWindow(QMainWindow):
     def _create_prompts_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(8, 8, 8, 8)
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(0)
+        splitter.setHandleWidth(12)
         splitter.setChildrenCollapsible(False)
 
         left = QWidget()
-        left.setFixedWidth(260)
+        left.setFixedWidth(SIDEBAR_WIDTH)
         left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(6)
         self.prompt_search = QLineEdit()
         self.prompt_search.setPlaceholderText("Rechercher un prompt…")
         self.prompt_search.textChanged.connect(self._filter_prompts)
         left_layout.addWidget(self.prompt_search)
-        self.prompt_list = QListWidget()
+        self.prompt_list = SidebarList()
         self.prompt_list.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection
         )
@@ -202,7 +204,6 @@ class MainWindow(QMainWindow):
         )
         self.prompt_list.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.prompt_list.setDropIndicatorShown(True)
-        self.prompt_list.setSpacing(6)
         self.prompt_list.currentItemChanged.connect(self._load_selected_prompt)
         self.prompt_list.model().rowsMoved.connect(self._save_prompt_order)
         left_layout.addWidget(self.prompt_list)
@@ -226,12 +227,14 @@ class MainWindow(QMainWindow):
 
         right = QWidget()
         right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(6)
         form_group = QGroupBox("Votre prompt")
         form = form_layout(form_group, stacked=True)
         self.prompt_name = QLineEdit()
         form.addRow("Nom", self.prompt_name)
         self.prompt_instruction = QTextEdit()
-        self.prompt_instruction.setMinimumHeight(180)
+        self.prompt_instruction.setMinimumHeight(100)
         form.addRow("Instructions", self.prompt_instruction)
         self.prompt_status = QLineEdit()
         form.addRow("Message pendant le traitement", self.prompt_status)
@@ -496,6 +499,7 @@ class MainWindow(QMainWindow):
     def _create_about_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(8, 8, 8, 8)
         title = QLabel("SuperMenu")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setObjectName("aboutTitle")

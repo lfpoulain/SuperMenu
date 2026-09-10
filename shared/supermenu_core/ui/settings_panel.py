@@ -1,12 +1,12 @@
 """Small settings pages and explicit disclosure of optional controls."""
 
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt
+from .controls import SidebarList, SIDEBAR_WIDTH
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
-    QListWidget,
     QListWidgetItem,
     QStackedWidget,
     QScrollArea,
@@ -21,7 +21,7 @@ def form_layout(parent, *, stacked=False):
     """Use the same field growth and vertical rhythm on each platform."""
     form = QFormLayout(parent)
     form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-    form.setVerticalSpacing(10)
+    form.setVerticalSpacing(6)
     if stacked:
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
     return form
@@ -51,8 +51,8 @@ class Disclosure(QWidget):
         layout.addWidget(self.toggle)
         self.content = QWidget()
         self.content_layout = QVBoxLayout(self.content)
-        self.content_layout.setContentsMargins(8, 8, 0, 4)
-        self.content_layout.setSpacing(8)
+        self.content_layout.setContentsMargins(8, 4, 0, 2)
+        self.content_layout.setSpacing(6)
         layout.addWidget(self.content)
         self.content.hide()
         self.toggle.toggled.connect(self.set_expanded)
@@ -69,17 +69,12 @@ class SettingsPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 12, 8, 8)
-        layout.setSpacing(18)
-        self.navigation = QListWidget()
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(12)
+        self.navigation = SidebarList()
         self.navigation.setObjectName("settingsNavigation")
         self.navigation.setAccessibleName("Rubriques des réglages")
-        self.navigation.setFixedWidth(165)
-        self.navigation.setFrameShape(QFrame.Shape.NoFrame)
-        self.navigation.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        self.navigation.setSpacing(4)
+        self.navigation.setFixedWidth(SIDEBAR_WIDTH)
         layout.addWidget(self.navigation)
         self.pages = QStackedWidget()
         layout.addWidget(self.pages, 1)
@@ -90,12 +85,11 @@ class SettingsPanel(QWidget):
     def add_page(self, key, title, description):
         self.keys.append(key)
         item = QListWidgetItem(title)
-        item.setSizeHint(QSize(145, 44))
         self.navigation.addItem(item)
         page = QWidget()
         page_layout = QVBoxLayout(page)
         page_layout.setContentsMargins(0, 0, 0, 0)
-        page_layout.setSpacing(10)
+        page_layout.setSpacing(6)
         self.page_layouts[key] = page_layout
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -103,8 +97,8 @@ class SettingsPanel(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         content = QWidget()
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(2, 2, 12, 12)
-        layout.setSpacing(14)
+        layout.setContentsMargins(2, 2, 8, 8)
+        layout.setSpacing(8)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         heading = QLabel(title)
         heading.setObjectName("pageTitle")
