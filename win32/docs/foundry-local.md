@@ -8,7 +8,9 @@ outil en ligne de commande, compte Microsoft ou abonnement IA n'est nécessaire.
 1. Installer la [bêta PC](https://github.com/lfpoulain/SuperMenu/releases/tag/beta),
    ou choisir le canal Beta dans À propos puis rechercher une mise à jour.
 2. Dans **Réglages > Moteur IA**, choisir **IA locale Microsoft — Foundry Local**.
-3. Cliquer sur **Vérifier**, puis sélectionner **Qwen3.5 4B** ou **Qwen3.5 9B**.
+3. Garder **Automatique — GPU en priorité**, puis cliquer sur **Vérifier / préparer le GPU**.
+   Cette étape installe les composants CUDA sur NVIDIA (ou WebGPU sur les autres GPU).
+   Le premier téléchargement peut prendre quelques minutes. Choisir ensuite **Qwen3.5 4B** ou **Qwen3.5 9B**.
    La taille du téléchargement, sa présence sur le disque et le matériel
    d'exécution sont lus dans le catalogue Microsoft pour ce PC.
 4. Cliquer sur **Télécharger le modèle**, puis **Enregistrer la configuration**.
@@ -19,6 +21,13 @@ Le 4B est le choix par défaut. Prévoir 16 Go de RAM pour le 4B, 24 Go pour le 
 Sur le PC de validation CPU, les variantes du catalogue étaient
 `qwen3.5-4b-generic-cpu:3` (3 085 Mo) et `qwen3.5-9b-generic-cpu:3` (5 569 Mo).
 Les autres matériels peuvent recevoir des variantes et tailles différentes.
+
+Sur NVIDIA, le statut doit indiquer **GPU — CUDA (NVIDIA)**. Un modèle CPU déjà
+téléchargé ne remplace pas sa variante CUDA : télécharger la variante GPU affichée
+puis enregistrer la configuration. Les fichiers CPU restent disponibles si l'on
+choisit **CPU uniquement**. En cas d'échec de préparation GPU, le message propose
+de vérifier la connexion/pilote ou de choisir CPU ; l'inférence ne bascule pas
+silencieusement sur le CPU.
 
 ## Disponibilité et limites
 
@@ -54,6 +63,13 @@ Jinja `is false` non pris en charge par ORT GenAI 0.14.1 et limite de
 `search.max_length` à 32 768. Les poids restent inchangés. L'adaptation est
 atomique et idempotente. Les variantes sans template compatible sont refusées.
 
+Le SDK expose seulement les modèles CPU tant que les fournisseurs d'exécution
+ne sont pas enregistrés. Chaque processus prépare donc le fournisseur CUDA
+(prioritaire) ou WebGPU avec `download_and_register_eps`, avant de consulter les
+variantes. Le téléchargement des composants est mis en cache par Microsoft.
+La sélection des variantes donne priorité au GPU devant le cache CPU, et conserve
+un objet de variante distinct pour pouvoir décharger le modèle réellement en mémoire.
+
 Validation locale du 9 septembre 2026 : les deux modèles corrigent
 « Les enfant joue dans le jardin. » et traduisent
 « Je serai disponible demain matin. » en anglais, sans raisonnement dans la sortie.
@@ -61,9 +77,18 @@ Les tests automatisés couvrent migration des réglages, routage et conservation
 de la cible d'insertion, changements de modèle, arrêt du moteur, délai dépassé,
 annulation, absence de téléchargement implicite et réponses interrompues.
 
+Validation CUDA du 10 septembre 2026 sur RTX 4090, pilote 591.86 : les variantes
+`qwen3.5-4b-cuda-gpu:3` (4 181 Mo) et `qwen3.5-9b-cuda-gpu:3` (7 144 Mo)
+exécutent les mêmes corrections/traductions. La traduction de cette courte phrase
+prend environ 0,17 s / 0,20 s une fois le modèle chargé (mesures ponctuelles).
+Les régressions testent aussi l'enregistrement CUDA, la priorité sur un cache CPU,
+le choix CPU sans téléchargement GPU et la libération de l'ancienne variante.
+
 La publication bêta exige également `SuperMenu.exe --foundry-smoke-test` :
 initialisation des DLL natives embarquées et lecture des deux modèles du catalogue
-depuis un processus enfant de l'exécutable final, sans télécharger les poids en CI.
+depuis un processus enfant de l'exécutable final, en mode CPU sans télécharger
+de composants GPU ni de poids en CI. L'inférence CUDA est vérifiée séparément
+sur une machine disposant du matériel NVIDIA.
 
 Références : [SDK Microsoft](https://learn.microsoft.com/en-us/windows/ai/foundry-local/get-started),
 [SDK 1.2.4](https://pypi.org/project/foundry-local-sdk-winml/1.2.4/),

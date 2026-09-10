@@ -100,6 +100,52 @@ class FoundryRuntime:
         self.root = Path(root) if root else cache_root()
         self.manager = None
         self.loaded_model = None
+        self.hardware_prepared = False
+        self.hardware_warning = ""
+
+    def prepare_hardware(self, device, progress, *, retry=False):
+        self.initialize()
+        if device == "cpu" or (self.hardware_prepared and not retry):
+            return
+        self.hardware_prepared = False
+        self.hardware_warning = ""
+        # SDK 1.2.4 does not register EPs when the catalog is opened. Without
+        # this step it exposes CPU variants even on an NVIDIA-equipped PC.
+        try:
+            available = {
+                ep.name: ep.is_registered for ep in self.manager.discover_eps()
+            }
+            provider = next(
+                (
+                    name
+                    for name in ("CUDAExecutionProvider", "WebGpuExecutionProvider")
+                    if name in available
+                ),
+                None,
+            )
+            if provider and not available[provider]:
+                label = (
+                    "CUDA (NVIDIA)" if provider == "CUDAExecutionProvider" else "GPU"
+                )
+                progress(
+                    {
+                        "stage": f"Préparation de {label} — téléchargement des composants au premier lancement…"
+                    }
+                )
+                # No callback: SDK 1.2.x has a native disposal race in its EP
+                # progress callbacks. The UI shows an indeterminate bar.
+                result = self.manager.download_and_register_eps(names=[provider])
+                registered = {
+                    ep.name for ep in self.manager.discover_eps() if ep.is_registered
+                }
+                if provider not in registered:
+                    raise RuntimeError(result.status)
+        except Exception:
+            self.hardware_warning = (
+                "L'accélération GPU n'a pas pu être préparée. Vérifiez la connexion et le pilote NVIDIA/GPU, "
+                "puis cliquez sur Vérifier. Vous pouvez aussi choisir CPU explicitement."
+            )
+        self.hardware_prepared = True
 
     def initialize(self):
         if self.manager is not None:
@@ -119,7 +165,7 @@ class FoundryRuntime:
         )
         self.manager = FoundryLocalManager.instance
 
-    def model(self, alias):
+    def model(self, alias, device="auto"):
         if alias not in FOUNDRY_MODELS:
             raise LocalError("Choisissez Qwen3.5 4B ou Qwen3.5 9B dans les réglages.")
         self.initialize()
@@ -128,7 +174,27 @@ class FoundryRuntime:
             raise LocalError(
                 "Ce Qwen n'est pas disponible pour ce PC dans le catalogue Microsoft."
             )
-        return model
+        variants = model.variants
+        if device == "cpu":
+            variants = [v for v in variants if str(v.info.runtime.device_type) == "CPU"]
+        if not variants:
+            raise LocalError(
+                "Aucune variante de ce modèle n'est disponible pour le matériel choisi."
+            )
+
+        def priority(variant):
+            runtime = variant.info.runtime
+            if runtime.execution_provider == "CUDAExecutionProvider":
+                return 0
+            if str(runtime.device_type) == "GPU":
+                return 1
+            if str(runtime.device_type) == "NPU":
+                return 2
+            return 3
+
+        # Do not accept the SDK's cached-CPU preference. Return an immutable
+        # variant, so later catalog queries cannot retarget a loaded model.
+        return min(variants, key=priority)
 
     @staticmethod
     def describe(model):
@@ -140,18 +206,29 @@ class FoundryRuntime:
             "cached": model.is_cached,
             "size_mb": info.file_size_mb,
             "device": str(info.runtime.device_type) if info.runtime else "CPU",
+            "execution_provider": (
+                info.runtime.execution_provider
+                if info.runtime
+                else "CPUExecutionProvider"
+            ),
             "license": info.license or "Apache-2.0",
         }
 
     def execute(self, request, progress):
         operation = request.get("operation")
+        device = "cpu" if request.get("device") == "cpu" else "auto"
+        self.prepare_hardware(device, progress, retry=operation == "probe")
         if operation == "probe":
-            self.initialize()
             return {
-                "models": [self.describe(self.model(a)) for a in FOUNDRY_MODELS],
+                "models": [
+                    self.describe(self.model(a, device)) for a in FOUNDRY_MODELS
+                ],
                 "cache_dir": str(self.root / "cache" / "models"),
+                "hardware_warning": self.hardware_warning if device == "auto" else "",
             }
-        model = self.model(request.get("model"))
+        if device == "auto" and self.hardware_warning:
+            raise LocalError(self.hardware_warning)
+        model = self.model(request.get("model"), device)
         if operation == "download":
             info = self.describe(model)
             if not info["cached"]:

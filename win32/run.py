@@ -71,7 +71,7 @@ def run_foundry_smoke_test():
         pass  # No output handle when invoked by Start-Process without redirect.
     program, args = worker_command()
     child = subprocess.run(
-        [program, *args], input=json.dumps({"id": "smoke", "operation": "probe"}) + "\n",
+        [program, *args], input=json.dumps({"id": "smoke", "operation": "probe", "device": "cpu"}) + "\n",
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         encoding="utf-8", timeout=120, creationflags=subprocess.CREATE_NO_WINDOW,
     )

@@ -361,6 +361,12 @@ class Settings:
 
     def set_foundry_model(self, model):
         self.settings.setValue("foundry_model", normalize_foundry_model(model))
+
+    def get_foundry_device(self):
+        return "cpu" if self.settings.value("foundry_device", "auto") == "cpu" else "auto"
+
+    def set_foundry_device(self, device):
+        self.settings.setValue("foundry_device", "cpu" if device == "cpu" else "auto")
         
     def get_microphone_index(self):
         """Get the selected microphone index"""
@@ -802,6 +808,7 @@ class Settings:
         self.set_custom_model(self.default_custom_model)
         self.set_use_custom_endpoint(self.default_use_custom_endpoint)
         self.set_foundry_model(DEFAULT_FOUNDRY_MODEL)
+        self.set_foundry_device("auto")
         self.set_microphone_index(self.default_microphone_index)
         self.set_transcription_languages(
             self.default_transcription_languages

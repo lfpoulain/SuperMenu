@@ -359,6 +359,8 @@ jobs:
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
 
             Nouveauté Windows : Foundry Local embarqué avec Qwen3.5 4B et Qwen3.5 9B.
+            Correctif GPU : activation automatique de CUDA sur NVIDIA, priorité au GPU
+            même si un modèle CPU est déjà téléchargé, et choix CPU explicite.
             Dans Réglages > Moteur IA, choisir IA locale Microsoft, vérifier, télécharger
             le modèle puis Enregistrer la configuration. Aucune clé API ni installation
             de Foundry/Ollama nécessaire pour le texte. Windows 11 24H2 minimum.

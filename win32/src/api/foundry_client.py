@@ -76,7 +76,7 @@ class FoundryService(QObject):
             return
         self._idle_timer.stop()
         self._active = self._queue.popleft()
-        timeout = {"download": 1800000, "generate": 600000, "probe": 90000}
+        timeout = {"download": 1800000, "generate": 600000, "probe": 1800000}
         self._timer.start(timeout.get(self._active["operation"], 90000))
         if self._process.state() == QProcess.NotRunning:
             self._buffer = b""
@@ -187,6 +187,7 @@ class FoundryClient(QObject):
     def __init__(self, settings, service=None):
         super().__init__()
         self.model = settings.get_foundry_model()
+        self.device = settings.get_foundry_device()
         self._service = service or get_foundry_service()
         self._pending = {}
         self._closed = False
@@ -221,6 +222,7 @@ class FoundryClient(QObject):
                 "generate",
                 request_id=request_id,
                 model=self.model,
+                device=self.device,
                 prompt=prompt,
                 content=content,
             )

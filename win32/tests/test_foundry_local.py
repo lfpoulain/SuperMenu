@@ -52,12 +52,17 @@ def test_legacy_provider_migration_and_foundry_persistence(settings):
     reloaded = Settings()
     assert reloaded.get_ai_provider() == "foundry"
     assert reloaded.get_foundry_model() == "qwen3.5-9b"
+    assert reloaded.get_foundry_device() == "auto"
+    reloaded.set_foundry_device("cpu")
+    reloaded.sync()
+    assert Settings().get_foundry_device() == "cpu"
     assert not reloaded.get_use_custom_endpoint()
     assert reloaded.get_reasoning_effort() == "none"
     assert reloaded.get_custom_model() == "existing"
     reloaded.reset_to_defaults()
     assert reloaded.get_ai_provider() == "openai"
     assert reloaded.get_foundry_model() == "qwen3.5-4b"
+    assert reloaded.get_foundry_device() == "auto"
 
 
 def test_private_model_configuration_preserves_weights_and_is_idempotent(tmp_path):
@@ -114,6 +119,12 @@ class FakeModel:
         self.requests = []
         self.reason = "stop"
         self.settings = SimpleNamespace()
+        self.info = SimpleNamespace(
+            runtime=SimpleNamespace(
+                device_type="CPU", execution_provider="CPUExecutionProvider"
+            )
+        )
+        self.variants = [self]
 
     def load(self):
         self.loads += 1
@@ -139,7 +150,9 @@ class FakeModel:
 def runtime_with_models(tmp_path, monkeypatch):
     models = {a: FakeModel(a) for a in ("qwen3.5-4b", "qwen3.5-9b")}
     runtime = FoundryRuntime(tmp_path)
-    runtime.manager = SimpleNamespace(catalog=SimpleNamespace(get_model=models.get))
+    runtime.manager = SimpleNamespace(
+        catalog=SimpleNamespace(get_model=models.get), discover_eps=lambda: []
+    )
     monkeypatch.setattr(foundry_worker, "configure_text_model", lambda *_a: None)
     return runtime, models
 
@@ -311,14 +324,17 @@ def test_foundry_settings_download_progress_and_save_without_key(
         window.ai_provider_combo.findData("foundry")
     )
     panel = window.foundry_group
-    assert service.commands == [("probe", {})]
+    assert service.commands == [("probe", {"device": "auto"})]
     assert not panel.download_button.isEnabled()
     model = {"alias": "qwen3.5-9b", "cached": False, "size_mb": 5569, "device": "CPU"}
     service.completed.emit("1", {"models": [model], "cache_dir": "test-cache"})
     panel.model_combo.setCurrentIndex(panel.model_combo.findData("qwen3.5-9b"))
     assert panel.download_button.isEnabled()
     panel.download_button.click()
-    assert service.commands[-1] == ("download", {"model": "qwen3.5-9b"})
+    assert service.commands[-1] == (
+        "download",
+        {"model": "qwen3.5-9b", "device": "auto"},
+    )
     service.progress.emit("2", {"percent": 45})
     assert panel.progress_bar.value() == 45
     service.completed.emit("2", {**model, "cached": True})
@@ -330,3 +346,103 @@ def test_foundry_settings_download_progress_and_save_without_key(
     assert settings.get_api_key() == ""
     window.hide()
     window.deleteLater()
+
+
+def gpu_runtime(tmp_path, monkeypatch, *, registered=False, fail=False):
+    cpu = FakeModel("qwen3.5-4b")
+    gpu = FakeModel("qwen3.5-4b", cached=False)
+    gpu.id = "qwen3.5-4b-cuda-gpu:3"
+    gpu.info.runtime = SimpleNamespace(
+        device_type="GPU", execution_provider="CUDAExecutionProvider"
+    )
+    alias = SimpleNamespace(id=cpu.id, variants=[cpu, gpu])
+    runtime = FoundryRuntime(tmp_path)
+    state = {"registered": registered, "downloads": []}
+
+    def discover():
+        return [
+            SimpleNamespace(
+                name="CUDAExecutionProvider", is_registered=state["registered"]
+            ),
+            SimpleNamespace(name="WebGpuExecutionProvider", is_registered=False),
+        ]
+
+    def register(**kwargs):
+        state["downloads"].append(kwargs)
+        state["registered"] = not fail
+        return SimpleNamespace(status="failed" if fail else "ready")
+
+    runtime.manager = SimpleNamespace(
+        catalog=SimpleNamespace(get_model=lambda _a: alias),
+        discover_eps=discover,
+        download_and_register_eps=register,
+    )
+    monkeypatch.setattr(foundry_worker, "configure_text_model", lambda *_a: None)
+    return runtime, cpu, gpu, alias, state
+
+
+def test_cuda_registration_and_selection_override_cached_cpu(tmp_path, monkeypatch):
+    runtime, cpu, gpu, alias, state = gpu_runtime(tmp_path, monkeypatch)
+    progress = []
+    runtime.prepare_hardware("auto", progress.append)
+    assert state["downloads"] == [{"names": ["CUDAExecutionProvider"]}]
+    assert "CUDA" in progress[0]["stage"]
+    assert runtime.model("qwen3.5-4b") is gpu
+    assert alias.id == cpu.id  # Catalog selection never retargets a loaded model.
+    assert runtime.model("qwen3.5-4b", "cpu") is cpu
+    runtime.prepare_hardware("auto", progress.append, retry=True)
+    assert len(state["downloads"]) == 1
+
+
+def test_register_already_active_cuda_without_download(tmp_path, monkeypatch):
+    runtime, _cpu, gpu, _alias, state = gpu_runtime(
+        tmp_path, monkeypatch, registered=True
+    )
+    runtime.prepare_hardware("auto", lambda _p: None)
+    assert not state["downloads"]
+    assert runtime.model("qwen3.5-4b") is gpu
+
+
+def test_cpu_mode_never_prepares_gpu_and_preserves_cached_cpu(tmp_path, monkeypatch):
+    runtime, cpu, _gpu, _alias, state = gpu_runtime(tmp_path, monkeypatch)
+    runtime.manager.discover_eps = lambda: pytest.fail(
+        "CPU mode must not discover/download GPU components"
+    )
+    result = runtime.execute(
+        {"operation": "generate", "model": "qwen3.5-4b", "device": "cpu"},
+        lambda _p: None,
+    )
+    assert result == {"text": "Résultat"}
+    assert cpu.loads == 1
+    assert not state["downloads"]
+
+
+def test_failed_accelerator_setup_is_visible_and_cpu_can_be_chosen(
+    tmp_path, monkeypatch
+):
+    runtime, cpu, _gpu, _alias, _state = gpu_runtime(tmp_path, monkeypatch, fail=True)
+    request = {"operation": "generate", "model": "qwen3.5-4b"}
+    with pytest.raises(LocalError, match="accélération GPU"):
+        runtime.execute(request, lambda _p: None)
+    assert cpu.loads == 0
+    assert runtime.execute({**request, "device": "cpu"}, lambda _p: None) == {
+        "text": "Résultat"
+    }
+
+
+def test_switching_loaded_cpu_to_gpu_unloads_the_actual_cpu_variant(
+    tmp_path, monkeypatch
+):
+    runtime, cpu, gpu, _alias, _state = gpu_runtime(
+        tmp_path, monkeypatch, registered=True
+    )
+    request = {"operation": "generate", "model": "qwen3.5-4b"}
+    runtime.execute({**request, "device": "cpu"}, lambda _p: None)
+    # Discovering a GPU must not change the identity of the already loaded CPU.
+    runtime.model("qwen3.5-4b")
+    assert runtime.loaded_model is cpu
+    gpu.is_cached = True
+    runtime.execute(request, lambda _p: None)
+    assert cpu.unloads == 1
+    assert gpu.loads == 1
+    assert runtime.loaded_model is gpu

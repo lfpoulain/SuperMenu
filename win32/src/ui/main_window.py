@@ -1698,6 +1698,9 @@ class MainWindow(QMainWindow):
             self.foundry_group.model_combo.setCurrentIndex(
                 self.foundry_group.model_combo.findData(self.settings.get_foundry_model())
             )
+            self.foundry_group.device_combo.setCurrentIndex(
+                self.foundry_group.device_combo.findData(self.settings.get_foundry_device())
+            )
             self.custom_endpoint_input.setText(self.settings.get_custom_endpoint())
             self.custom_model_combo.clear()
             current_custom_model = self.settings.get_custom_model()
@@ -2693,6 +2696,7 @@ class MainWindow(QMainWindow):
         self.settings.set_custom_reasoning_effort(normalized_custom_effort)
         self.settings.set_ai_provider(provider)
         self.settings.set_foundry_model(self.foundry_group.selected_model())
+        self.settings.set_foundry_device(self.foundry_group.selected_device())
         self.settings.set_custom_endpoint(custom_endpoint)
         self.settings.set_custom_endpoint_api_key(custom_endpoint_api_key)
         self.settings.set_custom_endpoint_type(custom_endpoint_type)

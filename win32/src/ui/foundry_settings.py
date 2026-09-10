@@ -27,6 +27,7 @@ class FoundrySettingsWidget(QGroupBox):
         description = QLabel(
             "Correction, reformulation et traduction sur ce PC, sans clé API. "
             "Windows 11 24H2 minimum. Une connexion est nécessaire au premier téléchargement."
+            " Vérifier prépare les composants GPU, avec un téléchargement au premier lancement."
         )
         description.setWordWrap(True)
         layout.addWidget(description)
@@ -38,6 +39,14 @@ class FoundrySettingsWidget(QGroupBox):
         )
         self.model_combo.currentIndexChanged.connect(self.update_model)
         layout.addWidget(self.model_combo)
+        self.device_combo = QComboBox()
+        self.device_combo.addItem("Automatique — GPU en priorité", "auto")
+        self.device_combo.addItem("CPU uniquement", "cpu")
+        self.device_combo.setCurrentIndex(
+            self.device_combo.findData(settings.get_foundry_device())
+        )
+        self.device_combo.currentIndexChanged.connect(self.device_changed)
+        layout.addWidget(self.device_combo)
         self.model_info = QLabel()
         self.model_info.setWordWrap(True)
         layout.addWidget(self.model_info)
@@ -51,7 +60,7 @@ class FoundrySettingsWidget(QGroupBox):
         self.progress_bar.hide()
         layout.addWidget(self.progress_bar)
         buttons = QHBoxLayout()
-        self.check_button = QPushButton("Vérifier")
+        self.check_button = QPushButton("Vérifier / préparer le GPU")
         self.check_button.clicked.connect(self.probe)
         self.download_button = QPushButton("Télécharger le modèle")
         self.download_button.clicked.connect(self.download)
@@ -81,6 +90,17 @@ class FoundrySettingsWidget(QGroupBox):
     def selected_model(self):
         return self.model_combo.currentData()
 
+    def selected_device(self):
+        return self.device_combo.currentData()
+
+    def device_changed(self, *_args):
+        if self.request_id:
+            self.cancel()
+        self.models = {}
+        self.update_model()
+        if self.probed:
+            self.probe()
+
     def update_model(self, *_args):
         info = self.models.get(self.selected_model())
         if info:
@@ -89,9 +109,12 @@ class FoundrySettingsWidget(QGroupBox):
             state = (
                 "Téléchargé — prêt à utiliser" if info["cached"] else "À télécharger"
             )
-            self.model_info.setText(
-                f"{state} · {size_text} · Exécution : {info['device']}"
-            )
+            provider = info.get("execution_provider", "")
+            device = {
+                "CUDAExecutionProvider": "GPU — CUDA (NVIDIA)",
+                "WebGpuExecutionProvider": "GPU — WebGPU",
+            }.get(provider, info["device"])
+            self.model_info.setText(f"{state} · {size_text} · Exécution : {device}")
         else:
             self.model_info.setText(
                 "Le téléchargement et le matériel d'exécution seront précisés après vérification."
@@ -101,6 +124,7 @@ class FoundrySettingsWidget(QGroupBox):
         )
         self.check_button.setEnabled(not self.request_id and not platform_error())
         self.model_combo.setEnabled(not self.request_id)
+        self.device_combo.setEnabled(not self.request_id)
 
     def start(self, operation, **payload):
         if self.request_id:
@@ -119,12 +143,14 @@ class FoundrySettingsWidget(QGroupBox):
 
     def probe(self):
         if not platform_error():
-            self.start("probe")
+            self.start("probe", device=self.selected_device())
 
     def download(self):
         info = self.models.get(self.selected_model())
         if info and not info["cached"]:
-            self.start("download", model=self.selected_model())
+            self.start(
+                "download", model=self.selected_model(), device=self.selected_device()
+            )
 
     def finish(self):
         self.request_id = None
@@ -141,7 +167,8 @@ class FoundrySettingsWidget(QGroupBox):
             self.probed = True
             self.cache_label.setText("Stockage des modèles : " + result["cache_dir"])
             self.status.setText(
-                "Choisissez le modèle, téléchargez-le puis enregistrez la configuration."
+                result.get("hardware_warning")
+                or "Choisissez le modèle, téléchargez sa variante affichée puis enregistrez la configuration."
             )
         else:
             self.models[result["alias"]] = result
@@ -156,7 +183,12 @@ class FoundrySettingsWidget(QGroupBox):
             self.finish()
 
     def progress(self, request_id, progress):
-        if request_id == self.request_id and "percent" in progress:
+        if request_id != self.request_id:
+            return
+        if "stage" in progress:
+            self.status.setText(progress["stage"])
+            self.progress_bar.setRange(0, 0)
+        if "percent" in progress:
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(round(progress["percent"]))
 
