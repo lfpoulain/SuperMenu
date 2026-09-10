@@ -255,6 +255,7 @@ class ContextMenuManager(QObject):
         if self._dictation is not None:
             self._dictation.cleanup()
             self._dictation.deleteLater()
+            self._dictation = None
         target = target or PasteTarget.capture(fall_back_to_last_known=from_ui)
 
         def show_result(text):

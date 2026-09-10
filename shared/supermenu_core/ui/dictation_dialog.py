@@ -186,7 +186,7 @@ class RecordingDialog(QDialog):
     def copy_transcript(self):
         QApplication.clipboard().setText(self.transcript_edit.toPlainText())
         self.copy_button.setText("Copié")
-        QTimer.singleShot(1000, lambda: self.copy_button.setText("Copier"))
+        QTimer.singleShot(1000, self, lambda: self.copy_button.setText("Copier"))
 
     def set_processing(self, message):
         self._state = "processing"

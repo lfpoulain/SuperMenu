@@ -299,7 +299,7 @@ class SpeechSettingsWidget(QGroupBox):
         self.settings.sync()
         self.save_button.setText("Enregistré")
         QTimer.singleShot(
-            1200, lambda: self.save_button.setText("Enregistrer la dictée")
+            1200, self, lambda: self.save_button.setText("Enregistrer la dictée")
         )
         self.settings_saved.emit()
         return True
