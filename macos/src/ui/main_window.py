@@ -9,7 +9,6 @@ from PySide6.QtGui import QAction, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
-    QCheckBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -21,8 +20,6 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStyle,
     QSystemTrayIcon,
-    QTabWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -40,7 +37,7 @@ from supermenu_core.api.model_capabilities import (
 )
 from supermenu_core.config.provider_settings import CUSTOM_REASONING_EFFORTS
 from supermenu_core.ui.theme_manager import ThemeManager
-from supermenu_core.ui.settings_panel import form_layout, scrollable_form
+from supermenu_core.ui.settings_panel import scrollable_form
 from supermenu_core.ui.voice_prompt_editor import VoicePromptEditor
 from supermenu_core.ui.verification_status import VerificationStatus
 from src.utils import updater as app_updater
@@ -131,20 +128,12 @@ class MainWindow(QMainWindow):
         self._accessibility_request_attempted = False
         self._keys = KeyEventPoster()
 
-        self.setWindowTitle("SuperMenu - Configuration")
-        self.setMinimumSize(820, 620)
-        self.resize(1000, 720)
-        self.setWindowIcon(QIcon(resource_path("resources", "icons", "icon.png")))
+        from supermenu_core.ui.configuration_shell import ConfigurationShell, close_footer
 
-        from supermenu_core.ui.window_header import WindowHeader
-
-        root = QWidget()
-        root.setObjectName("desktopRoot")
-        root_layout = QVBoxLayout(root)
-        root_layout.setContentsMargins(16, 12, 16, 12)
-        root_layout.setSpacing(8)
-        root_layout.addWidget(WindowHeader(icon=self.windowIcon()))
-        self.tabs = QTabWidget()
+        self.shell = ConfigurationShell(
+            self, QIcon(resource_path("resources", "icons", "icon.png"))
+        )
+        self.tabs = self.shell.tabs
         self.tabs.addTab(self._create_prompts_tab(), "Prompts")
         self.voice_prompt_editor = VoicePromptEditor(self.settings, self, list_factory=SidebarList, sidebar_width=SIDEBAR_WIDTH)
         self.voice_prompt_editor.run_requested.connect(self.run_voice_prompt)
@@ -154,24 +143,7 @@ class MainWindow(QMainWindow):
         self.settings_tab = self._create_settings_tab()
         self.tabs.addTab(self.settings_tab, "Réglages")
         self.tabs.addTab(self._create_about_tab(), "À propos")
-        root_layout.addWidget(self.tabs)
-
-        buttons = QHBoxLayout()
-        buttons.addStretch()
-        save_button = QPushButton("Enregistrer")
-        save_button.setDefault(True)
-        save_button.clicked.connect(self.save_settings)
-        buttons.addWidget(save_button)
-        self.tabs.currentChanged.connect(
-            lambda _index: save_button.setVisible(
-                self.tabs.currentWidget() is not self.voice_prompt_editor
-            )
-        )
-        close_button = QPushButton("Fermer")
-        close_button.clicked.connect(self.hide)
-        buttons.addWidget(close_button)
-        root_layout.addLayout(buttons)
-        self.setCentralWidget(root)
+        self.shell.content_layout.addLayout(close_footer(self.hide))
 
         # Only polled while the configuration window is on screen. SuperMenu
         # lives in the menu bar and is hidden most of the time; a permanent
@@ -231,40 +203,26 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(6)
-        form_group = QGroupBox("Votre prompt")
-        form = form_layout(form_group, stacked=True)
-        self.prompt_name = QLineEdit()
-        form.addRow("Nom", self.prompt_name)
-        self.prompt_instruction = QTextEdit()
-        self.prompt_instruction.setMinimumHeight(100)
-        form.addRow("Instructions", self.prompt_instruction)
-        self.prompt_status = QLineEdit()
-        form.addRow("Message pendant le traitement", self.prompt_status)
-        self.prompt_direct = QCheckBox(
-            "Insérer directement la réponse dans l’application cible"
-        )
-        form.addRow("", self.prompt_direct)
-        hotkey_row = QHBoxLayout()
-        self.prompt_hotkey = QLineEdit()
-        self.prompt_hotkey.setReadOnly(True)
-        hotkey_row.addWidget(self.prompt_hotkey)
-        record_button = QPushButton("Définir")
-        record_button.clicked.connect(self.record_prompt_hotkey)
-        hotkey_row.addWidget(record_button)
-        clear_button = QPushButton("Effacer")
-        clear_button.clicked.connect(self.prompt_hotkey.clear)
-        hotkey_row.addWidget(clear_button)
-        form.addRow("Raccourci direct", hotkey_row)
-        right_layout.addWidget(scrollable_form(form_group), 1)
-        save_prompt_button = QPushButton("Enregistrer le prompt")
-        save_prompt_button.setProperty("variant", "primary")
-        save_prompt_button.clicked.connect(self.save_current_prompt)
-        right_layout.addWidget(save_prompt_button)
-        right_layout.addStretch()
+        from supermenu_core.ui.text_prompt_form import TextPromptForm
+        from supermenu_core.ui.page_actions import PageActions
+
+        self.text_prompt_form = TextPromptForm()
+        self.prompt_name = self.text_prompt_form.name
+        self.prompt_instruction = self.text_prompt_form.instruction
+        self.prompt_status = self.text_prompt_form.status
+        self.prompt_direct = self.text_prompt_form.insert_directly
+        self.prompt_hotkey = self.text_prompt_form.hotkey
+        self.text_prompt_form.record_requested.connect(self.record_prompt_hotkey)
+        self.text_prompt_form.clear_requested.connect(self.prompt_hotkey.clear)
+        right_layout.addWidget(scrollable_form(self.text_prompt_form), 1)
+        actions = PageActions()
+        actions.add_action("Enregistrer", lambda: self.save_current_prompt(), primary=True)
+        right_layout.addWidget(actions)
 
         splitter.addWidget(left)
         splitter.addWidget(right)
         splitter.setStretchFactor(1, 1)
+        splitter.setSizes([SIDEBAR_WIDTH, 700])
         layout.addWidget(splitter)
         self._reload_prompts()
         return tab
@@ -273,10 +231,9 @@ class MainWindow(QMainWindow):
         from supermenu_core.ui.settings_panel import SettingsPanel, Disclosure
 
         container = self.settings_panel = SettingsPanel()
-        layout = container.add_page("text", "Texte", "Choisissez l’IA pour corriger, reformuler et traduire vos textes.")
-        voice_page = container.add_page("voice", "Dictée", "Testez votre microphone, puis choisissez où transcrire votre voix.")
-        shortcuts_page = container.add_page("shortcuts", "Raccourcis", "Accédez à SuperMenu depuis vos applications.")
-        app_page = container.add_page("app", "Application", "Gérez l’apparence, les mises à jour et les autorisations du Mac.")
+        pages = container.add_standard_pages()
+        layout, voice_page = pages["text"], pages["voice"]
+        shortcuts_page, app_page = pages["shortcuts"], pages["app"]
 
         layout.addWidget(QLabel("Moteur de texte"))
         self.provider_combo = ChoiceBox()
@@ -403,27 +360,11 @@ class MainWindow(QMainWindow):
         self.provider_combo.currentIndexChanged.connect(self.toggle_provider)
         QApplication.instance().aboutToQuit.connect(self._cancel_apple_probe)
 
-        shortcuts_group = QGroupBox("Raccourcis clavier")
-        shortcuts_form = form_layout(shortcuts_group)
-        main_row = QHBoxLayout()
-        self.main_hotkey = QLineEdit(self.settings.get_hotkey())
-        self.main_hotkey.setReadOnly(True)
-        main_row.addWidget(self.main_hotkey)
-        main_record = QPushButton("Définir")
-        main_record.clicked.connect(self.record_main_hotkey)
-        main_row.addWidget(main_record)
-        shortcuts_form.addRow("Menu principal", main_row)
-        custom_row = QHBoxLayout()
-        self.custom_hotkey = QLineEdit(self.settings.get_custom_hotkey())
-        self.custom_hotkey.setReadOnly(True)
-        custom_row.addWidget(self.custom_hotkey)
-        custom_record = QPushButton("Définir")
-        custom_record.clicked.connect(self.record_custom_hotkey)
-        custom_row.addWidget(custom_record)
-        shortcuts_form.addRow("Mode personnalisé", custom_row)
-        test_menu_button = QPushButton("Afficher le menu des prompts")
-        test_menu_button.clicked.connect(self.show_prompt_menu)
-        shortcuts_form.addRow("Test sans raccourci", test_menu_button)
+        from supermenu_core.ui.shortcut_settings import ShortcutSettings
+        shortcuts_group = ShortcutSettings()
+        self.main_hotkey = shortcuts_group.add_shortcut("Menu principal", self.settings.get_hotkey(), self.record_main_hotkey)
+        self.custom_hotkey = shortcuts_group.add_shortcut("Mode personnalisé", self.settings.get_custom_hotkey(), self.record_custom_hotkey)
+        shortcuts_group.add_test(self.show_prompt_menu)
         shortcuts_page.addWidget(shortcuts_group)
         from supermenu_core.ui.dictation_settings import DictationShortcutSettings
         self.dictation_shortcut_settings = DictationShortcutSettings(self.settings, self.dictation_hotkey_manager)
@@ -466,23 +407,23 @@ class MainWindow(QMainWindow):
         permissions_layout.addLayout(status_row)
         app_page.addWidget(permissions_group)
 
-        general_group = QGroupBox("Interface et mises à jour")
-        general_form = form_layout(general_group)
-        self.theme_combo = ChoiceBox()
-        for key, label in ThemeManager.get_theme_names().items():
-            self.theme_combo.addItem(label, key)
-        theme_index = self.theme_combo.findData(self.settings.get_theme())
-        self.theme_combo.setCurrentIndex(max(0, theme_index))
-        general_form.addRow("Thème", self.theme_combo)
-        self.channel_combo = ChoiceBox()
-        self.channel_combo.addItem("Stable", "stable")
-        self.channel_combo.addItem("Bêta", "beta")
-        channel_index = self.channel_combo.findData(
-            self.settings.get_update_channel()
+        from supermenu_core.ui.application_settings import ApplicationSettings
+        self.application_settings = ApplicationSettings(
+            self.settings, lambda: self.check_for_updates(silent=False)
         )
-        self.channel_combo.setCurrentIndex(max(0, channel_index))
-        general_form.addRow("Canal de mise à jour", self.channel_combo)
-        app_page.insertWidget(2, general_group)
+        self.theme_combo = self.application_settings.theme_combo
+        self.channel_combo = self.application_settings.channel_combo
+        app_page.insertWidget(2, self.application_settings)
+        diagnostics = Disclosure("Dossiers et diagnostic")
+        for label, path in (
+            ("Ouvrir le dossier de configuration", user_config_dir),
+            ("Ouvrir le dossier des journaux", user_log_dir),
+        ):
+            button = QPushButton(label)
+            button.clicked.connect(lambda _checked=False, path=path:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(path()))))
+            diagnostics.content_layout.addWidget(button)
+        app_page.addWidget(diagnostics)
         from supermenu_core.ui.speech_settings import SpeechSettingsWidget
         from src.audio.speech_backend import create_speech_backend
 
@@ -491,54 +432,28 @@ class MainWindow(QMainWindow):
             platform="darwin",
         )
         self.speech_settings.dictation_requested.connect(self.start_dictation)
+        if self.context_menu_manager:
+            self.speech_settings.settings_saved.connect(self.context_menu_manager.update_client_config)
         self.api_key.textChanged.connect(self.speech_settings.api_key_input.setText)
         self.speech_settings.api_key_input.textChanged.connect(self.api_key.setText)
         QApplication.instance().aboutToQuit.connect(lambda: self.speech_settings.cancel(silent=True))
-        self.speech_settings.save_button.hide()
         voice_page.addWidget(self.speech_settings)
         from supermenu_core.ui.dictation_settings import DictationBehaviorSettings
         self.dictation_behavior = DictationBehaviorSettings(self.settings)
         voice_page.addWidget(self.dictation_behavior)
         self.settings_panel.set_footer("voice", self.speech_settings.actions_widget)
+        self.text_save_button = container.set_save_action("text", self.save_text_settings)
+        self.app_save_button = container.set_save_action("app", self.save_application_settings, "Appliquer")
         self._refresh_reasoning_options(self.settings.get_model())
         self.toggle_provider()
         self.refresh_permission_status()
         return container
 
     def _create_about_tab(self):
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(8, 8, 8, 8)
-        title = QLabel("SuperMenu")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setObjectName("aboutTitle")
-        layout.addWidget(title)
-        version = QLabel(f"Version {APP_VERSION} — composition macOS")
-        version.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(version)
-        layout.addSpacing(20)
-        check_button = QPushButton("Rechercher une mise à jour")
-        check_button.clicked.connect(lambda: self.check_for_updates(silent=False))
-        layout.addWidget(check_button)
-        config_button = QPushButton("Ouvrir le dossier de configuration")
-        config_button.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(user_config_dir())))
-        )
-        layout.addWidget(config_button)
-        logs_button = QPushButton("Ouvrir le dossier des journaux")
-        logs_button.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(user_log_dir())))
-        )
-        layout.addWidget(logs_button)
-        releases_button = QPushButton("Voir les versions publiées")
-        releases_button.clicked.connect(
-            lambda: QDesktopServices.openUrl(
-                QUrl(app_updater.REPOSITORY_RELEASES_URL)
-            )
-        )
-        layout.addWidget(releases_button)
-        layout.addStretch()
-        return tab
+        from supermenu_core.ui.about_page import AboutPage
+        return AboutPage(APP_VERSION, lambda: QDesktopServices.openUrl(
+            QUrl(app_updater.REPOSITORY_RELEASES_URL)
+        ))
 
     def _ordered_prompts(self):
         return sorted(
@@ -1171,14 +1086,20 @@ class MainWindow(QMainWindow):
         return True
 
     def save_settings(self):
+        """Compatibility entry point for saving the complete configuration."""
         if self.tabs.currentWidget() is self.voice_prompt_editor:
             return self.voice_prompt_editor.save()
-        if not self._validate_endpoint_settings():
-            return False
-        if not self.speech_settings.save():
+        if not self._validate_endpoint_settings() or not self.speech_settings.save():
             return False
         current_prompt = self.prompt_list.currentItem()
         if current_prompt is not None and not self.save_current_prompt(False):
+            return False
+        if not self.save_text_settings(show_confirmation=False):
+            return False
+        return self.save_application_settings()
+
+    def save_text_settings(self, _checked=False, *, show_confirmation=True):
+        if not self._validate_endpoint_settings():
             return False
         self.settings.set_api_key(self.api_key.text())
         model = self.model_combo.currentText()
@@ -1197,11 +1118,17 @@ class MainWindow(QMainWindow):
             self.custom_reasoning.currentData()
             or self.custom_reasoning.currentText()
         )
-        self.settings.set_theme(self.theme_combo.currentData())
-        self.settings.set_update_channel(self.channel_combo.currentData())
         self.settings.sync()
         if self.context_menu_manager:
             self.context_menu_manager.update_client_config()
+        if show_confirmation:
+            QMessageBox.information(self, "Configuration enregistrée", "Le moteur de texte est prêt à utiliser.")
+        return True
+
+    def save_application_settings(self, _checked=False):
+        self.settings.set_theme(self.theme_combo.currentData())
+        self.settings.set_update_channel(self.channel_combo.currentData())
+        self.settings.sync()
         ThemeManager.apply_theme(QApplication.instance(), self.settings.get_theme())
         QMessageBox.information(self, "Réglages enregistrés", "Les modifications sont actives.")
         return True

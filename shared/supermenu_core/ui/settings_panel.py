@@ -82,6 +82,25 @@ class SettingsPanel(QWidget):
         self.page_layouts = {}
         self.navigation.currentRowChanged.connect(self.pages.setCurrentIndex)
 
+    def add_standard_pages(self):
+        return {
+            key: self.add_page(key, title, description)
+            for key, title, description in (
+                ("text", "Texte", "Choisissez l’IA pour corriger, reformuler et traduire vos textes."),
+                ("voice", "Dictée", "Testez votre microphone, puis choisissez où transcrire votre voix."),
+                ("shortcuts", "Raccourcis", "Accédez à SuperMenu depuis vos applications."),
+                ("app", "Application", "Personnalisez l’apparence et gérez vos préférences."),
+            )
+        }
+
+    def set_save_action(self, key, callback, label="Enregistrer"):
+        from .page_actions import PageActions
+
+        actions = PageActions()
+        button = actions.add_action(label, callback, primary=True)
+        self.set_footer(key, actions)
+        return button
+
     def add_page(self, key, title, description):
         self.keys.append(key)
         item = QListWidgetItem(title)

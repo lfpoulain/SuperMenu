@@ -167,16 +167,11 @@ class SpeechSettingsWidget(QGroupBox):
         context.addWidget(self.prompt_input)
         advanced.addWidget(self.context_options)
         layout.addWidget(self.advanced)
-        self.actions_widget = QWidget()
-        bottom = QHBoxLayout(self.actions_widget)
-        bottom.setContentsMargins(0, 0, 0, 0)
-        self.save_button = QPushButton("Enregistrer")
-        self.save_button.setProperty("variant", "primary")
-        self.save_button.clicked.connect(self.save)
-        bottom.addWidget(self.save_button)
-        self.test_button = QPushButton("Dicter")
-        self.test_button.clicked.connect(self._dictate)
-        bottom.addWidget(self.test_button)
+        from .page_actions import PageActions
+
+        self.actions_widget = PageActions()
+        self.test_button = self.actions_widget.add_action("Dicter", self._dictate)
+        self.save_button = self.actions_widget.add_action("Enregistrer", self.save, primary=True)
         layout.addWidget(self.actions_widget)
         for widget in (self.provider_combo, self.device_combo):
             widget.currentIndexChanged.connect(self._changed)

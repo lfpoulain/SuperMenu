@@ -358,6 +358,18 @@ jobs:
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
 
+            Interface Mac et Windows harmonisée : fenêtre, navigation, formulaires
+            de prompts, raccourcis, apparence et page À propos partagés.
+            Actions Enregistrer et Dicter au même emplacement dans les rubriques.
+            Sur Mac, enregistrer une rubrique ne modifie plus les autres réglages
+            ni les brouillons de prompts. Le thème s’applique sans redémarrage.
+
+            Correctif Windows : le redémarrage intégré crée désormais son propre
+            dossier temporaire pour conserver les bibliothèques Foundry. Cela
+            corrige le moteur local indisponible après un redémarrage interne.
+            Les modèles téléchargés sont conservés ; un message explicite indique
+            comment relancer SuperMenu si les composants temporaires ont disparu.
+
             Dictée simple dans une seule fenêtre : transcription, édition, Copier
             et Insérer. Options de collage automatique et de correction avant
             insertion avec le moteur texte choisi. Les prompts vocaux gardent leur

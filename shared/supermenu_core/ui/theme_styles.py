@@ -56,10 +56,10 @@ def selection_styles(c):
     return "\n".join(rules)
 
 
-def widget_styles(theme="dark", font_size=10.5):
+def widget_styles(theme="dark", font_size=14):
     c = {**PALETTES[theme], "error": STATUS_PALETTES[theme]["error"][0]}
     styles = f"""
-    QWidget {{ color: {c['text']}; background: transparent; font-size: {font_size}pt; }}
+    QWidget {{ color: {c['text']}; background: transparent; font-size: {font_size}px; font-weight: 400; }}
     QMainWindow, QDialog, QWidget#desktopRoot, QWidget#responseWindow {{
         background-color: {c['canvas']};
     }}
@@ -135,6 +135,7 @@ def widget_styles(theme="dark", font_size=10.5):
         left: 12px; padding: 0 5px; background: {c['canvas']}; color: {c['muted']};
     }}
     QTabWidget::pane {{ border: none; background: {c['canvas']}; top: 4px; }}
+    QTabWidget#configurationTabs::tab-bar {{ alignment: left; }}
     QTabBar {{ background: transparent; }}
     QTabBar::tab {{
         background: transparent; color: {c['muted']}; border: none;

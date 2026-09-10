@@ -76,15 +76,19 @@ class ThemeManager:
         theme = ThemeManager.resolve_theme(requested)
         ThemeManager._follow_system_scheme(app, requested == "auto")
 
-        # Qt supplies the platform's UI typeface; use a readable minimum size.
+        # Fusion supplies identical control metrics on macOS and Windows.
+        # Keep the system typeface, with a common size in logical pixels (Qt
+        # still applies the screen scale factor on Retina/high-DPI displays).
+        if app.style().objectName().lower() != "fusion":
+            app.setStyle("Fusion")
         font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
-        font.setPointSizeF(max(10.5, font.pointSizeF()))
+        font.setPixelSize(14)
 
         # Charger le stylesheet de base
         stylesheet = qdarktheme.load_stylesheet(theme)
 
         # Ajouter nos styles personnalisés
-        stylesheet += ThemeManager._get_custom_styles(theme, font.pointSizeF())
+        stylesheet += ThemeManager._get_custom_styles(theme, font.pixelSize())
         stylesheet += VerificationStatus.stylesheet(theme)
 
         app.setFont(font)
@@ -92,7 +96,7 @@ class ThemeManager:
         ThemeManager._apply_palette(app, theme)
 
     @staticmethod
-    def _get_custom_styles(theme: str = "dark", font_size: float = 10.5) -> str:
+    def _get_custom_styles(theme: str = "dark", font_size: float = 14) -> str:
         return widget_styles(theme, font_size)
 
     @staticmethod

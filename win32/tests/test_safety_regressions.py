@@ -293,6 +293,18 @@ def test_main_window_constructs_without_duplicate_prompts(monkeypatch, tmp_path)
     assert settings.get_update_channel() == "beta"
     assert "régressions" in window.update_channel_description.text()
 
+    from unittest.mock import Mock
+    from supermenu_core.ui.configuration_shell import ConfigurationShell
+    from PySide6.QtWidgets import QMessageBox
+    assert isinstance(window.centralWidget(), ConfigurationShell)
+    monkeypatch.setattr(QMessageBox, "information", Mock())
+    restart = Mock()
+    monkeypatch.setattr(window, "restart_application", restart)
+    window.theme_combo.setCurrentIndex(window.theme_combo.findData("light"))
+    window.app_save_button.click()
+    assert settings.get_theme() == "light"
+    restart.assert_not_called()
+
     lmstudio_index = window.custom_endpoint_type_combo.findData("lmstudio")
     window.custom_endpoint_type_combo.setCurrentIndex(lmstudio_index)
     window._custom_models_silent = True

@@ -21,6 +21,25 @@ from src.config.settings import Settings
 from src.config import settings as settings_module
 
 
+def test_missing_temporary_runtime_has_recovery_message(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    with pytest.raises(LocalError, match="Quittez complètement SuperMenu"):
+        foundry_worker.verify_bundled_runtime()
+    for name in (
+        "foundry_local_core_winml/bin/Microsoft.AI.Foundry.Local.Core.dll",
+        "onnxruntime_core/bin/onnxruntime.dll",
+        "onnxruntime_genai_core/bin/onnxruntime-genai.dll",
+    ):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    foundry_worker.verify_bundled_runtime()
+    path.unlink()
+    with pytest.raises(LocalError, match="modèles téléchargés sont conservés"):
+        foundry_worker.verify_bundled_runtime()
+
+
 @pytest.fixture
 def app():
     return QApplication.instance() or QApplication([])

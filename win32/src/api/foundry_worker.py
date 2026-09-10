@@ -18,6 +18,24 @@ class LocalError(Exception):
     """An actionable message safe to show without exposing SDK request bodies."""
 
 
+def verify_bundled_runtime():
+    if not getattr(sys, "frozen", False):
+        return
+    root = Path(sys._MEIPASS)
+    libraries = (
+        "foundry_local_core_winml/bin/Microsoft.AI.Foundry.Local.Core.dll",
+        "onnxruntime_core/bin/onnxruntime.dll",
+        "onnxruntime_genai_core/bin/onnxruntime-genai.dll",
+    )
+    if any(not (root / name).is_file() for name in libraries):
+        raise LocalError(
+            "Les composants temporaires de SuperMenu ne sont plus disponibles. "
+            "Quittez complètement SuperMenu depuis son icône près de l’horloge, "
+            "puis relancez-le. Vos modèles téléchargés sont conservés. "
+            "Si le problème persiste, réinstallez la bêta."
+        )
+
+
 def cache_root():
     return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "SuperMenu" / "Foundry"
 
@@ -153,6 +171,7 @@ class FoundryRuntime:
             return
         if platform_error():
             raise LocalError(platform_error())
+        verify_bundled_runtime()
         from foundry_local_sdk import Configuration, FoundryLocalManager
         from foundry_local_sdk.logging_helper import LogLevel
 
