@@ -23,7 +23,14 @@ class ConfigurationShell(QWidget):
         super().__init__(window)
         window.setWindowTitle("SuperMenu - Configuration")
         window.setMinimumSize(820, 620)
-        window.resize(1000, 720)
+        height = 1080
+        screen = window.screen()
+        if screen is not None:
+            # availableGeometry excludes the taskbar/Dock; leave room for the
+            # native title bar too, which is not measured before the first show.
+            available_height = screen.availableGeometry().height() - 48
+            height = min(height, max(window.minimumHeight(), available_height))
+        window.resize(1000, height)
         window.setWindowIcon(icon)
         self.setObjectName("desktopRoot")
         self.content_layout = QVBoxLayout(self)

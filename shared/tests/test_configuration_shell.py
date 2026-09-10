@@ -1,12 +1,32 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QPoint
+import pytest
+
+from PySide6.QtCore import QPoint, QRect
 from PySide6.QtWidgets import QApplication, QMainWindow, QLabel
 
 from supermenu_core.ui.configuration_shell import ConfigurationShell, close_footer
 from supermenu_core.ui.settings_panel import SettingsPanel
 from supermenu_core.ui.theme_manager import ThemeManager
 from supermenu_core.ui.application_settings import ApplicationSettings
+
+
+@pytest.mark.parametrize("work_area_height", [1392, 1040, 752])
+def test_initial_window_height_fits_screen_work_area(work_area_height):
+    app = QApplication.instance() or QApplication([])
+    window = QMainWindow()
+    screen = Mock()
+    screen.availableGeometry.return_value = QRect(0, 0, 1920, work_area_height)
+    with patch.object(QMainWindow, "screen", return_value=screen):
+        ConfigurationShell(window, window.windowIcon())
+    assert window.height() + 48 <= work_area_height
+    assert window.height() >= window.minimumHeight()
+    if work_area_height > 1128:
+        assert window.height() == 1080
+    else:
+        assert window.height() + 48 == work_area_height
+    window.deleteLater()
+    app.processEvents()
 
 
 def test_changing_update_channel_allows_a_fresh_check_without_saving_theme():

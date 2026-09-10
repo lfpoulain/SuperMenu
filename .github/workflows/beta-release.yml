@@ -358,6 +358,10 @@ jobs:
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
 
+            Fenêtre de configuration plus haute par défaut sur Mac et Windows
+            pour afficher les réglages de dictée sans défilement sur grand écran.
+            La hauteur s’adapte à l’espace disponible sur les écrans plus petits.
+
             Boutons des éditeurs Prompts et Voix unifiés : Réinitialiser à gauche,
             Enregistrer à droite et Dicter avant Enregistrer pour les prompts vocaux.
             Réinitialisation également disponible pour les prompts texte d’origine
