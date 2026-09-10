@@ -358,6 +358,11 @@ jobs:
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
 
+            Amélioration Mac et Windows : vérification des modèles locaux avec progression
+            visible, confirmation verte « Prêt à utiliser » et heure de vérification.
+            Les modèles à télécharger, avertissements et erreurs ont chacun un état
+            explicite, avec possibilité de réessayer ou d’annuler l’opération.
+
             Nouveauté Windows : Foundry Local embarqué avec Qwen3.5 4B et Qwen3.5 9B.
             Correctif GPU : activation automatique de CUDA sur NVIDIA, priorité au GPU
             même si un modèle CPU est déjà téléchargé, et choix CPU explicite.

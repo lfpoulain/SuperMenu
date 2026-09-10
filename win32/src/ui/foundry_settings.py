@@ -1,15 +1,17 @@
 """Model acquisition controls; no network or native work on the UI thread."""
 
+from datetime import datetime
+
 from PySide6.QtWidgets import (
     QComboBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QProgressBar,
     QPushButton,
     QVBoxLayout,
 )
 
+from supermenu_core.ui.verification_status import VerificationStatus
 from src.api.foundry_client import get_foundry_service
 from src.api.foundry_worker import platform_error
 from src.config.foundry_models import FOUNDRY_MODELS
@@ -23,6 +25,8 @@ class FoundrySettingsWidget(QGroupBox):
         self.operation = None
         self.models = {}
         self.probed = False
+        self.hardware_warning = ""
+        self.checked_at = ""
         layout = QVBoxLayout(self)
         description = QLabel(
             "Correction, reformulation et traduction sur ce PC, sans clé API. "
@@ -50,15 +54,10 @@ class FoundrySettingsWidget(QGroupBox):
         self.model_info = QLabel()
         self.model_info.setWordWrap(True)
         layout.addWidget(self.model_info)
-        self.status = QLabel(
-            platform_error()
-            or "Cliquez sur Vérifier pour consulter les modèles disponibles sur ce PC."
-        )
-        self.status.setWordWrap(True)
-        layout.addWidget(self.status)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.hide()
-        layout.addWidget(self.progress_bar)
+        self.verification = VerificationStatus()
+        self.status = self.verification.detail
+        self.progress_bar = self.verification.progress_bar
+        layout.addWidget(self.verification)
         buttons = QHBoxLayout()
         self.check_button = QPushButton("Vérifier / préparer le GPU")
         self.check_button.clicked.connect(self.probe)
@@ -97,6 +96,8 @@ class FoundrySettingsWidget(QGroupBox):
         if self.request_id:
             self.cancel()
         self.models = {}
+        self.hardware_warning = ""
+        self.checked_at = ""
         self.update_model()
         if self.probed:
             self.probe()
@@ -106,40 +107,107 @@ class FoundrySettingsWidget(QGroupBox):
         if info:
             size = info.get("size_mb")
             size_text = f"{size / 1000:.1f} Go" if size else "taille non annoncée"
-            state = (
-                "Téléchargé — prêt à utiliser" if info["cached"] else "À télécharger"
-            )
             provider = info.get("execution_provider", "")
             device = {
                 "CUDAExecutionProvider": "GPU — CUDA (NVIDIA)",
                 "WebGpuExecutionProvider": "GPU — WebGPU",
             }.get(provider, info["device"])
-            self.model_info.setText(f"{state} · {size_text} · Exécution : {device}")
+            self.model_info.setText(f"Exécution : {device} · {size_text}")
         else:
             self.model_info.setText(
                 "Le téléchargement et le matériel d'exécution seront précisés après vérification."
             )
+        if not self.request_id:
+            self.show_readiness()
+        self.update_controls()
+
+    def show_readiness(self):
+        info = self.models.get(self.selected_model())
+        if platform_error():
+            state, title, detail = (
+                "warning",
+                "Foundry Local indisponible",
+                platform_error(),
+            )
+        elif self.hardware_warning:
+            state, title, detail = (
+                "warning",
+                "Accélération GPU à vérifier",
+                self.hardware_warning,
+            )
+        elif info and info["cached"]:
+            state, title, detail = (
+                "success",
+                "Prêt à utiliser",
+                "Le modèle est téléchargé sur ce PC. "
+                "Enregistrez la configuration pour l’utiliser.",
+            )
+        elif info:
+            state, title, detail = (
+                "info",
+                "Vérification réussie · modèle à télécharger",
+                "Ce modèle est compatible avec le mode d’exécution affiché. "
+                "Téléchargez-le pour pouvoir l’utiliser.",
+            )
+        elif self.probed:
+            state, title, detail = (
+                "warning",
+                "Modèle indisponible",
+                "Ce modèle n’est pas disponible dans le catalogue pour le mode choisi. "
+                "Choisissez un autre modèle ou relancez la vérification.",
+            )
+        else:
+            state, title, detail = (
+                "idle",
+                "Disponibilité à vérifier",
+                "Vérifiez les modèles disponibles et le matériel d’exécution sur ce PC.",
+            )
+        self.verification.set_status(state, title, detail, checked_at=self.checked_at)
+
+    def update_controls(self):
+        info = self.models.get(self.selected_model())
         self.download_button.setEnabled(
             bool(info and not info["cached"] and not self.request_id)
         )
         self.check_button.setEnabled(not self.request_id and not platform_error())
         self.model_combo.setEnabled(not self.request_id)
         self.device_combo.setEnabled(not self.request_id)
+        self.check_button.setText(
+            "Vérification en cours…"
+            if self.operation == "probe"
+            else "Vérifier à nouveau" if self.probed else "Vérifier / préparer le GPU"
+        )
+        self.download_button.setText(
+            "Téléchargement en cours…"
+            if self.operation == "download"
+            else (
+                "Modèle téléchargé"
+                if info and info["cached"]
+                else "Télécharger le modèle"
+            )
+        )
 
     def start(self, operation, **payload):
         if self.request_id:
             return
         self.operation = operation
         self.request_id = self.service.submit(operation, **payload)
-        self.status.setText(
-            "Vérification du catalogue Microsoft…"
-            if operation == "probe"
-            else "Téléchargement du modèle…"
+        self.verification.set_status(
+            "busy",
+            (
+                "Vérification en cours…"
+                if operation == "probe"
+                else "Téléchargement du modèle…"
+            ),
+            (
+                "Recherche des modèles et préparation du matériel. "
+                "Au premier lancement, le téléchargement des composants GPU peut prendre quelques minutes."
+                if operation == "probe"
+                else "Le modèle sera disponible sur ce PC à la fin du téléchargement."
+            ),
         )
-        self.progress_bar.setRange(0, 0)
-        self.progress_bar.show()
         self.cancel_button.show()
-        self.update_model()
+        self.update_controls()
 
     def probe(self):
         if not platform_error():
@@ -157,7 +225,7 @@ class FoundrySettingsWidget(QGroupBox):
         self.operation = None
         self.progress_bar.hide()
         self.cancel_button.hide()
-        self.update_model()
+        self.update_controls()
 
     def completed(self, request_id, result):
         if request_id != self.request_id:
@@ -165,38 +233,59 @@ class FoundrySettingsWidget(QGroupBox):
         if self.operation == "probe":
             self.models = {m["alias"]: m for m in result["models"]}
             self.probed = True
+            self.hardware_warning = result.get("hardware_warning") or ""
             self.cache_label.setText("Stockage des modèles : " + result["cache_dir"])
-            self.status.setText(
-                result.get("hardware_warning")
-                or "Choisissez le modèle, téléchargez sa variante affichée puis enregistrez la configuration."
-            )
+            self.checked_at = f"Vérifié à {datetime.now():%H:%M:%S}"
         else:
             self.models[result["alias"]] = result
-            self.status.setText(
-                "Modèle téléchargé. Enregistrez la configuration pour l'utiliser."
-            )
         self.finish()
+        self.update_model()
 
     def failed(self, request_id, error):
         if request_id == self.request_id:
-            self.status.setText(error)
+            operation = self.operation
+            if operation == "probe":
+                # Do not present a previous successful check as current after a failure.
+                self.models = {}
+                self.hardware_warning = ""
+                self.checked_at = ""
+                self.model_info.clear()
             self.finish()
+            self.verification.set_status(
+                "error",
+                (
+                    "La vérification a échoué"
+                    if operation == "probe"
+                    else "Téléchargement interrompu"
+                ),
+                error,
+                checked_at=f"Dernière tentative à {datetime.now():%H:%M:%S}",
+            )
+            self.check_button.setText("Réessayer la vérification")
 
     def progress(self, request_id, progress):
         if request_id != self.request_id:
             return
         if "stage" in progress:
-            self.status.setText(progress["stage"])
-            self.progress_bar.setRange(0, 0)
+            self.verification.set_status(
+                "busy", self.verification.title.text(), progress["stage"]
+            )
         if "percent" in progress:
-            self.progress_bar.setRange(0, 100)
-            self.progress_bar.setValue(round(progress["percent"]))
+            self.verification.set_progress(progress["percent"])
 
     def cancel(self):
         request_id = self.request_id
+        if not request_id:
+            return
+        operation = self.operation
         self.finish()
-        self.status.setText(
-            "Opération annulée. Vous pouvez reprendre le téléchargement."
+        self.verification.set_status(
+            "idle",
+            "Vérification annulée" if operation == "probe" else "Téléchargement annulé",
+            (
+                "Relancez la vérification pour connaître la disponibilité du modèle."
+                if operation == "probe"
+                else "Vous pouvez reprendre le téléchargement quand vous le souhaitez."
+            ),
         )
-        if request_id:
-            self.service.cancel(request_id)
+        self.service.cancel(request_id)

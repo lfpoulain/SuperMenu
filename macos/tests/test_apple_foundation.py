@@ -217,6 +217,8 @@ def test_provider_selection_saves_without_api_key_or_endpoint(qt_app, tmp_path, 
     window.provider_combo.setCurrentIndex(window.provider_combo.findData("apple"))
     wait_until(lambda: window._apple_probe is None)
     assert window.apple_status.text() == apple.ERROR_MESSAGES["intelligence_disabled"]
+    assert window.apple_verification.property("state") == "error"
+    assert window.apple_refresh.text() == "Réessayer"
     assert not window.apple_group.isHidden()
     assert window.openai_group.isHidden() and window.custom_group.isHidden()
     assert window.save_settings()
@@ -226,5 +228,46 @@ def test_provider_selection_saves_without_api_key_or_endpoint(qt_app, tmp_path, 
     assert window.save_settings()
     assert not isinstance(manager.api_client, apple.AppleFoundationClient)
     manager.close()
+    window._quitting = True
+    window.close()
+
+
+def test_availability_feedback_retry_and_cancellation(helper, tmp_path):
+    helper(
+        'import json, sys, time\njson.load(sys.stdin)\ntime.sleep(0.1)\n'
+        'print(json.dumps({"ok": True, "available": True}))\n'
+    )
+    window = MainWindow(Settings(str(tmp_path / "settings.ini")))
+    window.provider_combo.setCurrentIndex(window.provider_combo.findData("apple"))
+    card = window.apple_verification
+    assert card.property("state") == "busy"
+    assert not card.progress_bar.isHidden()
+    assert not window.apple_refresh.isEnabled()
+    assert "en cours" in window.apple_refresh.text()
+    wait_until(lambda: window._apple_probe is None)
+    assert card.property("state") == "success"
+    assert card.title.text() == "Prêt à utiliser"
+    assert card.caption.text().startswith("Vérifié à")
+    assert card.progress_bar.isHidden()
+    assert window.apple_refresh.isEnabled()
+
+    helper(
+        'import json, sys\njson.load(sys.stdin)\n'
+        'print(json.dumps({"ok": False, "code": "intelligence_disabled"}))\n'
+    )
+    window.apple_refresh.click()
+    assert card.property("state") == "busy"
+    assert card.caption.isHidden()
+    wait_until(lambda: window._apple_probe is None)
+    assert card.property("state") == "error"
+    assert window.apple_status.text() == apple.ERROR_MESSAGES["intelligence_disabled"]
+
+    window.apple_refresh.click()
+    probe = window._apple_probe
+    window.provider_combo.setCurrentIndex(window.provider_combo.findData("openai"))
+    assert card.property("state") == "idle"
+    assert card.progress_bar.isHidden()
+    probe.succeeded.emit({"ok": True, "available": True})
+    assert card.property("state") == "idle"  # Ignore late results after switching provider.
     window._quitting = True
     window.close()

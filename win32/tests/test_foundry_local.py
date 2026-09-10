@@ -326,10 +326,17 @@ def test_foundry_settings_download_progress_and_save_without_key(
     panel = window.foundry_group
     assert service.commands == [("probe", {"device": "auto"})]
     assert not panel.download_button.isEnabled()
+    assert panel.verification.property("state") == "busy"
+    assert not panel.progress_bar.isHidden()
+    assert "en cours" in panel.check_button.text()
     model = {"alias": "qwen3.5-9b", "cached": False, "size_mb": 5569, "device": "CPU"}
     service.completed.emit("1", {"models": [model], "cache_dir": "test-cache"})
     panel.model_combo.setCurrentIndex(panel.model_combo.findData("qwen3.5-9b"))
     assert panel.download_button.isEnabled()
+    assert panel.verification.property("state") == "info"
+    assert "à télécharger" in panel.verification.title.text()
+    assert panel.verification.caption.text().startswith("Vérifié à")
+    assert panel.progress_bar.isHidden()
     panel.download_button.click()
     assert service.commands[-1] == (
         "download",
@@ -337,13 +344,37 @@ def test_foundry_settings_download_progress_and_save_without_key(
     )
     service.progress.emit("2", {"percent": 45})
     assert panel.progress_bar.value() == 45
+    assert panel.verification.caption.text() == "45 % téléchargé"
     service.completed.emit("2", {**model, "cached": True})
     assert not panel.download_button.isEnabled()
-    assert "Téléchargé" in panel.model_info.text()
+    assert panel.verification.property("state") == "success"
+    assert panel.verification.title.text() == "Prêt à utiliser"
+    assert panel.progress_bar.isHidden()
     window.save_api_key()
     assert settings.get_ai_provider() == "foundry"
     assert settings.get_foundry_model() == "qwen3.5-9b"
     assert settings.get_api_key() == ""
+    panel.check_button.click()
+    assert panel.verification.property("state") == "busy"
+    assert panel.verification.caption.isHidden()
+    service.failed.emit("3", "Connexion impossible. Réessayez.")
+    assert panel.verification.property("state") == "error"
+    assert "Connexion impossible" in panel.status.text()
+    assert not panel.download_button.isEnabled()
+    assert panel.check_button.isEnabled()
+    panel.check_button.click()
+    panel.cancel_button.click()
+    assert panel.verification.property("state") == "idle"
+    assert "annulée" in panel.verification.title.text()
+    service.completed.emit("4", {"models": [model], "cache_dir": "test-cache"})
+    assert panel.verification.property("state") == "idle"  # Ignore a cancelled request.
+    panel.check_button.click()
+    service.completed.emit("5", {
+        "models": [{**model, "cached": True}], "cache_dir": "test-cache",
+        "hardware_warning": "L’accélération GPU n’a pas pu être activée.",
+    })
+    assert panel.verification.property("state") == "warning"  # A cached CPU is not GPU-ready.
+    assert "GPU" in panel.status.text()
     window.hide()
     window.deleteLater()
 

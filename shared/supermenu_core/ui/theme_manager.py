@@ -10,6 +10,8 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QGuiApplication, QPalette
 
+from supermenu_core.ui.verification_status import VerificationStatus
+
 
 class ThemeManager:
     """Gestionnaire centralisé des thèmes de l'application"""
@@ -85,6 +87,7 @@ class ThemeManager:
 
         # Ajouter nos styles personnalisés
         stylesheet += ThemeManager._get_custom_styles()
+        stylesheet += VerificationStatus.stylesheet(theme)
 
         # Appliquer le stylesheet
         app.setStyleSheet(stylesheet)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from PySide6.QtCore import QThread, QTimer, QUrl, Qt, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QIcon
@@ -44,6 +44,7 @@ from supermenu_core.api.model_capabilities import (
 )
 from supermenu_core.config.provider_settings import CUSTOM_REASONING_EFFORTS
 from supermenu_core.ui.theme_manager import ThemeManager
+from supermenu_core.ui.verification_status import VerificationStatus
 from src.utils import updater as app_updater
 from src.utils.hotkey_manager import HotkeyRecorderDialog
 from src.utils.key_events import KeyEventPoster
@@ -380,9 +381,13 @@ class MainWindow(QMainWindow):
         )
         apple_description.setWordWrap(True)
         apple_layout.addWidget(apple_description)
-        self.apple_status = QLabel("Disponibilité à vérifier.")
-        self.apple_status.setWordWrap(True)
-        apple_layout.addWidget(self.apple_status)
+        self.apple_verification = VerificationStatus()
+        self.apple_verification.set_status(
+            "idle", "Disponibilité à vérifier",
+            "Vérifiez que le modèle Apple est prêt sur ce Mac.",
+        )
+        self.apple_status = self.apple_verification.detail
+        apple_layout.addWidget(self.apple_verification)
         self.apple_refresh = QPushButton("Vérifier la disponibilité")
         self.apple_refresh.clicked.connect(self.refresh_apple_availability)
         apple_layout.addWidget(self.apple_refresh)
@@ -731,27 +736,49 @@ class MainWindow(QMainWindow):
         probe = FoundationModelsRequest(self)
         self._apple_probe = probe
         self.apple_refresh.setEnabled(False)
-        self.apple_status.setText("Vérification du modèle Apple…")
+        self.apple_refresh.setText("Vérification en cours…")
+        self.apple_verification.set_status(
+            "busy", "Vérification en cours…",
+            "Nous vérifions la disponibilité du modèle Apple sur ce Mac.",
+        )
 
-        def complete(message):
+        def complete(state, title, message):
             if self._apple_probe is not probe:
                 return
             self._apple_probe = None
             self.apple_refresh.setEnabled(True)
-            self.apple_status.setText(message)
+            self.apple_refresh.setText(
+                "Vérifier à nouveau" if state == "success" else "Réessayer"
+            )
+            self.apple_verification.set_status(
+                state, title, message,
+                checked_at=f"Vérifié à {datetime.now():%H:%M:%S}",
+            )
             probe.deleteLater()
 
         probe.succeeded.connect(
-            lambda _reply: complete("Prêt : le modèle Apple est disponible sur ce Mac.")
+            lambda _reply: complete(
+                "success", "Prêt à utiliser",
+                "Le modèle Apple est disponible sur ce Mac. "
+                "Enregistrez la configuration pour l’utiliser.",
+            )
         )
-        probe.failed.connect(complete)
+        probe.failed.connect(
+            lambda message: complete("error", "Modèle Apple indisponible", message)
+        )
         probe.start({"action": "availability"}, timeout_ms=15_000)
 
     def _cancel_apple_probe(self):
         if self._apple_probe is not None:
-            self._apple_probe.cancel()
-            self._apple_probe.deleteLater()
+            probe = self._apple_probe
             self._apple_probe = None
+            probe.cancel()
+            probe.deleteLater()
+            self.apple_verification.set_status(
+                "idle", "Vérification annulée",
+                "Relancez la vérification pour connaître la disponibilité du modèle.",
+            )
+            self.apple_refresh.setText("Vérifier la disponibilité")
         self.apple_refresh.setEnabled(True)
 
     def refresh_custom_models(self, _checked=False):
