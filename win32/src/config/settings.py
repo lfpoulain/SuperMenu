@@ -8,6 +8,8 @@ import logging
 import keyring
 from PySide6.QtCore import QSettings
 from supermenu_core.audio.settings import SpeechSettingsMixin
+from supermenu_core.config.voice_prompts import VoicePromptSettingsMixin
+from supermenu_core.config.prompt_transfer import export_prompt_bundle, import_prompt_bundle
 from src.config.build_info import BUILD_CHANNEL
 from src.config.foundry_models import DEFAULT_FOUNDRY_MODEL, normalize_foundry_model
 from supermenu_core.config.openai_models import (
@@ -33,7 +35,7 @@ _normalize_update_channel = normalize_update_channel
 _normalize_prompt_collection = normalize_prompt_collection
 
 
-class Settings(SpeechSettingsMixin):
+class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin):
     """Manage application settings"""
     
     def __init__(self):
@@ -519,40 +521,8 @@ class Settings(SpeechSettingsMixin):
                 prompt["hotkey"] = ""
         
         return prompt
-    
-    def get_voice_prompts(self):
-        """Get all voice prompts"""
-        prompts_json = self.settings.value("voice_prompts", "{}")
-        try:
-            raw_prompts = json.loads(prompts_json)
-            prompts = _normalize_prompt_collection(raw_prompts, voice=True)
-            if prompts != raw_prompts:
-                self.set_voice_prompts(prompts)
-            return prompts
-        except (json.JSONDecodeError, TypeError, ValueError) as e:
-            log(f"Configuration de prompts vocaux invalide: {e}", logging.ERROR)
-            return {}
-    
-    def get_voice_prompt(self, prompt_id):
-        """Get a specific voice prompt"""
-        prompts = self.get_voice_prompts()
-        prompt = prompts.get(prompt_id)
-        
-        # Assurer la compatibilité avec les anciens prompts vocaux
-        if prompt:
-            if "position" not in prompt:
-                prompt["position"] = 999
-            if "insert_directly" not in prompt:
-                prompt["insert_directly"] = True
-            if "include_selected_text" not in prompt:
-                prompt["include_selected_text"] = False
-            if "prompt_order" not in prompt:
-                prompt["prompt_order"] = "prompt_transcription_selected"
-            if "status" not in prompt:
-                prompt["status"] = "Traitement en cours..."
-        
-        return prompt
-    
+
+
     def set_prompts(self, prompts):
         """Set all prompts"""
         self.settings.setValue("prompts", json.dumps(prompts))
@@ -655,124 +625,21 @@ class Settings(SpeechSettingsMixin):
             return True
         
         return False
-    
-    def set_voice_prompts(self, prompts):
-        """Set all voice prompts"""
-        self.settings.setValue("voice_prompts", json.dumps(prompts))
-        self.settings.sync() # Assurer que les modifications sont écrites immédiatement
 
-    def update_voice_prompt(self, prompt_id, name, prompt, status, insert_directly=False, position=None, include_selected_text=False, prompt_order="prompt_transcription_selected"):
-        """Update a specific voice prompt"""
-        voice_prompts = self.get_voice_prompts()
-        
-        # Si aucune position n'est fournie, conserver la position existante ou utiliser une valeur par défaut
-        if position is None:
-            position = voice_prompts.get(prompt_id, {}).get("position", 999)
-            
-        voice_prompts[prompt_id] = {
-            "name": name,
-            "prompt": prompt,
-            "status": status,
-            "insert_directly": insert_directly,
-            "position": position,
-            "include_selected_text": include_selected_text,
-            "prompt_order": prompt_order
-        }
-        self.set_voice_prompts(voice_prompts)
-    
-    def add_voice_prompt(self, prompt_id, name, prompt, status, insert_directly=False, position=999, include_selected_text=False, prompt_order="prompt_transcription_selected"):
-        """Add a new voice prompt"""
-        voice_prompts = self.get_voice_prompts()
-        
-        # Vérifier si l'ID existe déjà
-        if prompt_id in voice_prompts:
-            # Générer un nouvel ID unique
-            base_id = prompt_id
-            counter = 1
-            while f"{base_id}_{counter}" in voice_prompts:
-                counter += 1
-            prompt_id = f"{base_id}_{counter}"
-        
-        # Ajouter le nouveau prompt
-        voice_prompts[prompt_id] = {
-            "name": name,
-            "prompt": prompt,
-            "status": status,
-            "insert_directly": insert_directly,
-            "position": position,
-            "include_selected_text": include_selected_text,
-            "prompt_order": prompt_order
-        }
-        
-        self.set_voice_prompts(voice_prompts)
-        return prompt_id
-    
-    def delete_voice_prompt(self, prompt_id):
-        """Supprimer un prompt vocal"""
-        voice_prompts = self.get_voice_prompts()
-        
-        # Vérifier si le prompt existe
-        if prompt_id in voice_prompts:
-            del voice_prompts[prompt_id]
-            self.set_voice_prompts(voice_prompts)
-            return True
-        
-        return False
-    
+
     def export_prompts(self, file_path):
-        """Export text and voice prompts to a JSON file."""
         try:
-            prompts_to_export = {
-                "text_prompts": self.get_prompts(),
-                "voice_prompts": self.get_voice_prompts()
-            }
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(prompts_to_export, f, indent=4, ensure_ascii=False)
+            export_prompt_bundle(self, file_path)
             return True, "Prompts exportés avec succès."
-        except Exception as e:
-            return False, f"Erreur lors de l'exportation des prompts: {e}"
+        except Exception as exc:
+            return False, f"Erreur d’exportation : {exc}"
 
     def import_prompts(self, file_path):
-        """Import text and voice prompts from a JSON file, replacing existing ones."""
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                imported_data = json.load(f)
-
-            if not isinstance(imported_data, dict):
-                raise ValueError("La racine du fichier doit être un objet JSON.")
-
-            # Validate both collections before changing either persisted value.
-            text_prompts = _normalize_prompt_collection(
-                imported_data.get("text_prompts", {}),
-                require_non_empty=True,
-            )
-            voice_prompts = _normalize_prompt_collection(
-                imported_data.get("voice_prompts", {}),
-                voice=True,
-                require_non_empty=True,
-            )
-
-            old_text = self.settings.value("prompts", "{}")
-            old_voice = self.settings.value("voice_prompts", "{}")
-            try:
-                self.settings.setValue("prompts", json.dumps(text_prompts))
-                self.settings.setValue("voice_prompts", json.dumps(voice_prompts))
-                self.settings.sync()
-            except Exception:
-                self.settings.setValue("prompts", old_text)
-                self.settings.setValue("voice_prompts", old_voice)
-                self.settings.sync()
-                raise
-
+            import_prompt_bundle(self, file_path)
             return True, "Prompts importés avec succès."
-        except FileNotFoundError:
-            return False, "Fichier d'importation non trouvé."
-        except json.JSONDecodeError:
-            return False, "Erreur de décodage du fichier JSON. Le format est peut-être incorrect."
-        except ValueError as e:
-            return False, f"Format de prompts invalide: {e}"
-        except Exception as e:
-            return False, f"Erreur lors de l'importation des prompts: {e}"
+        except Exception as exc:
+            return False, f"Import impossible : {exc}"
 
     def reset_to_defaults(self):
         """Reset all settings to defaults"""

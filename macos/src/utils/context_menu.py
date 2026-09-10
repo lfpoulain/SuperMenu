@@ -1,4 +1,4 @@
-"""Text prompt orchestration for the macOS menu-bar application."""
+"""Text and voice prompt orchestration for the macOS menu-bar application."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from PySide6.QtGui import QCursor
 
 
 from supermenu_core.ui.controls import Menu as QMenu, populate_prompt_menu
+from supermenu_core.ui.voice_menu import populate_voice_menu
+from supermenu_core.config.voice_prompts import compose_voice_prompt
 from src.api.openai_client import OpenAIClient
 from src.ui.prompt_dialog import PromptDialog
 from src.ui.response_window import ResponseWindow
@@ -134,8 +136,8 @@ class ContextMenuManager(QObject):
         menu.addSeparator()
         custom_action = menu.addAction("Mode personnalisé…")
         custom_action.setData(("custom", None))
-        dictation_action = menu.addAction("Dicter du texte…")
-        dictation_action.setData(("dictation", None))
+        voice_menu = menu.addMenu("Voix")
+        populate_voice_menu(voice_menu, self.settings.get_voice_prompts(), lambda kind, key: (kind, key))
 
         def cleanup_menu():
             if self._active_menu is not menu:
@@ -170,8 +172,14 @@ class ContextMenuManager(QObject):
             log(f"Action du menu déclenchée : {action_kind}")
             if action_kind == "prompt":
                 self._handle_prompt(prompt_id, selected_text, target)
-            elif action_kind == "dictation":
+            elif action_kind == "voice":
                 self.start_dictation(target=target)
+            elif action_kind == "voice_prompt":
+                prompt = self.settings.get_voice_prompt(prompt_id)
+                if prompt:
+                    self._start_voice_prompt(prompt, selected_text, target)
+            elif action_kind == "voice_godmode":
+                self._handle_custom("", target, voice=True)
             else:
                 self._handle_custom(selected_text, target)
 
@@ -246,14 +254,6 @@ class ContextMenuManager(QObject):
     def start_dictation(self, *, from_ui=False, target=None):
         if self._closed:
             return
-        from src.audio.speech_backend import create_speech_backend
-        from supermenu_core.audio.session import DictationSession
-        from supermenu_core.audio.settings import speech_options
-
-        if self._dictation is not None:
-            self._dictation.cleanup()
-            self._dictation.deleteLater()
-            self._dictation = None
         target = target or PasteTarget.capture(fall_back_to_last_known=from_ui)
 
         def show_result(text):
@@ -264,15 +264,62 @@ class ContextMenuManager(QObject):
             self.response_window.set_standalone_response(text, "SuperMenu — Dictée")
             self.response_window.present()
 
+        self._start_voice_session(show_result)
+
+    def _start_voice_session(self, callback):
+        from src.audio.speech_backend import create_speech_backend
+        from supermenu_core.audio.session import DictationSession
+        from supermenu_core.audio.settings import speech_options
+
+        if self._closed:
+            return
+        if self._dictation is not None:
+            self._dictation.cleanup()
+            self._dictation.deleteLater()
+            self._dictation = None
         try:
             self._dictation = DictationSession(
                 lambda options: create_speech_backend(self.settings, options),
-                speech_options(self.settings), show_result, self,
+                speech_options(self.settings), callback, self,
             )
             activate_current_application()
             self._dictation.start_voice_recognition()
         except ValueError as exc:
             SafeDialogs.show_information("Réglages de dictée", str(exc))
+
+    def run_voice_prompt(self, prompt_id, *, from_ui=False):
+        if self._closed or self._selection_pending:
+            return
+        prompt = self.settings.get_voice_prompt(prompt_id)
+        if not prompt:
+            return
+        if prompt.get("include_selected_text", False):
+            self._capture_selection(
+                lambda selection, target: self._start_voice_prompt(prompt, selection, target),
+                from_ui=from_ui,
+            )
+        else:
+            target = PasteTarget.capture(fall_back_to_last_known=from_ui)
+            self._start_voice_prompt(prompt, "", target)
+
+    def _start_voice_prompt(self, prompt, selected_text, target):
+        prompt = dict(prompt)
+
+        def process_transcription(text):
+            if self._closed or not text.strip():
+                return
+            request = compose_voice_prompt(prompt, text, selected_text)
+            direct = bool(prompt.get("insert_directly", True))
+            status = prompt.get("status") or "Traitement en cours…"
+            if not direct:
+                self._prepare_response_window(status, request, "", target)
+            self._send_request(
+                request, "", insert_directly=direct, target=target,
+                include_reasoning=False if direct else None,
+                direct_status=f"Envoyé — {status}",
+            )
+
+        self._start_voice_session(process_transcription)
 
     def show_custom_mode(self) -> None:
         if self._closed or self._selection_pending:
@@ -314,7 +361,7 @@ class ContextMenuManager(QObject):
             direct_status=f"Envoyé — {prompt['status']}",
         )
 
-    def _handle_custom(self, selected_text: str, target) -> None:
+    def _handle_custom(self, selected_text: str, target, *, voice=False) -> None:
         if self._closed:
             return
         if self._prompt_dialog is not None:
@@ -333,6 +380,12 @@ class ContextMenuManager(QObject):
                 or result != PromptDialog.DialogCode.Accepted
                 or not prompt
             ):
+                return
+            if voice:
+                self._start_voice_prompt({
+                    "prompt": prompt, "status": "Traitement du prompt vocal…",
+                    "insert_directly": False,
+                }, "", target)
                 return
             content = selected_text or ""
             self._prepare_response_window(

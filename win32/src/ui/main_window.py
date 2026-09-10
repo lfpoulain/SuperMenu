@@ -32,9 +32,9 @@ from supermenu_core.utils.validators import Validators
 from src.utils import updater as app_updater
 from supermenu_core.ui.loading_indicator import SimpleLoadingIndicator
 from supermenu_core.ui.settings_panel import form_layout, scrollable_form
+from supermenu_core.ui.voice_prompt_editor import VoicePromptEditor
 from src.utils.hotkey_manager import HotkeyRecorderDialog
 from src.utils.paths import resource_path
-import uuid
 
 
 class _UpdateCheckWorker(QThread):
@@ -333,141 +333,11 @@ class MainWindow(QMainWindow):
         self.populate_prompt_order_list()
 
     def create_voice_prompts_tab(self):
-        """Create the voice prompts settings tab"""
-        voice_prompts_tab = QWidget()
-        layout = QVBoxLayout(voice_prompts_tab)
-
-        self.voice_prompt_combo = ChoiceBox()
-        self.populate_voice_prompt_combo()
-        self.voice_prompt_combo.hide()
-
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setHandleWidth(0)
-        splitter.setChildrenCollapsible(False)
-
-        left_panel = QWidget()
-        left_panel.setFixedWidth(260)
-        left_layout = QVBoxLayout(left_panel)
-
-        self.voice_prompt_search_input = QLineEdit()
-        self.voice_prompt_search_input.setPlaceholderText("Rechercher un prompt…")
-        self.voice_prompt_search_input.textChanged.connect(self._apply_voice_prompt_filter)
-        left_layout.addWidget(self.voice_prompt_search_input)
-
-        self.voice_prompt_order_list = QListWidget()
-        self.voice_prompt_order_list.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.voice_prompt_order_list.setDragDropMode(QAbstractItemView.InternalMove)
-        self.voice_prompt_order_list.setDefaultDropAction(Qt.MoveAction)
-        self.voice_prompt_order_list.setDropIndicatorShown(True)
-        self.voice_prompt_order_list.model().rowsMoved.connect(self.on_voice_prompt_order_changed)
-        self.voice_prompt_order_list.currentItemChanged.connect(self._on_voice_prompt_list_current_changed)
-        self.voice_prompt_order_list.setSpacing(6)
-        left_layout.addWidget(self.voice_prompt_order_list)
-
-        left_buttons = QHBoxLayout()
-        add_prompt_button = QPushButton("Ajouter")
-        add_prompt_button.clicked.connect(self.add_voice_prompt)
-        left_buttons.addWidget(add_prompt_button)
-
-        delete_prompt_button = QPushButton("Supprimer")
-        delete_prompt_button.setProperty("variant", "danger")
-        delete_prompt_button.clicked.connect(self.delete_voice_prompt)
-        left_buttons.addWidget(delete_prompt_button)
-
-        left_layout.addLayout(left_buttons)
-
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        
-        # Prompt editing
-        prompt_group = QGroupBox("Votre prompt vocal")
-        prompt_layout = form_layout(prompt_group, stacked=True)
-        
-        # Nom affiché
-        name_label = QLabel("Nom")
-        self.voice_prompt_name_input = QLineEdit()
-        self.voice_prompt_name_input.setPlaceholderText("Ex: Décrire et résumer")
-        prompt_layout.addRow(name_label, self.voice_prompt_name_input)
-        
-        # Prompt
-        prompt_label = QLabel("Instructions")
-        self.voice_prompt_text_input = QTextEdit()
-        self.voice_prompt_text_input.setMinimumHeight(100)
-        self.voice_prompt_text_input.setPlaceholderText("Ex: Analyse et décris ce qui suit...")
-        prompt_layout.addRow(prompt_label, self.voice_prompt_text_input)
-        
-        # Statut
-        status_label = QLabel("Message pendant le traitement")
-        self.voice_prompt_status_input = QLineEdit()
-        self.voice_prompt_status_input.setPlaceholderText("Ex: Traitement en cours...")
-        prompt_layout.addRow(status_label, self.voice_prompt_status_input)
-        
-        # Options
-        options_label = QLabel("Options :")
-        options_widget = QWidget()
-        options_layout = QVBoxLayout(options_widget)
-        options_layout.setContentsMargins(0, 0, 0, 0)
-        options_layout.setSpacing(8)
-        
-        self.voice_prompt_insert_directly = QCheckBox("Insérer le résultat sans ouvrir la fenêtre de réponse")
-        self.voice_prompt_insert_directly.setChecked(True)
-        options_layout.addWidget(self.voice_prompt_insert_directly)
-        
-        self.voice_prompt_include_selected_text = QCheckBox("Inclure le texte sélectionné dans la requête vocale")
-        self.voice_prompt_include_selected_text.setChecked(False)
-        options_layout.addWidget(self.voice_prompt_include_selected_text)
-        
-        prompt_layout.addRow(options_label, options_widget)
-        
-        # Ordre des éléments
-        order_label = QLabel("Ordre des éléments :")
-        self.voice_prompt_order_combo = ChoiceBox()
-        self.voice_prompt_order_combo.addItem("📝 Prompt → 🎤 Transcription → 📄 Texte", "prompt_transcription_selected")
-        self.voice_prompt_order_combo.addItem("📝 Prompt → 📄 Texte → 🎤 Transcription", "prompt_selected_transcription")
-        self.voice_prompt_order_combo.addItem("📄 Texte → 📝 Prompt → 🎤 Transcription", "selected_prompt_transcription")
-        self.voice_prompt_order_combo.addItem("🎤 Transcription → 📝 Prompt → 📄 Texte", "transcription_prompt_selected")
-        self.voice_prompt_order_combo.addItem("🎤 Transcription → 📄 Texte → 📝 Prompt", "transcription_selected_prompt")
-        self.voice_prompt_order_combo.addItem("📄 Texte → 🎤 Transcription → 📝 Prompt", "selected_transcription_prompt")
-        prompt_layout.addRow(order_label, self.voice_prompt_order_combo)
-
-        right_layout.addWidget(scrollable_form(prompt_group), 1)
-        
-        # Buttons
-        buttons_layout = QHBoxLayout()
-        buttons_layout.addStretch()
-        
-        reset_prompt_button = QPushButton("Réinitialiser")
-        reset_prompt_button.setMinimumWidth(140)
-        reset_prompt_button.clicked.connect(self.reset_voice_prompt)
-        buttons_layout.addWidget(reset_prompt_button)
-        
-        save_prompt_button = QPushButton("Enregistrer")
-        save_prompt_button.setMinimumWidth(140)
-        save_prompt_button.setDefault(True)
-        save_prompt_button.clicked.connect(self.save_voice_prompt)
-        buttons_layout.addWidget(save_prompt_button)
-        
-        right_layout.addLayout(buttons_layout)
-        
-        # Connect prompt selection change
-        self.voice_prompt_combo.currentIndexChanged.connect(self.load_voice_prompt)
-
-        splitter.addWidget(left_panel)
-        splitter.addWidget(right_panel)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 3)
-        splitter.setSizes([300, 700])
-
-        layout.addWidget(splitter)
-        
-        # Add the tab
-        self.tab_widget.addTab(voice_prompts_tab, "Voix")
-        
-        # Load the first prompt
-        if self.voice_prompt_combo.count() > 0:
-            self.load_voice_prompt(0)
-
-        self.populate_voice_prompt_order_list()
+        self.voice_prompt_editor = VoicePromptEditor(self.settings, self)
+        self.voice_prompt_editor.run_button.hide()
+        self.voice_prompt_editor.import_requested.connect(self.import_all_prompts)
+        self.voice_prompt_editor.export_requested.connect(self.export_all_prompts)
+        self.tab_widget.addTab(self.voice_prompt_editor, "Voix")
 
     def create_settings_tab(self):
         """Create the settings tab"""
@@ -1138,7 +1008,6 @@ class MainWindow(QMainWindow):
             self.prompt_hotkey_input.setText(prompt_data.get("hotkey", ""))
 
 
-
     def start_dictation(self):
         if self.context_menu_manager is not None:
             from src.utils.window_target import PasteTarget
@@ -1484,7 +1353,7 @@ class MainWindow(QMainWindow):
             
             # Update the UI
             self.populate_prompt_combo()
-            self.populate_voice_prompt_combo()
+            self.voice_prompt_editor.reload()
             
             # Reload the API configuration
             self.api_key_input.setText(self.settings.get_api_key())
@@ -1543,8 +1412,6 @@ class MainWindow(QMainWindow):
             if self.prompt_combo.count() > 0:
                 self.load_prompt(0)
                 
-            if self.voice_prompt_combo.count() > 0:
-                self.load_voice_prompt(0)
             
             if hotkeys_restored:
                 QMessageBox.information(
@@ -1898,294 +1765,6 @@ class MainWindow(QMainWindow):
         self.populate_prompt_combo()
         self.populate_prompt_order_list()
 
-    def populate_voice_prompt_combo(self):
-        """Populate the voice prompt combo box with available voice prompts"""
-        current_prompt_id = None
-        try:
-            current_prompt_id = self.voice_prompt_combo.currentData()
-        except Exception:
-            current_prompt_id = None
-
-        self.voice_prompt_combo.clear()
-
-        prompts = self.settings.get_voice_prompts()
-
-        sorted_prompts = sorted(prompts.items(), key=lambda x: x[1].get("position", 999))
-        for prompt_id, prompt_data in sorted_prompts:
-            self.voice_prompt_combo.addItem(prompt_data["name"], prompt_id)
-
-        if current_prompt_id is not None:
-            index = self.voice_prompt_combo.findData(current_prompt_id)
-            if index >= 0:
-                self.voice_prompt_combo.setCurrentIndex(index)
-
-    def populate_voice_prompt_order_list(self):
-        try:
-            current_prompt_id = None
-            try:
-                current_prompt_id = self.voice_prompt_combo.currentData()
-            except Exception:
-                current_prompt_id = None
-
-            query = ""
-            try:
-                query = (self.voice_prompt_search_input.text() or "").strip().lower()
-            except Exception:
-                query = ""
-            is_filtered = bool(query)
-
-            self._is_updating_voice_prompt_order_list = True
-            self.voice_prompt_order_list.clear()
-
-            if is_filtered:
-                self.voice_prompt_order_list.setDragDropMode(QAbstractItemView.NoDragDrop)
-                self.voice_prompt_order_list.setDropIndicatorShown(False)
-            else:
-                self.voice_prompt_order_list.setDragDropMode(QAbstractItemView.InternalMove)
-                self.voice_prompt_order_list.setDropIndicatorShown(True)
-
-            prompts = self.settings.get_voice_prompts()
-            sorted_prompts = sorted(prompts.items(), key=lambda x: x[1].get("position", 999))
-            for prompt_id, prompt_data in sorted_prompts:
-                name = prompt_data.get("name", str(prompt_id))
-                if is_filtered and query not in (name or "").lower():
-                    continue
-                item = QListWidgetItem(name)
-                item.setSizeHint(QSize(0, 44))
-                item.setData(Qt.UserRole, prompt_id)
-                self.voice_prompt_order_list.addItem(item)
-
-            if current_prompt_id is not None:
-                for row in range(self.voice_prompt_order_list.count()):
-                    if self.voice_prompt_order_list.item(row).data(Qt.UserRole) == current_prompt_id:
-                        self.voice_prompt_order_list.setCurrentRow(row)
-                        break
-        finally:
-            self._is_updating_voice_prompt_order_list = False
-
-    def _apply_voice_prompt_filter(self, *args):
-        self.populate_voice_prompt_order_list()
-
-    def _on_voice_prompt_list_current_changed(self, current, previous):
-        if getattr(self, "_is_updating_voice_prompt_order_list", False):
-            return
-        if current is None:
-            return
-        prompt_id = current.data(Qt.UserRole)
-        if prompt_id is None:
-            return
-        index = self.voice_prompt_combo.findData(prompt_id)
-        if index >= 0 and index != self.voice_prompt_combo.currentIndex():
-            self.voice_prompt_combo.setCurrentIndex(index)
-
-    def on_voice_prompt_order_changed(self, *args):
-        if getattr(self, "_is_updating_voice_prompt_order_list", False):
-            return
-
-        prompts = self.settings.get_voice_prompts()
-        changed = False
-        for row in range(self.voice_prompt_order_list.count()):
-            item = self.voice_prompt_order_list.item(row)
-            prompt_id = item.data(Qt.UserRole)
-            if prompt_id not in prompts:
-                continue
-            prompt_data = prompts[prompt_id]
-            new_position = (row + 1) * 10
-            if prompt_data.get("position", 999) == new_position:
-                continue
-            prompt_data["position"] = new_position
-            changed = True
-
-        if changed:
-            self.settings.set_voice_prompts(prompts)
-
-        self.populate_voice_prompt_combo()
-        self.populate_voice_prompt_order_list()
-
-    def load_voice_prompt(self, index):
-        """Load the selected voice prompt into the editing fields"""
-        if index < 0 or self.voice_prompt_combo.count() == 0:
-            return
-            
-        prompt_id = self.voice_prompt_combo.currentData()
-        prompt_data = self.settings.get_voice_prompt(prompt_id)
-        
-        if prompt_data:
-            self.voice_prompt_name_input.setText(prompt_data["name"])
-            self.voice_prompt_text_input.setText(prompt_data["prompt"])
-            self.voice_prompt_status_input.setText(prompt_data["status"])
-            self.voice_prompt_insert_directly.setChecked(prompt_data.get("insert_directly", True))
-            self.voice_prompt_include_selected_text.setChecked(prompt_data.get("include_selected_text", False))
-            
-            # Charge l'ordre des éléments
-            order = prompt_data.get("prompt_order", "prompt_transcription_selected")
-            for i in range(self.voice_prompt_order_combo.count()):
-                if self.voice_prompt_order_combo.itemData(i) == order:
-                    self.voice_prompt_order_combo.setCurrentIndex(i)
-                    break
-
-    def save_voice_prompt(self):
-        """Save the current voice prompt"""
-        if self.voice_prompt_combo.count() == 0:
-            return
-            
-        prompt_id = self.voice_prompt_combo.currentData()
-        name = self.voice_prompt_name_input.text().strip()
-        prompt = self.voice_prompt_text_input.toPlainText()
-        status = self.voice_prompt_status_input.text()
-        insert_directly = self.voice_prompt_insert_directly.isChecked()
-
-        position = 999
-        try:
-            position = self.settings.get_voice_prompt(prompt_id).get("position", 999)
-        except Exception:
-            position = 999
-        include_selected_text = self.voice_prompt_include_selected_text.isChecked()
-        prompt_order = self.voice_prompt_order_combo.currentData()
-        
-        # Vérifier que les champs ne sont pas vides
-        if not name or not prompt or not status:
-            QMessageBox.warning(self, "Champs incomplets", 
-                              "Veuillez remplir tous les champs (nom, prompt et statut).")
-            return
-        
-        # Mettre à jour le prompt
-        self.settings.update_voice_prompt(
-            prompt_id, 
-            name, 
-            prompt, 
-            status, 
-            insert_directly, 
-            position, 
-            include_selected_text,
-            prompt_order
-        )
-        
-        # Mettre à jour le nom dans le combo
-        self.voice_prompt_combo.setItemText(self.voice_prompt_combo.currentIndex(), name)
-
-        self.populate_voice_prompt_order_list()
-        
-        QMessageBox.information(self, "Prompt vocal enregistré", 
-                              f"Le prompt vocal '{name}' a été enregistré avec succès.")
-
-    def add_voice_prompt(self):
-        """Add a new voice prompt"""
-        # Générer un nouvel ID unique
-        prompt_id = str(uuid.uuid4())
-        
-        # Ajouter le nouveau prompt avec des valeurs par défaut
-        self.settings.add_voice_prompt(
-            prompt_id,
-            f"Nouveau prompt vocal ({prompt_id})",
-            "",
-            "Traitement en cours...",
-            True,
-            999,
-            False,
-            "prompt_transcription_selected"
-        )
-        
-        # Mettre à jour la liste des prompts
-        self.populate_voice_prompt_combo()
-
-        self.populate_voice_prompt_order_list()
-        
-        # Sélectionner le nouveau prompt
-        index = self.voice_prompt_combo.findData(prompt_id)
-        if index >= 0:
-            self.voice_prompt_combo.setCurrentIndex(index)
-        
-        QMessageBox.information(
-            self,
-            "Prompt vocal ajouté",
-            "Le nouveau prompt vocal a été ajouté avec succès. "
-            "Vous pouvez maintenant le configurer.",
-        )
-
-    def delete_voice_prompt(self):
-        """Delete the current voice prompt"""
-        if self.voice_prompt_combo.count() == 0:
-            return
-            
-        prompt_id = self.voice_prompt_combo.currentData()
-        name = self.voice_prompt_combo.currentText()
-        
-        # Demander confirmation
-        reply = QMessageBox.question(self, "Confirmer la suppression", 
-                                  f"Êtes-vous sûr de vouloir supprimer le prompt vocal '{name}' ?",
-                                  QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        
-        if reply != QMessageBox.Yes:
-            return
-        
-        # Supprimer le prompt
-        success = self.settings.delete_voice_prompt(prompt_id)
-        
-        if success:
-            # Mettre à jour le combo
-            self.populate_voice_prompt_combo()
-
-            self.populate_voice_prompt_order_list()
-            
-            # Charger le premier prompt s'il en reste
-            if self.voice_prompt_combo.count() > 0:
-                self.voice_prompt_combo.setCurrentIndex(0)
-            else:
-                # Effacer les champs
-                self.voice_prompt_name_input.clear()
-                self.voice_prompt_text_input.clear()
-                self.voice_prompt_status_input.clear()
-                
-            QMessageBox.information(self, "Prompt vocal supprimé", 
-                                  f"Le prompt vocal '{name}' a été supprimé avec succès.")
-        else:
-            QMessageBox.warning(self, "Erreur de suppression", 
-                              f"Une erreur s'est produite lors de la suppression du prompt vocal '{name}'.")
-
-    def reset_voice_prompt(self):
-        """Reset the current voice prompt to its default value"""
-        if self.voice_prompt_combo.count() == 0:
-            return
-            
-        prompt_id = self.voice_prompt_combo.currentData()
-        name = self.voice_prompt_combo.currentText()
-        
-        # Vérifier si ce prompt existe dans les prompts par défaut
-        if prompt_id in self.settings.default_voice_prompts:
-            # Demander confirmation
-            reply = QMessageBox.question(self, "Confirmer la réinitialisation", 
-                                      f"Êtes-vous sûr de vouloir réinitialiser le prompt vocal '{name}' à sa valeur par défaut ?",
-                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            
-            if reply != QMessageBox.Yes:
-                return
-            
-            # Réinitialiser le prompt
-            default_prompt = self.settings.default_voice_prompts[prompt_id]
-            self.settings.update_voice_prompt(
-                prompt_id, 
-                default_prompt["name"], 
-                default_prompt["prompt"], 
-                default_prompt["status"],
-                default_prompt.get("insert_directly", True),
-                default_prompt.get("position", 999),
-                default_prompt.get("include_selected_text", False),
-                default_prompt.get("prompt_order", "prompt_transcription_selected")
-            )
-            
-            # Mettre à jour le combo et les champs
-            self.populate_voice_prompt_combo()
-            self.populate_voice_prompt_order_list()
-            index = self.voice_prompt_combo.findData(prompt_id)
-            if index >= 0:
-                self.voice_prompt_combo.setCurrentIndex(index)
-                
-            QMessageBox.information(self, "Prompt vocal réinitialisé", 
-                                  f"Le prompt vocal '{name}' a été réinitialisé à sa valeur par défaut.")
-        else:
-            QMessageBox.warning(self, "Réinitialisation impossible", 
-                              f"Le prompt vocal '{name}' n'a pas de valeur par défaut.")
 
     def save_theme_selection(self):
         """Save the selected theme"""
@@ -2253,7 +1832,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.information(self, "Importation Réussie", message)
                     # Rafraîchir les listes de prompts dans l'UI
                     self.populate_prompt_combo()
-                    self.populate_voice_prompt_combo()
+                    self.voice_prompt_editor.reload()
                     # Optionnellement, sélectionner le premier prompt ou aucun
                     if self.prompt_combo.count() > 0:
                         self.prompt_combo.setCurrentIndex(0)
@@ -2261,11 +1840,6 @@ class MainWindow(QMainWindow):
                     else:
                         self.clear_prompt_editor()
                     
-                    if self.voice_prompt_combo.count() > 0:
-                        self.voice_prompt_combo.setCurrentIndex(0)
-                        self.load_voice_prompt(0)
-                    else:
-                        self.clear_voice_prompt_editor()
                     if shortcut_errors:
                         QMessageBox.warning(
                             self,
@@ -2285,13 +1859,6 @@ class MainWindow(QMainWindow):
         self.prompt_insert_directly.setChecked(False)
         self.prompt_hotkey_input.clear()
 
-    def clear_voice_prompt_editor(self):
-        self.voice_prompt_name_input.clear()
-        self.voice_prompt_text_input.clear()
-        self.voice_prompt_status_input.clear()
-        self.voice_prompt_insert_directly.setChecked(True)
-        self.voice_prompt_include_selected_text.setChecked(False)
-        self.voice_prompt_order_combo.setCurrentIndex(0)
 
     def toggle_custom_endpoint(self):
         """Afficher les réglages du fournisseur sélectionné."""

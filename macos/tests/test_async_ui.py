@@ -86,6 +86,9 @@ def test_context_menu_activates_supermenu_before_popup(tmp_path, monkeypatch):
         def addAction(self, _label):
             return FakeAction()
 
+        def addMenu(self, _label):
+            return FakeMenu()
+
         def addSeparator(self):
             pass
 

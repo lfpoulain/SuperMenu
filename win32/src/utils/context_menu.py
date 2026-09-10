@@ -24,6 +24,8 @@ from src.ui.prompt_dialog import PromptDialog
 from src.ui.screen_capture import capture_screen
 from supermenu_core.audio.session import DictationSession
 from supermenu_core.audio.settings import speech_options
+from supermenu_core.config.voice_prompts import compose_voice_prompt
+from supermenu_core.ui.voice_menu import populate_voice_menu
 from src.audio.speech_backend import create_speech_backend
 from src.utils.text_inserter import TextInserter
 from src.utils.logger import log
@@ -463,24 +465,11 @@ class ContextMenuManager(QObject):
 
         chosen_action = None
         try:
-            # Ajouter l'option de reconnaissance vocale
-            voice_action = menu.addAction("Dicter du texte…")
-            voice_action.setData(("voice", paste_target))
-
-            # Ajouter un séparateur
-            menu.addSeparator()
-
-            populate_prompt_menu(
+            populate_voice_menu(
                 menu, self.settings.get_voice_prompts(),
-                lambda prompt_id: ("voice_prompt", prompt_id, paste_target),
+                lambda kind, prompt_id: (kind, prompt_id, paste_target)
+                if kind == "voice_prompt" else (kind, paste_target),
             )
-
-            # Ajouter un séparateur
-            menu.addSeparator()
-
-            # Ajouter l'option GodMode vocal (personnalisation à la volée)
-            godmode_action = menu.addAction("Prompt vocal personnalisé…")
-            godmode_action.setData(("voice_godmode", paste_target))
 
             # Afficher le menu à la position du curseur
             chosen_action = self._exec_menu(menu)
@@ -853,11 +842,9 @@ class ContextMenuManager(QObject):
                 log(f"Prompt vocal non trouvé: {prompt_id}", logging.WARNING)
                 return
                 
-            prompt_text = prompt_data["prompt"]
             status = prompt_data["status"]
             insert_directly = prompt_data.get("insert_directly", True)
             include_selected_text = prompt_data.get("include_selected_text", False)
-            prompt_order = prompt_data.get("prompt_order", "prompt_transcription_selected")
             
             log(f"Exécution du prompt vocal: {prompt_data['name']}", logging.DEBUG)
             
@@ -875,28 +862,8 @@ class ContextMenuManager(QObject):
                 if text:
                     log(f"Transcription vocale reçue: {text[:50]}...", logging.DEBUG)
                     
-                    # Construire le prompt complet selon l'ordre spécifié
-                    if include_selected_text and selected_text:
-                        # Construire le prompt selon l'ordre spécifié
-                        if prompt_order == "prompt_transcription_selected":
-                            full_prompt = f"{prompt_text}\n\nTexte transcrit: {text}\n\nTexte sélectionné: {selected_text}"
-                        elif prompt_order == "prompt_selected_transcription":
-                            full_prompt = f"{prompt_text}\n\nTexte sélectionné: {selected_text}\n\nTexte transcrit: {text}"
-                        elif prompt_order == "selected_prompt_transcription":
-                            full_prompt = f"Texte sélectionné: {selected_text}\n\n{prompt_text}\n\nTexte transcrit: {text}"
-                        elif prompt_order == "transcription_prompt_selected":
-                            full_prompt = f"Texte transcrit: {text}\n\n{prompt_text}\n\nTexte sélectionné: {selected_text}"
-                        elif prompt_order == "transcription_selected_prompt":
-                            full_prompt = f"Texte transcrit: {text}\n\nTexte sélectionné: {selected_text}\n\n{prompt_text}"
-                        elif prompt_order == "selected_transcription_prompt":
-                            full_prompt = f"Texte sélectionné: {selected_text}\n\nTexte transcrit: {text}\n\n{prompt_text}"
-                        else:
-                            # Ordre par défaut
-                            full_prompt = f"{prompt_text}\n\nTexte transcrit: {text}\n\nTexte sélectionné: {selected_text}"
-                    else:
-                        # Pas de texte sélectionné, simplement prompt + transcription
-                        full_prompt = f"{prompt_text}\n\n{text}"
-                    
+                    full_prompt = compose_voice_prompt(prompt_data, text, selected_text)
+
                     if insert_directly:
                         self._send_request(
                             full_prompt,
@@ -957,7 +924,7 @@ class ContextMenuManager(QObject):
                     )
                     
                     # Construire le prompt complet avec le texte transcrit
-                    full_prompt = f"{custom_prompt}\n\n{text}"
+                    full_prompt = compose_voice_prompt({"prompt": custom_prompt}, text)
                     
                     # Préparer la fenêtre de réponse
                     self.response_window.set_status("Traitement du prompt personnalisé...")

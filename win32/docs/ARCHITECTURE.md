@@ -139,6 +139,13 @@ copie et de collage résident dans `src/utils/clipboard_config.py`. Le microphon
 est identifié par son ID Qt (`speech_microphone`) ; l'ancien index PortAudio est
 retiré du fichier de configuration sans toucher aux préférences vocales actuelles.
 
+La bibliothèque et l’éditeur des prompts vocaux utilisent désormais
+`shared/supermenu_core/config/voice_prompts.py` et
+`shared/supermenu_core/ui/voice_prompt_editor.py`, également utilisés sur Mac.
+Les six ordres d’assemblage et l’inclusion facultative de la sélection gardent
+leur format existant. L’import/export JSON est commun aux deux plateformes,
+tandis que la capture de sélection et l’insertion restent dans `win32/src`.
+
 ### Capture d'écran
 
 1. L'utilisateur appuie sur le raccourci de capture (par défaut: Ctrl+Alt+&)

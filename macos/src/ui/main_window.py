@@ -42,6 +42,7 @@ from supermenu_core.api.model_capabilities import (
 from supermenu_core.config.provider_settings import CUSTOM_REASONING_EFFORTS
 from supermenu_core.ui.theme_manager import ThemeManager
 from supermenu_core.ui.settings_panel import form_layout, scrollable_form
+from supermenu_core.ui.voice_prompt_editor import VoicePromptEditor
 from supermenu_core.ui.verification_status import VerificationStatus
 from src.utils import updater as app_updater
 from src.utils.hotkey_manager import HotkeyRecorderDialog
@@ -144,7 +145,13 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(WindowHeader())
         self.tabs = QTabWidget()
         self.tabs.addTab(self._create_prompts_tab(), "Prompts")
-        self.tabs.addTab(self._create_settings_tab(), "Réglages")
+        self.voice_prompt_editor = VoicePromptEditor(self.settings, self)
+        self.voice_prompt_editor.run_requested.connect(self.run_voice_prompt)
+        self.voice_prompt_editor.import_requested.connect(self.import_prompts)
+        self.voice_prompt_editor.export_requested.connect(self.export_prompts)
+        self.tabs.addTab(self.voice_prompt_editor, "Voix")
+        self.settings_tab = self._create_settings_tab()
+        self.tabs.addTab(self.settings_tab, "Réglages")
         self.tabs.addTab(self._create_about_tab(), "À propos")
         root_layout.addWidget(self.tabs)
 
@@ -154,6 +161,11 @@ class MainWindow(QMainWindow):
         save_button.setDefault(True)
         save_button.clicked.connect(self.save_settings)
         buttons.addWidget(save_button)
+        self.tabs.currentChanged.connect(
+            lambda _index: save_button.setVisible(
+                self.tabs.currentWidget() is not self.voice_prompt_editor
+            )
+        )
         close_button = QPushButton("Fermer")
         close_button.clicked.connect(self.hide)
         buttons.addWidget(close_button)
@@ -609,6 +621,7 @@ class MainWindow(QMainWindow):
         if not path:
             return
         previous_prompts = self.settings.get_prompts()
+        previous_voice_prompts = self.settings.get_voice_prompts()
         try:
             count = self.settings.import_prompts(path)
         except Exception as exc:
@@ -620,11 +633,13 @@ class MainWindow(QMainWindow):
             )
             if not valid:
                 self.settings.set_prompts(previous_prompts)
+                self.settings.set_voice_prompts(previous_voice_prompts)
                 self.settings.sync()
                 message = next(iter(errors.values()), "Conflit de raccourci")
                 QMessageBox.warning(self, "Import impossible", message)
                 return
         self._reload_prompts()
+        self.voice_prompt_editor.reload()
         self._refresh_prompt_hotkeys()
         QMessageBox.information(
             self,
@@ -1135,6 +1150,8 @@ class MainWindow(QMainWindow):
         return True
 
     def save_settings(self):
+        if self.tabs.currentWidget() is self.voice_prompt_editor:
+            return self.voice_prompt_editor.save()
         if not self._validate_endpoint_settings():
             return False
         if not self.speech_settings.save():
@@ -1234,6 +1251,10 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
+    def run_voice_prompt(self, prompt_id):
+        if self.context_menu_manager:
+            self.context_menu_manager.run_voice_prompt(prompt_id, from_ui=True)
+
     def start_dictation(self):
         if self.context_menu_manager:
             self.context_menu_manager.start_dictation(from_ui=True)
@@ -1247,7 +1268,7 @@ class MainWindow(QMainWindow):
         self.context_menu_manager.show_menu(from_ui=True)
 
     def show_permission_setup(self):
-        self.tabs.setCurrentIndex(1)
+        self.tabs.setCurrentWidget(self.settings_tab)
         self.settings_panel.select_page("app")
         self.show_main_window()
 

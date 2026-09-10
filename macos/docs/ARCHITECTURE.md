@@ -27,6 +27,19 @@ entre les dictées et ouvre une nouvelle session pour chaque capture. Il le
 décharge après cinq minutes d’inactivité par défaut, selon le réglage choisi.
 Le microphone est arrêté entre les dictées et aucun audio n’est sauvegardé.
 
+L’éditeur de prompts vocaux, le menu vocal, la persistance et l’assemblage de
+l’instruction avec la transcription et la sélection sont partagés avec Windows.
+`VoicePromptEditor` émet l’identifiant du prompt ; `ContextMenuManager` capture
+la cible et lit la sélection avec les services natifs macOS avant de lancer
+`DictationSession`. Seul le résultat final déclenche une requête vers le moteur
+de texte sélectionné. L’insertion et le suivi des requêtes réutilisent le même
+parcours que les prompts textuels. Une annulation ignore les résultats tardifs.
+
+Les fichiers JSON échangés utilisent `text_prompts` et `voice_prompts`, avec
+compatibilité de lecture des anciens exports Mac (`prompts`). Les imports
+valident toutes les collections avant écriture et conservent les collections
+absentes. La composition Mac ne dépend d’aucun module Windows.
+
 ## Vue d’ensemble
 
 ```mermaid

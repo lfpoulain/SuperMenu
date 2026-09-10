@@ -358,6 +358,14 @@ jobs:
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
 
+            Prompts vocaux sur Mac : nouvel onglet Voix et sous-menu vocal avec
+            dictée simple, prompts enregistrés et prompt vocal personnalisé.
+            La transcription utilise OpenAI ou Apple Speech, puis le moteur de
+            texte choisi applique l’instruction. Sélection facultative, six ordres
+            d’assemblage et insertion directe ou fenêtre de résultat.
+            Éditeur, bibliothèque, menu et import/export partagés avec Windows.
+            Les prompts existants et les anciens fichiers JSON Mac sont conservés.
+
             Nouvelle interface Windows et Mac : thèmes clair et sombre harmonisés,
             réglages organisés par usage, formulaires de prompts défilants et
             actions principales mieux identifiées. Menus, listes déroulantes,

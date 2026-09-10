@@ -10,6 +10,7 @@ macOS.
 - [Installation](#installation)
 - [Premier lancement et Accessibilité](#premier-lancement-et-accessibilité)
 - [Configurer le fournisseur IA](#configurer-le-fournisseur-ia)
+- [Prompts vocaux](#prompts-vocaux)
 - [Configurer les raccourcis](#configurer-les-raccourcis)
 - [Utilisation quotidienne](#utilisation-quotidienne)
 - [Gérer les prompts](#gérer-les-prompts)
@@ -94,6 +95,30 @@ Accessibilité est utilisée pour :
 
 SuperMenu ne demande pas **Surveillance de l’entrée**. L’ajouter manuellement
 n’améliore pas le fonctionnement normal de cette version.
+
+## Prompts vocaux
+
+L’onglet **Voix** permet de créer, modifier, réordonner et supprimer les mêmes
+prompts vocaux que sur Windows. Par exemple, **Résumer** applique une instruction
+de résumé au texte obtenu après votre dictée. Choisissez l’affichage du résultat
+ou son insertion directe dans l’application cible.
+
+Pour répondre à un texte existant, activez **Inclure le texte sélectionné** et
+choisissez l’ordre des instructions, de la dictée et de la sélection. La sélection
+et l’application cible sont conservées pendant la transcription.
+
+Lancez le raccourci principal puis ouvrez le sous-menu **Voix** : dictée simple,
+prompt vocal enregistré, ou **Prompt vocal personnalisé…** pour une instruction
+ponctuelle. Le bouton **Dicter** de l’éditeur vocal enregistre le prompt avant de
+le lancer. **Annuler** interrompt la dictée sans lancer le traitement du texte.
+
+Le moteur de **Dictée** reconnaît la voix, puis le moteur de **Texte** applique
+l’instruction. Pour un traitement entièrement local, choisissez Apple Speech
+pour la dictée et Apple Intelligence pour le texte, sur un Mac compatible.
+
+Les boutons **Importer** et **Exporter** transfèrent les prompts textuels et
+vocaux entre Mac et Windows. Un ancien fichier Mac contenant seulement des
+prompts textuels conserve votre bibliothèque vocale actuelle.
 
 ## Configurer le fournisseur IA
 

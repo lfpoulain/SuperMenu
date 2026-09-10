@@ -26,6 +26,16 @@ fourni explicitement par l'adaptateur de plateforme.
 
 ## Composants d'interface
 
+- `config/voice_prompts.py` partage la bibliothèque vocale, ses options et
+  l’assemblage des six ordres instruction/dictée/sélection. Les deux plateformes
+  utilisent `ui/voice_prompt_editor.py` et `ui/voice_menu.py` ; les lecteurs de
+  sélection, les cibles d’insertion et le cycle de vie natif restent dans leur
+  composition respective. Le traitement du texte utilise le fournisseur IA
+  choisi indépendamment du moteur de reconnaissance vocale.
+- `config/prompt_transfer.py` partage l’import/export JSON des collections
+  `text_prompts` et `voice_prompts`. Les anciens fichiers Mac avec `prompts`
+  restent acceptés ; une collection absente est conservée. Les deux collections
+  sont validées avant toute écriture.
 - `ui/theme_styles.py` centralise la palette d'origine, les états de sélection,
   les surfaces et les couleurs de statut. `ThemeManager` applique le thème à
   toute l'application ; les fenêtres ne définissent pas de styles locaux.

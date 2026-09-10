@@ -9,6 +9,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings
 from supermenu_core.audio.settings import SpeechSettingsMixin
+from supermenu_core.config.voice_prompts import VoicePromptSettingsMixin
+from supermenu_core.config.prompt_transfer import export_prompt_bundle, import_prompt_bundle
 
 from supermenu_core.api.model_capabilities import normalize_reasoning_option
 from supermenu_core.config.prompts import (
@@ -46,7 +48,7 @@ def _normalize_prompts(value) -> dict[str, dict]:
         return {}
 
 
-class Settings(SpeechSettingsMixin):
+class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin):
     def __init__(self, config_path: str | None = None):
         self.config_path = str(config_path or settings_file())
         Path(self.config_path).parent.mkdir(parents=True, exist_ok=True)
@@ -84,6 +86,7 @@ class Settings(SpeechSettingsMixin):
         for key, value in defaults.items():
             if not self.settings.contains(key):
                 self.settings.setValue(key, value)
+        self.initialize_voice_prompts()
         self.settings.sync()
         self._secure_config_file()
 
@@ -317,20 +320,10 @@ class Settings(SpeechSettingsMixin):
         self.set_prompts(prompts)
 
     def export_prompts(self, file_path: str) -> None:
-        payload = {"schema_version": 1, "prompts": self.get_prompts()}
-        Path(file_path).write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        export_prompt_bundle(self, file_path)
 
     def import_prompts(self, file_path: str) -> int:
-        payload = json.loads(Path(file_path).read_text(encoding="utf-8"))
-        prompts = payload.get("prompts") if isinstance(payload, dict) else None
-        normalized = _normalize_prompts(prompts)
-        if not normalized:
-            raise ValueError("Le fichier ne contient aucun prompt valide.")
-        self.set_prompts(normalized)
-        return len(normalized)
+        return import_prompt_bundle(self, file_path)
 
     def reset_to_defaults(self) -> None:
         self.settings.clear()

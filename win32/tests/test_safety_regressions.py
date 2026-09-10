@@ -37,7 +37,7 @@ def test_prompt_fields_do_not_overlap_in_compact_window(monkeypatch, tmp_path):
             window.show()
             for tab, instruction, status in (
                 (0, window.prompt_text_input, window.prompt_status_input),
-                (1, window.voice_prompt_text_input, window.voice_prompt_status_input),
+                (1, window.voice_prompt_editor.instruction_input, window.voice_prompt_editor.status_input),
             ):
                 window.tab_widget.setCurrentIndex(tab)
                 app.processEvents()
@@ -162,27 +162,20 @@ def test_import_refresh_uses_existing_prompt_loaders(monkeypatch):
             self.settings = FakeSettings()
             self.prompt_combo = QComboBox()
             self.prompt_combo.addItem("Text", "text")
-            self.voice_prompt_combo = QComboBox()
-            self.voice_prompt_combo.addItem("Voice", "voice")
+            self.voice_prompt_editor = SimpleNamespace(reload=lambda: self.loaded.append(("voice", 0)))
             self.loaded = []
 
         def populate_prompt_combo(self):
             pass
 
-        def populate_voice_prompt_combo(self):
-            pass
 
         def load_prompt(self, index):
             self.loaded.append(("text", index))
 
-        def load_voice_prompt(self, index):
-            self.loaded.append(("voice", index))
 
         def clear_prompt_editor(self):
             self.loaded.append(("clear-text", None))
 
-        def clear_voice_prompt_editor(self):
-            self.loaded.append(("clear-voice", None))
 
     fake = FakeWindow()
     monkeypatch.setattr(
@@ -202,7 +195,7 @@ def test_import_refresh_uses_existing_prompt_loaders(monkeypatch):
 
     MainWindow.import_all_prompts(fake)
 
-    assert fake.loaded == [("text", 0), ("voice", 0)]
+    assert fake.loaded == [("voice", 0), ("text", 0)]
 
 
 def test_hotkey_reset_rolls_back_every_shortcut_on_one_conflict():
