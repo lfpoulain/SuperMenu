@@ -19,7 +19,8 @@ from supermenu_core.audio.microphone import microphones
 from supermenu_core.audio.settings import languages, local_language
 from supermenu_core.audio.resident import get_resident_service
 from .verification_status import VerificationStatus
-from .settings_panel import Disclosure, NoWheelComboBox as QComboBox
+from .settings_panel import Disclosure
+from .controls import ChoiceBox
 from .microphone_test import MicrophoneTest
 
 
@@ -35,7 +36,7 @@ class SpeechSettingsWidget(QGroupBox):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
         layout.addWidget(QLabel("Microphone"))
-        self.microphone_combo = QComboBox()
+        self.microphone_combo = ChoiceBox()
         mic_row = QHBoxLayout()
         mic_row.addWidget(self.microphone_combo, 1)
         refresh = QPushButton("Actualiser")
@@ -52,7 +53,7 @@ class SpeechSettingsWidget(QGroupBox):
         )
         layout.addSpacing(8)
         layout.addWidget(QLabel("Moteur de transcription"))
-        self.provider_combo = QComboBox()
+        self.provider_combo = ChoiceBox()
         self.provider_combo.addItem("OpenAI · en ligne", "openai")
         if self.platform == "darwin":
             self.provider_combo.addItem("Apple Speech · sur ce Mac", "apple")
@@ -76,7 +77,7 @@ class SpeechSettingsWidget(QGroupBox):
         layout.addWidget(self.cloud_group)
         language_row = QHBoxLayout()
         language_row.addWidget(QLabel("Langue"))
-        self.language_combo = QComboBox()
+        self.language_combo = ChoiceBox()
         for title, code in (
             ("Français", "fr"),
             ("Français (Canada)", "fr-ca"),
@@ -117,7 +118,7 @@ class SpeechSettingsWidget(QGroupBox):
         advanced = self.advanced.content_layout
         self.device_label = QLabel("Calcul local")
         advanced.addWidget(self.device_label)
-        self.device_combo = QComboBox()
+        self.device_combo = ChoiceBox()
         self.device_combo.addItem("Automatique — CUDA en priorité", "auto")
         self.device_combo.addItem("CPU uniquement", "cpu")
         self.device_combo.setCurrentIndex(
@@ -128,7 +129,7 @@ class SpeechSettingsWidget(QGroupBox):
         memory = QVBoxLayout(self.memory_options)
         memory.setContentsMargins(0, 0, 0, 0)
         memory.addWidget(QLabel("Décharger le modèle vocal après"))
-        self.idle_combo = QComboBox()
+        self.idle_combo = ChoiceBox()
         for title, seconds in (
             ("Chaque dictée", 0),
             ("1 minute d’inactivité", 60),
@@ -176,6 +177,7 @@ class SpeechSettingsWidget(QGroupBox):
         bottom = QHBoxLayout(self.actions_widget)
         bottom.setContentsMargins(0, 0, 0, 0)
         self.save_button = QPushButton("Enregistrer")
+        self.save_button.setProperty("variant", "primary")
         self.save_button.clicked.connect(self.save)
         bottom.addWidget(self.save_button)
         self.test_button = QPushButton("Dicter")

@@ -8,9 +8,10 @@ Module de gestion moderne des thèmes avec pyqtdarktheme
 import qdarktheme
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QGuiApplication, QPalette
+from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QPalette
 
 from supermenu_core.ui.verification_status import VerificationStatus
+from supermenu_core.ui.theme_styles import ACCENT_COLORS, PALETTES, widget_styles
 
 
 class ThemeManager:
@@ -19,18 +20,7 @@ class ThemeManager:
     # Thèmes disponibles
     THEMES = {"dark": "dark", "light": "light", "auto": "auto"}
 
-    # Set once an application is following the system scheme, so the signal is
-    # not connected again on every save.
-    _system_scheme_connected = False
-
-    # Couleurs personnalisées pour SuperMenu
-    ACCENT_COLORS = {
-        "primary": "#3498db",  # Bleu
-        "success": "#2ecc71",  # Vert
-        "warning": "#f39c12",  # Orange
-        "danger": "#e74c3c",  # Rouge
-        "info": "#9b59b6",  # Violet
-    }
+    ACCENT_COLORS = ACCENT_COLORS
 
     @staticmethod
     def system_color_scheme() -> str:
@@ -65,9 +55,13 @@ class ThemeManager:
         changed = getattr(hints, "colorSchemeChanged", None) if hints else None
         if changed is None:
             return
-        if follow and not ThemeManager._system_scheme_connected:
-            changed.connect(lambda *_args: ThemeManager.apply_theme(app, "auto"))
-            ThemeManager._system_scheme_connected = True
+        app.setProperty("supermenuFollowsSystem", follow)
+        if follow and not app.property("supermenuThemeConnected"):
+            changed.connect(
+                lambda *_args: ThemeManager.apply_theme(app, "auto")
+                if app.property("supermenuFollowsSystem") else None
+            )
+            app.setProperty("supermenuThemeConnected", True)
 
     @staticmethod
     def apply_theme(app: QApplication, theme: str = "dark"):
@@ -82,227 +76,42 @@ class ThemeManager:
         theme = ThemeManager.resolve_theme(requested)
         ThemeManager._follow_system_scheme(app, requested == "auto")
 
+        # Qt supplies the platform's UI typeface; use a readable minimum size.
+        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
+        font.setPointSizeF(max(10.5, font.pointSizeF()))
+
         # Charger le stylesheet de base
         stylesheet = qdarktheme.load_stylesheet(theme)
 
         # Ajouter nos styles personnalisés
-        stylesheet += ThemeManager._get_custom_styles()
+        stylesheet += ThemeManager._get_custom_styles(theme, font.pointSizeF())
         stylesheet += VerificationStatus.stylesheet(theme)
 
-        # Appliquer le stylesheet
+        app.setFont(font)
         app.setStyleSheet(stylesheet)
-
-        # Appliquer les couleurs personnalisées
-        if theme == "dark":
-            ThemeManager._apply_dark_palette(app)
-        elif theme == "light":
-            ThemeManager._apply_light_palette(app)
+        ThemeManager._apply_palette(app, theme)
 
     @staticmethod
-    def _get_custom_styles() -> str:
-        """Retourne les styles CSS personnalisés pour SuperMenu"""
-        return f"""
-        /* Amélioration des boutons */
-        QPushButton {{
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-weight: 500;
-            min-width: 80px;
-            background-color: rgba(52, 152, 219, 0.15);
-            border: 1px solid rgba(52, 152, 219, 0.3);
-        }}
-        
-        QPushButton:hover {{
-            background-color: rgba(52, 152, 219, 0.25);
-            border: 2px solid {ThemeManager.ACCENT_COLORS["primary"]};
-        }}
-        
-        QPushButton:pressed {{
-            background-color: rgba(52, 152, 219, 0.35);
-        }}
-        
-        QPushButton:default {{
-            background-color: {ThemeManager.ACCENT_COLORS["primary"]};
-            color: white;
-            border: 1px solid {ThemeManager.ACCENT_COLORS["primary"]};
-        }}
-        
-        QPushButton:default:hover {{
-            background-color: #2980b9;
-            border: 2px solid #2980b9;
-        }}
-        
-        /* Amélioration des champs de saisie */
-        QLineEdit, QTextEdit, QPlainTextEdit {{
-            padding: 8px;
-            border-radius: 6px;
-            border: 1px solid rgba(52, 152, 219, 0.3);
-        }}
-        
-        QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {{
-            border: 2px solid {ThemeManager.ACCENT_COLORS["primary"]};
-        }}
-        
-        /* Amélioration des ComboBox */
-        QComboBox {{
-            padding: 6px 12px;
-            border-radius: 6px;
-            min-width: 150px;
-        }}
-        
-        QComboBox:hover {{
-            border: 2px solid {ThemeManager.ACCENT_COLORS["primary"]};
-        }}
-        
-        /* Amélioration des GroupBox */
-        QGroupBox {{
-            font-weight: 600;
-            border: 2px solid rgba(52, 152, 219, 0.2);
-            border-radius: 8px;
-            margin-top: 12px;
-            padding-top: 12px;
-        }}
-        
-        QGroupBox::title {{
-            subcontrol-origin: margin;
-            subcontrol-position: top left;
-            padding: 4px 8px;
-            border-radius: 4px;
-            background-color: {ThemeManager.ACCENT_COLORS["primary"]};
-            color: white;
-        }}
-        
-        /* Amélioration des onglets */
-        QTabWidget::pane {{
-            border: 1px solid rgba(52, 152, 219, 0.3);
-            border-radius: 8px;
-            top: -1px;
-        }}
-        
-        QTabBar::tab {{
-            padding: 10px 20px;
-            border-top-left-radius: 6px;
-            border-top-right-radius: 6px;
-            margin-right: 4px;
-        }}
-        
-        QTabBar::tab:selected {{
-            background-color: {ThemeManager.ACCENT_COLORS["primary"]};
-            color: white;
-            font-weight: 600;
-        }}
-        
-        QTabBar::tab:hover:!selected {{
-            background-color: rgba(52, 152, 219, 0.2);
-        }}
-        
-        /* Amélioration des ScrollBars */
-        QScrollBar:vertical {{
-            width: 12px;
-            border-radius: 6px;
-        }}
-        
-        QScrollBar::handle:vertical {{
-            background-color: {ThemeManager.ACCENT_COLORS["primary"]};
-            min-height: 30px;
-            border-radius: 6px;
-        }}
-        
-        QScrollBar::handle:vertical:hover {{
-            background-color: #2980b9;
-        }}
-        
-        /* Amélioration des CheckBox */
-        QCheckBox::indicator {{
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
-        }}
-        
-        QCheckBox::indicator:checked {{
-            background-color: {ThemeManager.ACCENT_COLORS["primary"]};
-            border: 2px solid {ThemeManager.ACCENT_COLORS["primary"]};
-        }}
-        
-        /* Amélioration des SpinBox */
-        QSpinBox {{
-            padding: 6px;
-            border-radius: 6px;
-        }}
-        
-        /* Amélioration des menus contextuels */
-        QMenu {{
-            border-radius: 8px;
-            padding: 4px;
-        }}
-        
-        QMenu::item {{
-            padding: 8px 24px;
-            border-radius: 4px;
-            margin: 2px 4px;
-        }}
-        
-        QMenu::item:selected {{
-            background-color: {ThemeManager.ACCENT_COLORS["primary"]};
-            color: white;
-        }}
-        
-        QMenu::separator {{
-            height: 1px;
-            margin: 6px 10px;
-        }}
-        
-        /* Style pour les fenêtres de dialogue */
-        QDialog {{
-            border-radius: 10px;
-        }}
-        
-        /* Style pour les frames d'images */
-        QFrame#imageFrame {{
-            border-radius: 8px;
-            padding: 5px;
-        }}
-        
-        /* Style pour les messages d'état */
-        QLabel[status="success"] {{
-            color: {ThemeManager.ACCENT_COLORS["success"]};
-            font-weight: 600;
-        }}
-        
-        QLabel[status="warning"] {{
-            color: {ThemeManager.ACCENT_COLORS["warning"]};
-            font-weight: 600;
-        }}
-        
-        QLabel[status="error"] {{
-            color: {ThemeManager.ACCENT_COLORS["danger"]};
-            font-weight: 600;
-        }}
-        
-        QLabel[status="info"] {{
-            color: {ThemeManager.ACCENT_COLORS["info"]};
-            font-weight: 600;
-        }}
-        """
+    def _get_custom_styles(theme: str = "dark", font_size: float = 10.5) -> str:
+        return widget_styles(theme, font_size)
 
     @staticmethod
-    def _apply_dark_palette(app: QApplication):
-        """Applique une palette sombre personnalisée"""
-        palette = app.palette()
-        palette.setColor(
-            QPalette.Highlight, QColor(ThemeManager.ACCENT_COLORS["primary"])
-        )
-        palette.setColor(QPalette.HighlightedText, QColor(Qt.white))
-        app.setPalette(palette)
-
-    @staticmethod
-    def _apply_light_palette(app: QApplication):
-        """Applique une palette claire personnalisée"""
-        palette = app.palette()
-        palette.setColor(
-            QPalette.Highlight, QColor(ThemeManager.ACCENT_COLORS["primary"])
-        )
-        palette.setColor(QPalette.HighlightedText, QColor(Qt.white))
+    def _apply_palette(app: QApplication, theme: str):
+        colours = PALETTES[theme]
+        palette = qdarktheme.load_palette(theme)
+        roles = {
+            QPalette.Window: "canvas", QPalette.WindowText: "text",
+            QPalette.Base: "field", QPalette.AlternateBase: "surface",
+            QPalette.Text: "text", QPalette.Button: "surface",
+            QPalette.ButtonText: "text", QPalette.Highlight: "selection",
+            QPalette.HighlightedText: "selected_text", QPalette.PlaceholderText: "muted",
+            QPalette.Link: "accent", QPalette.ToolTipBase: "surface",
+            QPalette.ToolTipText: "text",
+        }
+        for role, token in roles.items():
+            palette.setColor(role, QColor(colours[token]))
+        for role in (QPalette.Text, QPalette.WindowText, QPalette.ButtonText):
+            palette.setColor(QPalette.Disabled, role, QColor(colours["disabled"]))
         app.setPalette(palette)
 
     @staticmethod

@@ -154,9 +154,7 @@ class HotkeyRecorderDialog(QDialog):
             "Utilisez au moins Cmd, Option, Ctrl ou Shift"
         )
         self.current_hotkey_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.current_hotkey_label.setStyleSheet(
-            "font-weight: bold; font-size: 16px; padding: 10px;"
-        )
+        self.current_hotkey_label.setObjectName("shortcutDisplay")
         layout.addWidget(self.current_hotkey_label)
 
         buttons = QHBoxLayout()

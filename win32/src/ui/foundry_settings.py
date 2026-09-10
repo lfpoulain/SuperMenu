@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (
 )
 
 from supermenu_core.ui.verification_status import VerificationStatus
-from supermenu_core.ui.settings_panel import Disclosure, NoWheelComboBox as QComboBox
+from supermenu_core.ui.settings_panel import Disclosure
+from supermenu_core.ui.controls import ChoiceBox
 from src.api.foundry_client import get_foundry_service
 from src.api.foundry_worker import platform_error
 from src.config.foundry_models import FOUNDRY_MODELS
@@ -34,7 +35,7 @@ class FoundrySettingsWidget(QGroupBox):
         )
         description.setWordWrap(True)
         layout.addWidget(description)
-        self.model_combo = QComboBox()
+        self.model_combo = ChoiceBox()
         for alias, info in FOUNDRY_MODELS.items():
             self.model_combo.addItem(info["label"], alias)
         self.model_combo.setCurrentIndex(
@@ -42,7 +43,7 @@ class FoundrySettingsWidget(QGroupBox):
         )
         self.model_combo.currentIndexChanged.connect(self.update_model)
         layout.addWidget(self.model_combo)
-        self.device_combo = QComboBox()
+        self.device_combo = ChoiceBox()
         self.device_combo.addItem("Automatique — GPU en priorité", "auto")
         self.device_combo.addItem("CPU uniquement", "cpu")
         self.device_combo.setCurrentIndex(

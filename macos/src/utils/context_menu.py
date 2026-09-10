@@ -7,8 +7,9 @@ import uuid
 
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtGui import QCursor
-from PySide6.QtWidgets import QMenu
 
+
+from supermenu_core.ui.controls import Menu as QMenu, populate_prompt_menu
 from src.api.openai_client import OpenAIClient
 from src.ui.prompt_dialog import PromptDialog
 from src.ui.response_window import ResponseWindow
@@ -126,15 +127,12 @@ class ContextMenuManager(QObject):
         self._menu_open = True
         self._active_menu = menu
         action_dispatched = False
-        for prompt_id, prompt in sorted(
-            self.settings.get_prompts().items(),
-            key=lambda item: item[1].get("position", 999),
-        ):
-            action = menu.addAction(prompt["name"])
-            action.setEnabled(bool(selected_text))
-            action.setData(("prompt", prompt_id))
+        populate_prompt_menu(
+            menu, self.settings.get_prompts(),
+            lambda prompt_id: ("prompt", prompt_id), enabled=bool(selected_text),
+        )
         menu.addSeparator()
-        custom_action = menu.addAction("Mode personnalisé")
+        custom_action = menu.addAction("Mode personnalisé…")
         custom_action.setData(("custom", None))
         dictation_action = menu.addAction("Dicter du texte…")
         dictation_action.setData(("dictation", None))

@@ -57,3 +57,28 @@ def test_unknown_system_scheme_falls_back_to_dark(monkeypatch):
     _use_scheme(monkeypatch, Qt.ColorScheme.Unknown)
 
     assert ThemeManager.resolve_theme("auto") == "dark"
+
+
+def test_manual_appearance_is_not_overridden_after_leaving_auto(monkeypatch):
+    from PySide6.QtCore import QObject, Signal
+
+    class Hints(QObject):
+        colorSchemeChanged = Signal()
+
+    hints = Hints()
+    application = QObject()
+    monkeypatch.setattr(
+        "supermenu_core.ui.theme_manager.QGuiApplication.instance",
+        lambda: type("Gui", (), {"styleHints": lambda _self: hints})(),
+    )
+    changes = []
+    monkeypatch.setattr(ThemeManager, "apply_theme", lambda app, theme: changes.append(theme))
+    ThemeManager._follow_system_scheme(application, True)
+    hints.colorSchemeChanged.emit()
+    assert changes == ["auto"]
+    ThemeManager._follow_system_scheme(application, False)
+    hints.colorSchemeChanged.emit()
+    assert changes == ["auto"]
+    ThemeManager._follow_system_scheme(application, True)
+    hints.colorSchemeChanged.emit()
+    assert changes == ["auto", "auto"]

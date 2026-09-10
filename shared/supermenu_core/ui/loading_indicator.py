@@ -42,18 +42,7 @@ class SimpleLoadingIndicator(QDialog):
         self.setFocusPolicy(Qt.NoFocus)
 
         # Style compact
-        self.setStyleSheet("""
-            QDialog {
-                background-color: rgba(43, 43, 43, 230);
-                border: 2px solid #3daee9;
-                border-radius: 8px;
-            }
-            QLabel {
-                color: #ffffff;
-                font-size: 11pt;
-                padding: 8px 15px;
-            }
-        """)
+        self.setObjectName("loadingIndicator")
 
         # Layout
         layout = QVBoxLayout()

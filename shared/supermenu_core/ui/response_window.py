@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer, Signal
 
+from supermenu_core.ui.controls import set_ui_property
 from supermenu_core.utils.thinking import mask_thinking
 
 logger = logging.getLogger("SuperMenu.core.ui")
@@ -30,6 +31,7 @@ class BaseResponseWindow(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.setObjectName("responseWindow")
 
         # Set window properties
         self.setWindowTitle("SuperMenu - Réponse")
@@ -37,7 +39,7 @@ class BaseResponseWindow(QWidget):
 
         # Create the main layout
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(10, 10, 10, 10)
+        self.main_layout.setContentsMargins(12, 12, 12, 12)
 
         # Create the content layout
         self.content_layout = QVBoxLayout()
@@ -85,17 +87,7 @@ class BaseResponseWindow(QWidget):
         self._active_text_inserter = None
 
     def _set_status(self, level):
-        """Apply a status level so the stylesheet actually repaints.
-
-        Qt resolves property selectors such as ``QLabel[status="success"]``
-        when a widget is polished. Assigning the property later changes
-        nothing on screen until the style is unpolished and polished again,
-        which is why the status colours never used to update.
-        """
-        self.status_label.setProperty("status", level)
-        style = self.status_label.style()
-        style.unpolish(self.status_label)
-        style.polish(self.status_label)
+        set_ui_property(self.status_label, "status", level)
 
     def create_title_bar(self):
         """Create the title bar"""
@@ -104,8 +96,9 @@ class BaseResponseWindow(QWidget):
         header_layout.setContentsMargins(0, 0, 0, 10)
 
         # Title
-        self.title_label = QLabel("SuperMenu - Réponse")
-        self.title_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        self.title_label = QLabel("Votre réponse")
+        self.title_label.setObjectName("pageTitle")
+        self.title_label.setWordWrap(True)
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
 
@@ -118,24 +111,26 @@ class BaseResponseWindow(QWidget):
         button_layout.setSpacing(8)
 
         # Retry button
-        self.retry_button = QPushButton("🔄 Réessayer")
+        self.retry_button = QPushButton("Réessayer")
         self.retry_button.setEnabled(False)
         self.retry_button.clicked.connect(self.retry_request)
         button_layout.addWidget(self.retry_button)
 
         # Copy button
-        self.copy_button = QPushButton("📋 Copier")
+        self.copy_button = QPushButton("Copier")
         self.copy_button.clicked.connect(self.copy_response)
         button_layout.addWidget(self.copy_button)
 
         # Toggle reasoning visibility
-        self.think_toggle_button = QPushButton("👁 Voir le raisonnement")
+        self.think_toggle_button = QPushButton("Voir le raisonnement")
         self.think_toggle_button.clicked.connect(self.toggle_thinking_visibility)
         self.think_toggle_button.setVisible(False)
         button_layout.addWidget(self.think_toggle_button)
 
         # Write button
-        self.write_button = QPushButton("✍️ Écrire")
+        button_layout.addStretch()
+        self.write_button = QPushButton("Insérer le texte")
+        self.write_button.setProperty("variant", "primary")
         self.write_button.clicked.connect(self.write_response)
         button_layout.addWidget(self.write_button)
 
@@ -174,7 +169,7 @@ class BaseResponseWindow(QWidget):
             )
             self.think_toggle_button.setVisible(True)
             self.think_toggle_button.setEnabled(True)
-            self.think_toggle_button.setText("👁 Voir le raisonnement")
+            self.think_toggle_button.setText("Voir le raisonnement")
         else:
             self.think_toggle_button.setVisible(False)
             self.think_toggle_button.setEnabled(False)
@@ -182,7 +177,7 @@ class BaseResponseWindow(QWidget):
         # setPlainText alone: setText auto-detects rich text, so a model answer
         # containing angle brackets was parsed as HTML before being discarded.
         self.response_text.setPlainText(display_text)
-        self.title_label.setText("✨ SuperMenu - Réponse")
+        self.title_label.setText("Votre réponse")
         self.status_label.setText("✅ Terminé")
         self._set_status("success")
         self.retry_button.setEnabled(True)
@@ -262,7 +257,7 @@ class BaseResponseWindow(QWidget):
         self.think_visible = not self.think_visible
         if self.think_visible:
             self.response_text.setPlainText(self.raw_response)
-            self.think_toggle_button.setText("🙈 Masquer le raisonnement")
+            self.think_toggle_button.setText("Masquer le raisonnement")
         else:
             display_text = (
                 self.masked_response
@@ -270,7 +265,7 @@ class BaseResponseWindow(QWidget):
                 else "(Aucune reponse finale; seul le raisonnement a ete renvoye.)"
             )
             self.response_text.setPlainText(display_text)
-            self.think_toggle_button.setText("👁 Voir le raisonnement")
+            self.think_toggle_button.setText("Voir le raisonnement")
 
     def set_loading(self, is_loading):
         """Set the loading state"""
@@ -294,7 +289,7 @@ class BaseResponseWindow(QWidget):
 
         # Reset the button text after a delay
         def reset_button():
-            self.copy_button.setText("📋 Copier")
+            self.copy_button.setText("Copier")
             self.copy_button.setEnabled(True)
 
         QTimer.singleShot(2000, reset_button)

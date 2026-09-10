@@ -9,12 +9,13 @@ from datetime import date
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QPushButton, QTabWidget,
-    QComboBox, QTextEdit, QGroupBox, QFormLayout,
-    QMessageBox, QSystemTrayIcon, QMenu, QCheckBox, QApplication, QDialog,
+    QTextEdit, QGroupBox,
+    QMessageBox, QSystemTrayIcon, QCheckBox, QApplication, QDialog,
     QStyle, QInputDialog, QFileDialog, QListWidget, QListWidgetItem, QAbstractItemView, QSplitter
 )
 from PySide6.QtCore import Qt, QSize, Signal, QTimer, QThread
 from PySide6.QtGui import QIcon, QAction
+from supermenu_core.ui.controls import ChoiceBox, Menu
 
 from src.config.build_info import APP_VERSION
 from supermenu_core.config.openai_models import (
@@ -30,14 +31,10 @@ from supermenu_core.api.model_capabilities import (
 from supermenu_core.utils.validators import Validators
 from src.utils import updater as app_updater
 from supermenu_core.ui.loading_indicator import SimpleLoadingIndicator
+from supermenu_core.ui.settings_panel import form_layout, scrollable_form
 from src.utils.hotkey_manager import HotkeyRecorderDialog
 from src.utils.paths import resource_path
 import uuid
-
-
-class NoWheelComboBox(QComboBox):
-    def wheelEvent(self, event):
-        event.ignore()
 
 
 class _UpdateCheckWorker(QThread):
@@ -126,7 +123,7 @@ class _CustomModelsWorker(QThread):
 
 class MainWindow(QMainWindow):
     """Main application window for settings and configuration"""
-    
+
     def __init__(
         self,
         settings,
@@ -170,14 +167,20 @@ class MainWindow(QMainWindow):
         # Set window properties
         self.setWindowTitle("SuperMenu - Configuration")
         self.setMinimumSize(860, 700)
-        self.resize(1000, 780)
+        self.resize(1100, 820)
         
         # Create the central widget
+        from supermenu_core.ui.window_header import WindowHeader
+
         self.central_widget = QWidget()
+        self.central_widget.setObjectName("desktopRoot")
         self.setCentralWidget(self.central_widget)
         
         # Create the main layout
         self.main_layout = QVBoxLayout(self.central_widget)
+        self.main_layout.setContentsMargins(24, 20, 24, 16)
+        self.main_layout.setSpacing(12)
+        self.main_layout.addWidget(WindowHeader())
         
         # Create the tab widget
         self.tab_widget = QTabWidget()
@@ -191,13 +194,13 @@ class MainWindow(QMainWindow):
         
         # Create bottom buttons
         self.create_bottom_buttons()
-    
+
     def create_prompts_tab(self):
         """Create the prompts settings tab"""
         prompts_tab = QWidget()
         layout = QVBoxLayout(prompts_tab)
 
-        self.prompt_combo = QComboBox()
+        self.prompt_combo = ChoiceBox()
         self.populate_prompt_combo()
         self.prompt_combo.hide()
 
@@ -206,11 +209,11 @@ class MainWindow(QMainWindow):
         splitter.setChildrenCollapsible(False)
 
         left_panel = QWidget()
-        left_panel.setFixedWidth(300)
+        left_panel.setFixedWidth(260)
         left_layout = QVBoxLayout(left_panel)
 
         self.prompt_search_input = QLineEdit()
-        self.prompt_search_input.setPlaceholderText("Rechercher...")
+        self.prompt_search_input.setPlaceholderText("Rechercher un prompt…")
         self.prompt_search_input.textChanged.connect(self._apply_prompt_filter)
         left_layout.addWidget(self.prompt_search_input)
 
@@ -222,22 +225,15 @@ class MainWindow(QMainWindow):
         self.prompt_order_list.model().rowsMoved.connect(self.on_prompt_order_changed)
         self.prompt_order_list.currentItemChanged.connect(self._on_prompt_list_current_changed)
         self.prompt_order_list.setSpacing(6)
-        self.prompt_order_list.setStyleSheet(
-            "QListWidget { border-radius: 6px; border: 1px solid rgba(52, 152, 219, 0.3); }"
-            "QListWidget:focus { border: 2px solid #3498db; }"
-            "QListWidget::item { padding: 8px; border-left: 3px solid transparent; }"
-            "QListWidget::item:hover { border-left: 3px solid #64B5F6; background-color: rgba(100, 181, 246, 0.10); }"
-            "QListWidget::item:selected { border-left: 3px solid #64B5F6; background-color: rgba(100, 181, 246, 0.18); }"
-            "QListWidget::item:selected:hover { border-left: 3px solid #64B5F6; background-color: rgba(100, 181, 246, 0.18); }"
-        )
         left_layout.addWidget(self.prompt_order_list)
 
         left_buttons = QHBoxLayout()
-        add_prompt_button = QPushButton("➕ Ajouter")
+        add_prompt_button = QPushButton("Ajouter")
         add_prompt_button.clicked.connect(self.add_prompt)
         left_buttons.addWidget(add_prompt_button)
 
-        delete_prompt_button = QPushButton("🗑️ Supprimer")
+        delete_prompt_button = QPushButton("Supprimer")
+        delete_prompt_button.setProperty("variant", "danger")
         delete_prompt_button.clicked.connect(self.delete_prompt)
         left_buttons.addWidget(delete_prompt_button)
 
@@ -247,31 +243,31 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right_panel)
         
         # Prompt editing
-        prompt_group = QGroupBox("✏️ Éditer le prompt")
-        prompt_layout = QFormLayout(prompt_group)
+        prompt_group = QGroupBox("Votre prompt")
+        prompt_layout = form_layout(prompt_group, stacked=True)
         
         # Nom affiché
-        name_label = QLabel("🏷️ Nom affiché :")
+        name_label = QLabel("Nom")
         self.prompt_name_input = QLineEdit()
         self.prompt_name_input.setPlaceholderText("Ex: Corriger l'orthographe")
         prompt_layout.addRow(name_label, self.prompt_name_input)
         
         # Prompt
-        prompt_label = QLabel("📝 Prompt :")
+        prompt_label = QLabel("Instructions")
         self.prompt_text_input = QTextEdit()
         self.prompt_text_input.setMinimumHeight(100)
         self.prompt_text_input.setPlaceholderText("Ex: Corrige l'orthographe et la grammaire du texte suivant...")
         prompt_layout.addRow(prompt_label, self.prompt_text_input)
         
         # Statut
-        status_label = QLabel("⏳ Message de statut :")
+        status_label = QLabel("Message pendant le traitement")
         self.prompt_status_input = QLineEdit()
         self.prompt_status_input.setPlaceholderText("Ex: Correction en cours...")
         prompt_layout.addRow(status_label, self.prompt_status_input)
         
         # Options
-        options_label = QLabel("⚙️ Options :")
-        self.prompt_insert_directly = QCheckBox("Insérer automatiquement le résultat (sans afficher la fenêtre de réponse)")
+        options_label = QLabel("Options :")
+        self.prompt_insert_directly = QCheckBox("Insérer le résultat sans ouvrir la fenêtre de réponse")
         self.prompt_insert_directly.setChecked(False)
         prompt_layout.addRow(options_label, self.prompt_insert_directly)
 
@@ -295,20 +291,20 @@ class MainWindow(QMainWindow):
         clear_prompt_hotkey_button = QPushButton("Effacer")
         clear_prompt_hotkey_button.clicked.connect(self.clear_prompt_hotkey)
         prompt_hotkey_layout.addWidget(clear_prompt_hotkey_button)
-        prompt_layout.addRow("⌨️ Raccourci direct :", prompt_hotkey_widget)
+        prompt_layout.addRow("Raccourci direct", prompt_hotkey_widget)
         
-        right_layout.addWidget(prompt_group)
+        right_layout.addWidget(scrollable_form(prompt_group), 1)
         
         # Buttons
         buttons_layout = QHBoxLayout()
         buttons_layout.addStretch()
         
-        reset_prompt_button = QPushButton("🔄 Réinitialiser")
+        reset_prompt_button = QPushButton("Réinitialiser")
         reset_prompt_button.setMinimumWidth(140)
         reset_prompt_button.clicked.connect(self.reset_prompt)
         buttons_layout.addWidget(reset_prompt_button)
         
-        save_prompt_button = QPushButton("💾 Enregistrer")
+        save_prompt_button = QPushButton("Enregistrer")
         save_prompt_button.setMinimumWidth(140)
         save_prompt_button.setDefault(True)
         save_prompt_button.clicked.connect(self.save_prompt)
@@ -328,20 +324,20 @@ class MainWindow(QMainWindow):
         layout.addWidget(splitter)
         
         # Add the tab
-        self.tab_widget.addTab(prompts_tab, "📝 Prompts")
+        self.tab_widget.addTab(prompts_tab, "Prompts")
         
         # Load the first prompt
         if self.prompt_combo.count() > 0:
             self.load_prompt(0)
 
         self.populate_prompt_order_list()
-    
+
     def create_voice_prompts_tab(self):
         """Create the voice prompts settings tab"""
         voice_prompts_tab = QWidget()
         layout = QVBoxLayout(voice_prompts_tab)
 
-        self.voice_prompt_combo = QComboBox()
+        self.voice_prompt_combo = ChoiceBox()
         self.populate_voice_prompt_combo()
         self.voice_prompt_combo.hide()
 
@@ -350,11 +346,11 @@ class MainWindow(QMainWindow):
         splitter.setChildrenCollapsible(False)
 
         left_panel = QWidget()
-        left_panel.setFixedWidth(300)
+        left_panel.setFixedWidth(260)
         left_layout = QVBoxLayout(left_panel)
 
         self.voice_prompt_search_input = QLineEdit()
-        self.voice_prompt_search_input.setPlaceholderText("Rechercher...")
+        self.voice_prompt_search_input.setPlaceholderText("Rechercher un prompt…")
         self.voice_prompt_search_input.textChanged.connect(self._apply_voice_prompt_filter)
         left_layout.addWidget(self.voice_prompt_search_input)
 
@@ -366,22 +362,15 @@ class MainWindow(QMainWindow):
         self.voice_prompt_order_list.model().rowsMoved.connect(self.on_voice_prompt_order_changed)
         self.voice_prompt_order_list.currentItemChanged.connect(self._on_voice_prompt_list_current_changed)
         self.voice_prompt_order_list.setSpacing(6)
-        self.voice_prompt_order_list.setStyleSheet(
-            "QListWidget { border-radius: 6px; border: 1px solid rgba(52, 152, 219, 0.3); }"
-            "QListWidget:focus { border: 2px solid #3498db; }"
-            "QListWidget::item { padding: 8px; border-left: 3px solid transparent; }"
-            "QListWidget::item:hover { border-left: 3px solid #64B5F6; background-color: rgba(100, 181, 246, 0.10); }"
-            "QListWidget::item:selected { border-left: 3px solid #64B5F6; background-color: rgba(100, 181, 246, 0.18); }"
-            "QListWidget::item:selected:hover { border-left: 3px solid #64B5F6; background-color: rgba(100, 181, 246, 0.18); }"
-        )
         left_layout.addWidget(self.voice_prompt_order_list)
 
         left_buttons = QHBoxLayout()
-        add_prompt_button = QPushButton("➕ Ajouter")
+        add_prompt_button = QPushButton("Ajouter")
         add_prompt_button.clicked.connect(self.add_voice_prompt)
         left_buttons.addWidget(add_prompt_button)
 
-        delete_prompt_button = QPushButton("🗑️ Supprimer")
+        delete_prompt_button = QPushButton("Supprimer")
+        delete_prompt_button.setProperty("variant", "danger")
         delete_prompt_button.clicked.connect(self.delete_voice_prompt)
         left_buttons.addWidget(delete_prompt_button)
 
@@ -391,48 +380,48 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right_panel)
         
         # Prompt editing
-        prompt_group = QGroupBox("🎤 Éditer le prompt vocal")
-        prompt_layout = QFormLayout(prompt_group)
+        prompt_group = QGroupBox("Votre prompt vocal")
+        prompt_layout = form_layout(prompt_group, stacked=True)
         
         # Nom affiché
-        name_label = QLabel("🏷️ Nom affiché :")
+        name_label = QLabel("Nom")
         self.voice_prompt_name_input = QLineEdit()
         self.voice_prompt_name_input.setPlaceholderText("Ex: Décrire et résumer")
         prompt_layout.addRow(name_label, self.voice_prompt_name_input)
         
         # Prompt
-        prompt_label = QLabel("📝 Prompt :")
+        prompt_label = QLabel("Instructions")
         self.voice_prompt_text_input = QTextEdit()
         self.voice_prompt_text_input.setMinimumHeight(100)
         self.voice_prompt_text_input.setPlaceholderText("Ex: Analyse et décris ce qui suit...")
         prompt_layout.addRow(prompt_label, self.voice_prompt_text_input)
         
         # Statut
-        status_label = QLabel("⏳ Message de statut :")
+        status_label = QLabel("Message pendant le traitement")
         self.voice_prompt_status_input = QLineEdit()
         self.voice_prompt_status_input.setPlaceholderText("Ex: Traitement en cours...")
         prompt_layout.addRow(status_label, self.voice_prompt_status_input)
         
         # Options
-        options_label = QLabel("⚙️ Options :")
+        options_label = QLabel("Options :")
         options_widget = QWidget()
         options_layout = QVBoxLayout(options_widget)
         options_layout.setContentsMargins(0, 0, 0, 0)
         options_layout.setSpacing(8)
         
-        self.voice_prompt_insert_directly = QCheckBox("Insérer automatiquement le résultat (sans afficher la fenêtre de réponse)")
+        self.voice_prompt_insert_directly = QCheckBox("Insérer le résultat sans ouvrir la fenêtre de réponse")
         self.voice_prompt_insert_directly.setChecked(True)
         options_layout.addWidget(self.voice_prompt_insert_directly)
         
-        self.voice_prompt_include_selected_text = QCheckBox("Inclure automatiquement le texte sélectionné dans la requête vocale")
+        self.voice_prompt_include_selected_text = QCheckBox("Inclure le texte sélectionné dans la requête vocale")
         self.voice_prompt_include_selected_text.setChecked(False)
         options_layout.addWidget(self.voice_prompt_include_selected_text)
         
         prompt_layout.addRow(options_label, options_widget)
         
         # Ordre des éléments
-        order_label = QLabel("🔄 Ordre des éléments :")
-        self.voice_prompt_order_combo = QComboBox()
+        order_label = QLabel("Ordre des éléments :")
+        self.voice_prompt_order_combo = ChoiceBox()
         self.voice_prompt_order_combo.addItem("📝 Prompt → 🎤 Transcription → 📄 Texte", "prompt_transcription_selected")
         self.voice_prompt_order_combo.addItem("📝 Prompt → 📄 Texte → 🎤 Transcription", "prompt_selected_transcription")
         self.voice_prompt_order_combo.addItem("📄 Texte → 📝 Prompt → 🎤 Transcription", "selected_prompt_transcription")
@@ -441,18 +430,18 @@ class MainWindow(QMainWindow):
         self.voice_prompt_order_combo.addItem("📄 Texte → 🎤 Transcription → 📝 Prompt", "selected_transcription_prompt")
         prompt_layout.addRow(order_label, self.voice_prompt_order_combo)
 
-        right_layout.addWidget(prompt_group)
+        right_layout.addWidget(scrollable_form(prompt_group), 1)
         
         # Buttons
         buttons_layout = QHBoxLayout()
         buttons_layout.addStretch()
         
-        reset_prompt_button = QPushButton("🔄 Réinitialiser")
+        reset_prompt_button = QPushButton("Réinitialiser")
         reset_prompt_button.setMinimumWidth(140)
         reset_prompt_button.clicked.connect(self.reset_voice_prompt)
         buttons_layout.addWidget(reset_prompt_button)
         
-        save_prompt_button = QPushButton("💾 Enregistrer")
+        save_prompt_button = QPushButton("Enregistrer")
         save_prompt_button.setMinimumWidth(140)
         save_prompt_button.setDefault(True)
         save_prompt_button.clicked.connect(self.save_voice_prompt)
@@ -472,14 +461,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(splitter)
         
         # Add the tab
-        self.tab_widget.addTab(voice_prompts_tab, "🎤 Prompts Vocaux")
+        self.tab_widget.addTab(voice_prompts_tab, "Voix")
         
         # Load the first prompt
         if self.voice_prompt_combo.count() > 0:
             self.load_voice_prompt(0)
 
         self.populate_voice_prompt_order_list()
-    
+
     def create_settings_tab(self):
         """Create the settings tab"""
         from supermenu_core.ui.settings_panel import SettingsPanel, Disclosure
@@ -494,7 +483,7 @@ class MainWindow(QMainWindow):
         models_widget = QWidget()
         models_layout = QVBoxLayout(models_widget)
 
-        self.ai_provider_combo = NoWheelComboBox()
+        self.ai_provider_combo = ChoiceBox()
         self.ai_provider_combo.addItem("OpenAI", "openai")
         self.ai_provider_combo.addItem("Ollama / LM Studio", "custom")
         self.ai_provider_combo.addItem("IA locale Microsoft — Foundry Local", "foundry")
@@ -511,12 +500,12 @@ class MainWindow(QMainWindow):
         self.api_key_input.setText(self.settings.get_api_key())
 
         model_label = QLabel("Modèle:")
-        self.model_combo = NoWheelComboBox()
+        self.model_combo = ChoiceBox()
         self.model_combo.addItems(AVAILABLE_MODELS)
         self.model_combo.setCurrentText(self.settings.get_model())
 
         reasoning_label = QLabel("Raisonnement:")
-        self.reasoning_effort_combo = QComboBox()
+        self.reasoning_effort_combo = ChoiceBox()
         self.reasoning_effort_combo.setToolTip(
             "Effort OpenAI propre au modèle. GPT-5.6 accepte "
             "none, low, medium, high, xhigh et max; GPT-5.4 s'arrête à xhigh."
@@ -552,7 +541,7 @@ class MainWindow(QMainWindow):
         )
 
         custom_endpoint_type_label = QLabel("Type d'endpoint :")
-        self.custom_endpoint_type_combo = QComboBox()
+        self.custom_endpoint_type_combo = ChoiceBox()
         self.custom_endpoint_type_combo.addItem("Ollama", "ollama")
         self.custom_endpoint_type_combo.addItem("LM Studio", "lmstudio")
         current_custom_endpoint_type = self.settings.get_custom_endpoint_type()
@@ -563,7 +552,7 @@ class MainWindow(QMainWindow):
 
         custom_model_label = QLabel("Modèle:")
         custom_model_layout = QHBoxLayout()
-        self.custom_model_combo = QComboBox()
+        self.custom_model_combo = ChoiceBox()
         self.custom_model_combo.setEditable(True)
         self.custom_model_combo.setPlaceholderText("Sélectionnez ou entrez un modèle")
         custom_model_layout.addWidget(self.custom_model_combo)
@@ -585,7 +574,7 @@ class MainWindow(QMainWindow):
         custom_layout.addLayout(custom_model_layout)
 
         self.custom_reasoning_label = QLabel("Raisonnement / think :")
-        self.custom_reasoning_effort_combo = QComboBox()
+        self.custom_reasoning_effort_combo = ChoiceBox()
         self.custom_reasoning_effort_combo.setToolTip(
             "Les choix sont adaptés aux capacités annoncées par le modèle."
         )
@@ -621,6 +610,7 @@ class MainWindow(QMainWindow):
         self.ai_provider_combo.currentIndexChanged.connect(self.toggle_custom_endpoint)
 
         save_api_key_button = QPushButton("Enregistrer le moteur de texte")
+        save_api_key_button.setProperty("variant", "primary")
         save_api_key_button.clicked.connect(self.save_api_key)
         models_layout.addWidget(save_api_key_button)
 
@@ -629,25 +619,25 @@ class MainWindow(QMainWindow):
         self.update_reasoning_effort_ui()
         
         # Import/Export section
-        import_export_group = QGroupBox("📦 Import/Export des Prompts")
+        import_export_group = QGroupBox("Import/Export des Prompts")
         import_export_layout = QVBoxLayout(import_export_group)
         
         # Description
         info_label = QLabel("Exportez et importez tous vos prompts (texte et vocaux) en un seul fichier.")
         info_label.setWordWrap(True)
-        info_label.setStyleSheet("font-size: 12px; color: #888; margin-bottom: 10px;")
+        info_label.setObjectName("mutedText")
         import_export_layout.addWidget(info_label)
         
         # Buttons
         buttons_layout = QHBoxLayout()
         
-        export_button = QPushButton("📤 Exporter tous les Prompts")
+        export_button = QPushButton("Exporter tous les Prompts")
         # Icône retirée
         export_button.clicked.connect(self.export_all_prompts)
         export_button.setMinimumHeight(40)
         buttons_layout.addWidget(export_button)
         
-        import_button = QPushButton("📥 Importer tous les Prompts")
+        import_button = QPushButton("Importer tous les Prompts")
         # Icône retirée
         import_button.clicked.connect(self.import_all_prompts)
         import_button.setMinimumHeight(40)
@@ -656,7 +646,7 @@ class MainWindow(QMainWindow):
         import_export_layout.addLayout(buttons_layout)
         
         # Hotkey section
-        hotkey_group = QGroupBox("⌨️ Raccourcis clavier")
+        hotkey_group = QGroupBox("Raccourcis clavier")
         hotkey_layout = QVBoxLayout(hotkey_group)
         
         # Main Hotkey info
@@ -709,12 +699,12 @@ class MainWindow(QMainWindow):
         QApplication.instance().aboutToQuit.connect(lambda: self.speech_settings.cancel(silent=True))
 
         # Screenshot section
-        screenshot_group = QGroupBox("📷 Capture d'écran")
+        screenshot_group = QGroupBox("Capture d'écran")
         screenshot_layout = QVBoxLayout(screenshot_group)
         screenshot_capture_mode_label = QLabel("Mode de capture d'écran :")
         screenshot_layout.addWidget(screenshot_capture_mode_label)
 
-        self.screenshot_capture_mode_combo = NoWheelComboBox()
+        self.screenshot_capture_mode_combo = ChoiceBox()
         self.screenshot_capture_mode_combo.addItem("Plein écran", "fullscreen")
         self.screenshot_capture_mode_combo.addItem("Sélection de zone", "region")
         self.screenshot_capture_mode_combo.addItem("Demander à chaque capture", "ask")
@@ -728,14 +718,15 @@ class MainWindow(QMainWindow):
         self.screenshot_capture_mode_combo.currentIndexChanged.connect(self.on_screenshot_capture_mode_changed)
         screenshot_layout.addWidget(self.screenshot_capture_mode_combo)
 
-        self.save_screenshot_capture_mode_button = QPushButton("💾 Enregistrer le mode de capture")
+        self.save_screenshot_capture_mode_button = QPushButton("Enregistrer le mode de capture")
+        self.save_screenshot_capture_mode_button.setProperty("variant", "primary")
         self.save_screenshot_capture_mode_button.clicked.connect(self.save_screenshot_capture_mode)
         screenshot_layout.addWidget(self.save_screenshot_capture_mode_button)
 
         self._update_screenshot_capture_mode_ui_state()
 
         # Response window
-        response_window_group = QGroupBox("🪟 Fenêtre de correction")
+        response_window_group = QGroupBox("Fenêtre de correction")
         response_window_layout = QVBoxLayout(response_window_group)
 
         response_window_info = QLabel(
@@ -750,14 +741,14 @@ class MainWindow(QMainWindow):
         response_window_layout.addWidget(self.open_response_window_button)
 
         # Theme section
-        theme_group = QGroupBox("🎨 Thème de l'application")
+        theme_group = QGroupBox("Thème de l'application")
         theme_layout = QVBoxLayout(theme_group)
         
         # Theme selection
         theme_label = QLabel("Sélectionnez un thème:")
         theme_layout.addWidget(theme_label)
         
-        self.theme_combo = QComboBox()
+        self.theme_combo = ChoiceBox()
         # Importer les noms de thèmes depuis ThemeManager
         from supermenu_core.ui.theme_manager import ThemeManager
         theme_names = ThemeManager.get_theme_names()
@@ -776,7 +767,8 @@ class MainWindow(QMainWindow):
         theme_layout.addWidget(self.theme_combo)
         
         # Save theme button
-        save_theme_button = QPushButton("✨ Appliquer le thème")
+        save_theme_button = QPushButton("Appliquer le thème")
+        save_theme_button.setProperty("variant", "primary")
         save_theme_button.clicked.connect(self.save_theme_selection)
         theme_layout.addWidget(save_theme_button)
         
@@ -806,36 +798,36 @@ class MainWindow(QMainWindow):
         installed_version = self._get_installed_version_display()
         description_text.setHtml("""
         <div style="font-family: 'Segoe UI', Arial, sans-serif;">
-            <h1 style="text-align: center; color: #4CAF50; margin-bottom: 5px;">🚀 SuperMenu</h1>
-            <p style="text-align: center; font-size: 14px; color: #aaa; margin-top: 0;">Version """ + installed_version + """</p>
-            <p style="font-size: 13px; line-height: 1.6; color: #ddd;">
+            <h1 style="text-align: center; margin-bottom: 5px;">🚀 SuperMenu</h1>
+            <p style="text-align: center; font-size: 14px; margin-top: 0;">Version """ + installed_version + """</p>
+            <p style="font-size: 13px; line-height: 1.6; ">
                 SuperMenu est une application puissante conçue pour simplifier et améliorer votre interaction avec les modèles d'IA. 
                 Elle offre un accès rapide et personnalisable à une variété de fonctionnalités directement depuis votre bureau.
             </p>
             
-            <ul style="line-height: 1.8; font-size: 13px; color: #ddd; margin-top: 20px;">
-                <li><strong style="color: #fff;">Prompts personnalisés</strong> : Accès rapide à vos prompts textuels via un menu contextuel</li>
-                <li><strong style="color: #fff;">Interaction vocale</strong> : Dictez vos prompts et recevez des réponses instantanées</li>
-                <li><strong style="color: #fff;">Analyse d'images</strong> : Capture d'écran et analyse avec l'IA</li>
-                <li><strong style="color: #fff;">Multi-endpoints</strong> : Support OpenAI et endpoints personnalisés (Ollama, etc.)</li>
-                <li><strong style="color: #fff;">Thèmes personnalisables</strong> : Adaptez l'apparence à vos préférences</li>
-                <li><strong style="color: #fff;">Import/Export</strong> : Sauvegardez et partagez vos configurations</li>
-                <li><strong style="color: #fff;">Raccourcis clavier</strong> : Configurez vos propres raccourcis pour un accès ultra-rapide</li>
+            <ul style="line-height: 1.8; font-size: 13px; margin-top: 20px;">
+                <li><strong>Prompts personnalisés</strong> : Accès rapide à vos prompts textuels via un menu contextuel</li>
+                <li><strong>Interaction vocale</strong> : Dictez vos prompts et recevez des réponses instantanées</li>
+                <li><strong>Analyse d'images</strong> : Capture d'écran et analyse avec l'IA</li>
+                <li><strong>Multi-endpoints</strong> : Support OpenAI et endpoints personnalisés (Ollama, etc.)</li>
+                <li><strong>Thèmes personnalisables</strong> : Adaptez l'apparence à vos préférences</li>
+                <li><strong>Import/Export</strong> : Sauvegardez et partagez vos configurations</li>
+                <li><strong>Raccourcis clavier</strong> : Configurez vos propres raccourcis pour un accès ultra-rapide</li>
             </ul>
             
             <hr style="margin: 25px 0; border: none; border-top: 1px solid #555;">
 
-            <p style="font-size: 12px; line-height: 1.6; color: #bbb;">
-                Configuration : <strong style="color: #fff;">%USERPROFILE%\\SuperMenu.ini</strong><br>
-                Logs : <strong style="color: #fff;">%LOCALAPPDATA%\\SuperMenu\\logs\\supermenu.log</strong>
+            <p style="font-size: 12px; line-height: 1.6; ">
+                Configuration : <strong>%USERPROFILE%\\SuperMenu.ini</strong><br>
+                Logs : <strong>%LOCALAPPDATA%\\SuperMenu\\logs\\supermenu.log</strong>
             </p>
             
-            <p style="text-align: center; font-size: 13px; color: #ddd; margin-top: 15px;">
-                <strong style="color: #ccc;">Développé par LFPoulain avec ❤️</strong>
+            <p style="text-align: center; font-size: 13px; margin-top: 15px;">
+                <strong>Développé par LFPoulain avec ❤️</strong>
             </p>
             
             <p style="text-align: center; margin-top: 10px;">
-                <a href="https://github.com/lfpoulain/supermenu" style="color: #64B5F6; text-decoration: none; font-size: 12px;">
+                <a href="https://github.com/lfpoulain/supermenu" style="text-decoration: none; font-size: 12px;">
                     github.com/lfpoulain/supermenu
                 </a>
             </p>
@@ -845,7 +837,7 @@ class MainWindow(QMainWindow):
 
         update_channel_group = QGroupBox("Canal de mise à jour")
         update_channel_layout = QVBoxLayout(update_channel_group)
-        self.update_channel_combo = NoWheelComboBox()
+        self.update_channel_combo = ChoiceBox()
         self.update_channel_combo.addItem(
             "Stable — recommandé",
             app_updater.UPDATE_CHANNEL_STABLE,
@@ -870,11 +862,11 @@ class MainWindow(QMainWindow):
         diagnostics = Disclosure("Dossiers et diagnostic")
         self.app_settings_layout.addWidget(diagnostics)
         # Button to open settings folder
-        open_settings_folder_button = QPushButton("📂 Ouvrir le dossier des paramètres")
+        open_settings_folder_button = QPushButton("Ouvrir le dossier des paramètres")
         open_settings_folder_button.clicked.connect(self.open_settings_folder)
         diagnostics.content_layout.addWidget(open_settings_folder_button)
 
-        open_logs_folder_button = QPushButton("📄 Ouvrir le dossier des logs")
+        open_logs_folder_button = QPushButton("Ouvrir le dossier des logs")
         open_logs_folder_button.clicked.connect(self.open_logs_folder)
         diagnostics.content_layout.addWidget(open_logs_folder_button)
 
@@ -887,7 +879,7 @@ class MainWindow(QMainWindow):
         update_channel_layout.addWidget(check_updates_button)
         
         # Add the tab
-        self.tab_widget.addTab(about_tab, "ℹ️ À propos")
+        self.tab_widget.addTab(about_tab, "À propos")
 
     def _get_installed_version_display(self):
         version = app_updater.get_installed_app_version("C8F9E2A0-1F3A-4E5D-B6A9-D5C8E4E0F2A1")
@@ -1107,7 +1099,7 @@ class MainWindow(QMainWindow):
             webbrowser.open("https://github.com/lfpoulain/supermenu/releases")
         except Exception as e:
             QMessageBox.warning(self, "Releases", f"Impossible d'ouvrir la page des releases :\n\n{e}")
-    
+
     def create_bottom_buttons(self):
         """Create the bottom buttons"""
         buttons_layout = QHBoxLayout()
@@ -1129,7 +1121,7 @@ class MainWindow(QMainWindow):
         buttons_layout.addWidget(close_button)
 
         self.main_layout.addLayout(buttons_layout)
-    
+
     def load_prompt(self, index):
         """Load the selected prompt into the editing fields"""
         if index < 0 or self.prompt_combo.count() == 0:
@@ -1144,7 +1136,7 @@ class MainWindow(QMainWindow):
             self.prompt_status_input.setText(prompt_data["status"])
             self.prompt_insert_directly.setChecked(prompt_data.get("insert_directly", False))
             self.prompt_hotkey_input.setText(prompt_data.get("hotkey", ""))
-    
+
 
 
     def start_dictation(self):
@@ -1183,7 +1175,7 @@ class MainWindow(QMainWindow):
     def open_response_window(self):
         if self.context_menu_manager:
             self.context_menu_manager.show_response_window()
-    
+
     def change_hotkey(self):
         """Modifier le raccourci clavier"""
         if not self.hotkey_manager:
@@ -1248,7 +1240,7 @@ class MainWindow(QMainWindow):
     def clear_prompt_hotkey(self):
         """Clear the shortcut editor; the change is applied when saving."""
         self.prompt_hotkey_input.clear()
-    
+
     def change_voice_hotkey(self):
         """Modifier le raccourci vocal"""
         if not self.voice_hotkey_manager:
@@ -1300,7 +1292,7 @@ class MainWindow(QMainWindow):
         else:
             self.custom_hotkey_manager._set_configured_hotkey(old_hotkey)
             self.custom_hotkey_manager.register_hotkey()
-    
+
     def change_screenshot_hotkey(self):
         """Modifier le raccourci de capture d'écran"""
         if not self.screenshot_hotkey_manager:
@@ -1329,7 +1321,7 @@ class MainWindow(QMainWindow):
         else:
             # L'utilisateur a annulé, réenregistrer l'ancien raccourci
             self.screenshot_hotkey_manager.register_hotkey()
-    
+
     def restart_application(self):
         """Redémarrer l'application"""
         import os
@@ -1347,7 +1339,7 @@ class MainWindow(QMainWindow):
             # Si l'application est en mode développement
             script_path = os.path.abspath(sys.argv[0])
             subprocess.Popen([sys.executable, script_path])
-    
+
     def save_prompt(self):
         """Save the prompt"""
         if self.prompt_combo.count() == 0:
@@ -1412,7 +1404,7 @@ class MainWindow(QMainWindow):
         
         QMessageBox.information(self, "Prompt enregistré", 
                               f"Le prompt '{name}' a été enregistré avec succès.")
-    
+
     def reset_prompt(self):
         """Reset the current prompt to default"""
         if self.prompt_combo.count() == 0:
@@ -1464,7 +1456,7 @@ class MainWindow(QMainWindow):
                 self.populate_prompt_order_list()
                 
                 QMessageBox.information(self, "Succès", "Prompt réinitialisé avec succès.")
-    
+
     def reset_all_settings(self):
         """Reset all settings to defaults"""
         # Confirm reset
@@ -1607,7 +1599,7 @@ class MainWindow(QMainWindow):
             for manager in active_managers:
                 manager.register_hotkey()
             return False
-    
+
     def setup_tray_icon(self):
         """Set up the system tray icon"""
         if not QSystemTrayIcon.isSystemTrayAvailable():
@@ -1625,10 +1617,10 @@ class MainWindow(QMainWindow):
             self.tray_icon.setIcon(QIcon.fromTheme("computer", QIcon.fromTheme("application-x-executable")))
         
         # Create the tray menu
-        tray_menu = QMenu()
+        tray_menu = Menu()
         
         # Add actions to the tray menu
-        open_action = QAction("Ouvrir", self)
+        open_action = QAction("Ouvrir SuperMenu", self)
         open_action.triggered.connect(self.show)
         tray_menu.addAction(open_action)
 
@@ -1636,7 +1628,7 @@ class MainWindow(QMainWindow):
         update_action.triggered.connect(self.check_for_updates)
         tray_menu.addAction(update_action)
 
-        response_window_action = QAction("Afficher la fenêtre de correction", self)
+        response_window_action = QAction("Afficher la dernière réponse", self)
         response_window_action.triggered.connect(self.open_response_window)
         response_window_action.setEnabled(self.context_menu_manager is not None)
         tray_menu.addAction(response_window_action)
@@ -1656,7 +1648,7 @@ class MainWindow(QMainWindow):
         # Show the tray icon
         self.tray_icon.show()
         return True
-    
+
     def tray_icon_activated(self, reason):
         """Handle tray icon activation"""
         if reason == QSystemTrayIcon.DoubleClick:
@@ -1670,11 +1662,11 @@ class MainWindow(QMainWindow):
             self.show()
         self.raise_()
         self.activateWindow()
-    
+
     def quit_application(self):
         """Quit the application"""
         QApplication.quit()
-    
+
     def closeEvent(self, event):
         """Handle the close event"""
         # Hide the window instead of closing it
@@ -1741,7 +1733,7 @@ class MainWindow(QMainWindow):
             "Prompt ajouté",
             f"Le nouveau prompt '{prompt_name}' a été ajouté avec succès. Vous pouvez maintenant le personnaliser."
         )
-    
+
     def delete_prompt(self):
         """Supprimer un prompt"""
         # Vérifier qu'un prompt est sélectionné
@@ -2009,7 +2001,7 @@ class MainWindow(QMainWindow):
 
         self.populate_voice_prompt_combo()
         self.populate_voice_prompt_order_list()
-    
+
     def load_voice_prompt(self, index):
         """Load the selected voice prompt into the editing fields"""
         if index < 0 or self.voice_prompt_combo.count() == 0:
@@ -2031,7 +2023,7 @@ class MainWindow(QMainWindow):
                 if self.voice_prompt_order_combo.itemData(i) == order:
                     self.voice_prompt_order_combo.setCurrentIndex(i)
                     break
-    
+
     def save_voice_prompt(self):
         """Save the current voice prompt"""
         if self.voice_prompt_combo.count() == 0:
@@ -2076,7 +2068,7 @@ class MainWindow(QMainWindow):
         
         QMessageBox.information(self, "Prompt vocal enregistré", 
                               f"Le prompt vocal '{name}' a été enregistré avec succès.")
-    
+
     def add_voice_prompt(self):
         """Add a new voice prompt"""
         # Générer un nouvel ID unique
@@ -2110,7 +2102,7 @@ class MainWindow(QMainWindow):
             "Le nouveau prompt vocal a été ajouté avec succès. "
             "Vous pouvez maintenant le configurer.",
         )
-    
+
     def delete_voice_prompt(self):
         """Delete the current voice prompt"""
         if self.voice_prompt_combo.count() == 0:
@@ -2150,7 +2142,7 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.warning(self, "Erreur de suppression", 
                               f"Une erreur s'est produite lors de la suppression du prompt vocal '{name}'.")
-    
+
     def reset_voice_prompt(self):
         """Reset the current voice prompt to its default value"""
         if self.voice_prompt_combo.count() == 0:
@@ -2300,7 +2292,7 @@ class MainWindow(QMainWindow):
         self.voice_prompt_insert_directly.setChecked(True)
         self.voice_prompt_include_selected_text.setChecked(False)
         self.voice_prompt_order_combo.setCurrentIndex(0)
-    
+
     def toggle_custom_endpoint(self):
         """Afficher les réglages du fournisseur sélectionné."""
         provider = self.ai_provider_combo.currentData()
@@ -2335,7 +2327,7 @@ class MainWindow(QMainWindow):
             self.reasoning_effort_combo.setCurrentIndex(0)
             self.reasoning_effort_combo.setEnabled(False)
         self.reasoning_effort_combo.blockSignals(False)
-    
+
     def refresh_custom_models(self, _checked=False, *, silent=False):
         """Récupérer la liste des modèles disponibles depuis l'endpoint personnalisé"""
         if self._custom_models_worker and self._custom_models_worker.isRunning():
@@ -2438,7 +2430,7 @@ class MainWindow(QMainWindow):
                 "Erreur",
                 f"Impossible de récupérer les modèles:\n\n{error}",
             )
-    
+
     def save_api_key(self):
         """Save the API key and configuration"""
         api_key = self.api_key_input.text().strip()

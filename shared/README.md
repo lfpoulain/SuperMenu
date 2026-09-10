@@ -24,6 +24,25 @@ Le client conserve deux credentials distincts : la clé OpenAI n'est envoyée
 qu'à OpenAI, tandis qu'un éventuel jeton d'endpoint personnalisé doit être
 fourni explicitement par l'adaptateur de plateforme.
 
+## Composants d'interface
+
+- `ui/theme_styles.py` centralise la palette d'origine, les états de sélection,
+  les surfaces et les couleurs de statut. `ThemeManager` applique le thème à
+  toute l'application ; les fenêtres ne définissent pas de styles locaux.
+- `ui/controls.py` fournit `ChoiceBox` pour les listes déroulantes, `Menu` pour
+  les menus et leurs sous-menus, et `populate_prompt_menu` pour conserver le même
+  ordre et les mêmes règles d'activation sur Windows et macOS.
+- `ui/settings_panel.py` fournit la navigation des réglages, `Disclosure`,
+  `form_layout` et `scrollable_form`. Les formulaires restent accessibles en
+  petit format et avec une taille de texte agrandie.
+- Les boutons utilisent `variant="primary"` ou `variant="danger"` ; les
+  changements de statut passent par `set_ui_property` pour repeindre les
+  composants immédiatement.
+
+Pour régénérer les captures des composants en clair et en sombre, lancer
+`python tools/preview_ui.py` depuis `shared/`. Les images sont enregistrées dans
+`build/ui-preview/` à la racine du dépôt, avec des données d'exemple uniquement.
+
 ## Validation
 
 Depuis `shared/`, avec les dépendances d'une application installées :

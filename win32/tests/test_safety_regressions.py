@@ -18,6 +18,42 @@ def _app():
     return QApplication.instance() or QApplication([])
 
 
+def test_prompt_fields_do_not_overlap_in_compact_window(monkeypatch, tmp_path):
+    from supermenu_core.ui.theme_manager import ThemeManager
+
+    app = _app()
+    monkeypatch.setattr(settings_module.os.path, "expanduser", lambda _path: str(tmp_path))
+    monkeypatch.setattr(Settings, "get_api_key", lambda _self: "")
+    monkeypatch.setattr(Settings, "get_custom_endpoint_api_key", lambda _self: "")
+    monkeypatch.setattr(
+        "supermenu_core.ui.speech_settings.microphones", lambda: []
+    )
+    previous_style, previous_font, previous_palette = app.styleSheet(), app.font(), app.palette()
+    window = MainWindow(Settings())
+    try:
+        for theme in ("light", "dark"):
+            ThemeManager.apply_theme(app, theme)
+            window.resize(860, 700)
+            window.show()
+            for tab, instruction, status in (
+                (0, window.prompt_text_input, window.prompt_status_input),
+                (1, window.voice_prompt_text_input, window.voice_prompt_status_input),
+            ):
+                window.tab_widget.setCurrentIndex(tab)
+                app.processEvents()
+                # These fields used to overlap when the form was squeezed below
+                # its minimum height. Scrolling must preserve their separation.
+                assert instruction.parentWidget() is status.parentWidget()
+                assert instruction.geometry().bottom() < status.geometry().top()
+                assert instruction.height() >= instruction.minimumHeight()
+    finally:
+        window.hide()
+        window.deleteLater()
+        app.setFont(previous_font)
+        app.setStyleSheet(previous_style)
+        app.setPalette(previous_palette)
+
+
 def test_recording_dialog_close_cancels_once():
     _app()
     dialog = RecordingDialog()
@@ -251,7 +287,8 @@ def test_main_window_constructs_without_duplicate_prompts(monkeypatch, tmp_path)
     window = MainWindow(settings)
 
     assert window.prompt_combo.count() == len(settings.get_prompts())
-    assert window.main_layout.count() == 2
+    # The configuration shell contains its identity, tabs and footer once each.
+    assert window.main_layout.count() == 3
     assert hasattr(window.speech_settings, "languages_input")
     assert hasattr(window.speech_settings, "keywords_input")
     assert hasattr(window.speech_settings, "prompt_input")

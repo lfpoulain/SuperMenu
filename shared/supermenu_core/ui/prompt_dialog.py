@@ -28,7 +28,7 @@ class PromptDialog(QDialog):
         super().__init__(parent)
 
         # Configurer la fenêtre
-        self.setWindowTitle("✨ GodMode - Prompt personnalisé")
+        self.setWindowTitle("SuperMenu — Prompt personnalisé")
         self.setMinimumSize(650, 450)
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.Window)
 
@@ -41,14 +41,19 @@ class PromptDialog(QDialog):
 
         # Créer le layout principal
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(14)
+
+        title = QLabel("Que souhaitez-vous faire ?")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
 
         # Ajouter des instructions
         instructions = QLabel(
-            "📝 Entrez votre prompt personnalisé ci-dessous. Le texte sélectionné sera traité selon ce prompt."
+            "Décrivez votre demande. SuperMenu s’occupe du texte ou de l’image sélectionnés."
         )
-        instructions.setStyleSheet("font-size: 13px; padding: 5px;")
+        instructions.setObjectName("mutedText")
+        instructions.setWordWrap(True)
         layout.addWidget(instructions)
 
         # Conteneur pour l'aperçu (texte ou image)
@@ -56,8 +61,8 @@ class PromptDialog(QDialog):
 
         # Afficher un aperçu du texte sélectionné
         if selected_text:
-            preview_label = QLabel("📄 Texte sélectionné :")
-            preview_label.setStyleSheet("font-weight: bold; margin-top: 5px;")
+            preview_label = QLabel("Texte sélectionné :")
+            preview_label.setObjectName("fieldLabel")
             self.preview_container.addWidget(preview_label)
 
             preview_text = QTextEdit()
@@ -71,8 +76,8 @@ class PromptDialog(QDialog):
         layout.addLayout(self.preview_container)
 
         # Champ de saisie du prompt
-        prompt_label = QLabel("⚙️ Votre prompt :")
-        prompt_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        prompt_label = QLabel("Votre prompt :")
+        prompt_label.setObjectName("fieldLabel")
         layout.addWidget(prompt_label)
 
         self.prompt_input = QTextEdit()
@@ -84,15 +89,15 @@ class PromptDialog(QDialog):
 
         # Boutons
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)
+        button_layout.setSpacing(14)
         button_layout.addStretch()
 
-        self.cancel_button = QPushButton("❌ Annuler")
+        self.cancel_button = QPushButton("Annuler")
         self.cancel_button.setMinimumWidth(120)
         self.cancel_button.clicked.connect(self.reject)
         button_layout.addWidget(self.cancel_button)
 
-        self.submit_button = QPushButton("✅ Envoyer")
+        self.submit_button = QPushButton("Envoyer")
         self.submit_button.setMinimumWidth(120)
         self.submit_button.setDefault(True)  # Bouton par défaut
         self.submit_button.clicked.connect(self.accept_prompt)
@@ -116,8 +121,8 @@ class PromptDialog(QDialog):
                     widget.deleteLater()
 
         # Ajouter le label pour l'image
-        image_label = QLabel("🖼️ Image capturée :")
-        image_label.setStyleSheet("font-weight: bold; margin-top: 5px;")
+        image_label = QLabel("Image capturée :")
+        image_label.setObjectName("fieldLabel")
         self.preview_container.addWidget(image_label)
 
         # Créer un cadre pour l'image
@@ -152,7 +157,7 @@ class PromptDialog(QDialog):
         )
 
         # Mettre à jour le titre de la fenêtre
-        self.setWindowTitle("✨ GodMode - Prompt personnalisé avec image")
+        self.setWindowTitle("SuperMenu — Prompt avec image")
 
     def submit_prompt(self):
         """Soumettre le prompt personnalisé"""

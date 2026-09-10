@@ -358,6 +358,13 @@ jobs:
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
 
+            Nouvelle interface Windows et Mac : thèmes clair et sombre harmonisés,
+            réglages organisés par usage, formulaires de prompts défilants et
+            actions principales mieux identifiées. Menus, listes déroulantes,
+            fenêtre de réponse et dictée en direct partagent les mêmes composants.
+            Les sous-menus restent ouverts lorsqu’on interagit avec eux et le
+            défilement des réglages ne change plus les choix des listes déroulantes.
+
             Nettoyage Windows : suppression de l’ancienne capture PyAudio et de
             la transcription par fichier WAV. La dictée utilise directement le
             contrôleur et la capture Qt partagés avec Mac. Les réglages actuels

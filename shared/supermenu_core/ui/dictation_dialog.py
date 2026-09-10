@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from supermenu_core.audio.settings import MAX_DICTATION_SECONDS
+from .controls import set_ui_property
 
 
 class RecordingDialog(QDialog):
@@ -38,10 +39,7 @@ class RecordingDialog(QDialog):
         layout.setSpacing(12)
         heading = QHBoxLayout()
         self.title_label = QLabel("À l’écoute")
-        font = self.title_label.font()
-        font.setPointSize(16)
-        font.setBold(True)
-        self.title_label.setFont(font)
+        self.title_label.setObjectName("pageTitle")
         heading.addWidget(self.title_label, 1)
         self.timer_label = QLabel("00:00")
         heading.addWidget(self.timer_label)
@@ -49,6 +47,7 @@ class RecordingDialog(QDialog):
         self.engine_label = QLabel(
             f"{engine} · {'Sur cet appareil' if local else 'Audio envoyé à OpenAI'}"
         )
+        self.engine_label.setObjectName("mutedText")
         self.engine_label.setWordWrap(True)
         layout.addWidget(self.engine_label)
         self.hint_label = QLabel("Parlez : le texte apparaît au fur et à mesure.")
@@ -144,9 +143,7 @@ class RecordingDialog(QDialog):
 
     def _title(self, title, status=""):
         self.title_label.setText(title)
-        self.title_label.setProperty("status", status)
-        self.title_label.style().unpolish(self.title_label)
-        self.title_label.style().polish(self.title_label)
+        set_ui_property(self.title_label, "status", status)
 
     def set_preparing(self, message="Préparation du moteur vocal…"):
         self._state = "preparing"

@@ -31,7 +31,7 @@ class _RegionSelector(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         self._label = QLabel("Sélectionnez une zone (Échap pour annuler)")
-        self._label.setStyleSheet("background: rgba(0,0,0,0.6); padding: 6px; border-radius: 6px;")
+        self._label.setObjectName("captureHint")
         layout.addWidget(self._label, alignment=Qt.AlignLeft | Qt.AlignTop)
         layout.addStretch()
 

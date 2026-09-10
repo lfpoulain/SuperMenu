@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from PySide6.QtWidgets import QMenu, QApplication
+from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QCursor, QGuiApplication
 from PySide6.QtCore import QObject, Qt, QEvent, QTimer, QPoint
 import os
@@ -16,6 +16,7 @@ import win32api
 import win32con
 from pynput.keyboard import Controller, Key
 
+from supermenu_core.ui.controls import Menu as QMenu, populate_prompt_menu, menu_contains_global_point
 from src.api.openai_client import OpenAIClient
 from supermenu_core.ui.safe_dialogs import SafeDialogs
 from src.ui.response_window import ResponseWindow
@@ -240,7 +241,7 @@ class ContextMenuManager(QObject):
                 except Exception:
                     pos = None
 
-                if pos is not None and not menu.geometry().contains(pos):
+                if pos is not None and not menu_contains_global_point(menu, pos):
                     menu.close()
 
             self._last_lbutton_down = lbutton_down
@@ -266,7 +267,7 @@ class ContextMenuManager(QObject):
                         except Exception:
                             pos = None
 
-                    if pos is not None and not menu.geometry().contains(pos):
+                    if pos is not None and not menu_contains_global_point(menu, pos):
                         menu.close()
         except Exception:
             pass
@@ -372,27 +373,17 @@ class ContextMenuManager(QObject):
             # Tenter de récupérer le texte sélectionné sans bloquer
             selected_text = self._try_get_selected_text()
 
-            # Ajouter les éléments de menu basés sur les prompts configurés
-            prompts = self.settings.get_prompts()
-
-            # Trier les prompts par position
-            sorted_prompts = sorted(prompts.items(), key=lambda x: x[1].get("position", 999))
-
-            # Ajouter tous les prompts au menu
-            for prompt_id, prompt_data in sorted_prompts:
-                action = menu.addAction(prompt_data["name"])
-                action.setData(("prompt", prompt_id, selected_text, paste_target))
-                if selected_text:
-                    action.setEnabled(True)
-                else:
-                    # Désactiver l'action si aucun texte n'est sélectionné
-                    action.setEnabled(False)
+            populate_prompt_menu(
+                menu, self.settings.get_prompts(),
+                lambda prompt_id: ("prompt", prompt_id, selected_text, paste_target),
+                enabled=bool(selected_text),
+            )
 
             # Ajouter un séparateur
             menu.addSeparator()
 
             # Ajouter l'option GodMode (toujours disponible)
-            godmode_action = menu.addAction("🔮 Mode Personnalisé")
+            godmode_action = menu.addAction("Mode personnalisé…")
             godmode_action.setData(
                 ("godmode", selected_text if selected_text else "", paste_target)
             )
@@ -473,27 +464,22 @@ class ContextMenuManager(QObject):
         chosen_action = None
         try:
             # Ajouter l'option de reconnaissance vocale
-            voice_action = menu.addAction("Écrire à la voix")
+            voice_action = menu.addAction("Dicter du texte…")
             voice_action.setData(("voice", paste_target))
 
             # Ajouter un séparateur
             menu.addSeparator()
 
-            # Récupérer et ajouter tous les prompts vocaux configurés
-            voice_prompts = self.settings.get_voice_prompts()
-
-            # Trier les prompts vocaux par position
-            sorted_voice_prompts = sorted(voice_prompts.items(), key=lambda x: x[1].get("position", 999))
-
-            for prompt_id, prompt_data in sorted_voice_prompts:
-                action = menu.addAction(prompt_data["name"])
-                action.setData(("voice_prompt", prompt_id, paste_target))
+            populate_prompt_menu(
+                menu, self.settings.get_voice_prompts(),
+                lambda prompt_id: ("voice_prompt", prompt_id, paste_target),
+            )
 
             # Ajouter un séparateur
             menu.addSeparator()
 
             # Ajouter l'option GodMode vocal (personnalisation à la volée)
-            godmode_action = menu.addAction("🔮 Prompt vocal personnalisé")
+            godmode_action = menu.addAction("Prompt vocal personnalisé…")
             godmode_action.setData(("voice_godmode", paste_target))
 
             # Afficher le menu à la position du curseur

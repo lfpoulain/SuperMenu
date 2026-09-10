@@ -10,6 +10,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from .theme_styles import STATUS_PALETTES
+from .controls import set_ui_property
+
 
 class VerificationStatus(QFrame):
     SYMBOLS = {
@@ -58,7 +61,6 @@ class VerificationStatus(QFrame):
         self.set_status("idle", "Disponibilité à vérifier", "")
 
     def set_status(self, state, title, detail, *, checked_at=""):
-        self.setProperty("state", state)
         self.icon.setText(self.SYMBOLS[state])
         self.title.setText(title)
         self.detail.setText(detail)
@@ -70,11 +72,7 @@ class VerificationStatus(QFrame):
             self.progress_bar.setRange(0, 0)
         self.setAccessibleName(title)
         self.setAccessibleDescription(detail)
-        # A dynamic property change does not automatically refresh Qt's QSS.
-        for widget in (self, *self.findChildren(QLabel)):
-            widget.style().unpolish(widget)
-            widget.style().polish(widget)
-            widget.update()
+        set_ui_property(self, "state", state, descendants=True)
 
     def set_progress(self, percent):
         value = max(0, min(100, round(percent)))
@@ -87,25 +85,7 @@ class VerificationStatus(QFrame):
     def stylesheet(theme):
         # Text accents retain contrast on both backgrounds; colour always comes
         # with a symbol and a descriptive title.
-        colours = (
-            {
-                "idle": ("#adb5c2", "#292d34"),
-                "busy": ("#89baff", "#20334c"),
-                "info": ("#89baff", "#20334c"),
-                "success": ("#7cddb0", "#1d382e"),
-                "warning": ("#ffd080", "#403321"),
-                "error": ("#ffa39d", "#422a2c"),
-            }
-            if theme == "dark"
-            else {
-                "idle": ("#556174", "#f0f3f7"),
-                "busy": ("#195bab", "#edf5ff"),
-                "info": ("#195bab", "#edf5ff"),
-                "success": ("#17643f", "#edf8f1"),
-                "warning": ("#845009", "#fff6e7"),
-                "error": ("#ae302d", "#fff0ef"),
-            }
-        )
+        colours = STATUS_PALETTES[theme]
         css = """
             QFrame#verificationStatus { border-radius: 9px; }
             QFrame#verificationStatus QLabel {

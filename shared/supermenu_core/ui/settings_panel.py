@@ -12,13 +12,29 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QFrame,
     QToolButton,
-    QComboBox,
+    QLayout,
+    QFormLayout,
 )
 
 
-class NoWheelComboBox(QComboBox):
-    def wheelEvent(self, event):
-        event.ignore()
+def form_layout(parent, *, stacked=False):
+    """Use the same field growth and vertical rhythm on each platform."""
+    form = QFormLayout(parent)
+    form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    form.setVerticalSpacing(10)
+    if stacked:
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+    return form
+
+
+def scrollable_form(form):
+    """Keep every field reachable when a window is small or text is enlarged."""
+    form.layout().setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    scroll.setWidget(form)
+    return scroll
 
 
 class Disclosure(QWidget):
@@ -56,8 +72,9 @@ class SettingsPanel(QWidget):
         layout.setContentsMargins(8, 12, 8, 8)
         layout.setSpacing(18)
         self.navigation = QListWidget()
+        self.navigation.setObjectName("settingsNavigation")
         self.navigation.setAccessibleName("Rubriques des réglages")
-        self.navigation.setFixedWidth(145)
+        self.navigation.setFixedWidth(165)
         self.navigation.setFrameShape(QFrame.Shape.NoFrame)
         self.navigation.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
@@ -73,7 +90,7 @@ class SettingsPanel(QWidget):
     def add_page(self, key, title, description):
         self.keys.append(key)
         item = QListWidgetItem(title)
-        item.setSizeHint(QSize(130, 44))
+        item.setSizeHint(QSize(145, 44))
         self.navigation.addItem(item)
         page = QWidget()
         page_layout = QVBoxLayout(page)
@@ -90,12 +107,10 @@ class SettingsPanel(QWidget):
         layout.setSpacing(14)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         heading = QLabel(title)
-        font = heading.font()
-        font.setPointSize(20)
-        font.setBold(True)
-        heading.setFont(font)
+        heading.setObjectName("pageTitle")
         layout.addWidget(heading)
         subtitle = QLabel(description)
+        subtitle.setObjectName("mutedText")
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
         scroll.setWidget(content)

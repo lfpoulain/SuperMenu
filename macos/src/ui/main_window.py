@@ -10,8 +10,6 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QCheckBox,
-    QComboBox,
-    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -19,7 +17,6 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
-    QMenu,
     QMessageBox,
     QPushButton,
     QSplitter,
@@ -30,6 +27,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from supermenu_core.ui.controls import ChoiceBox, Menu
 
 from src.config.build_info import APP_VERSION
 from src.api.apple_foundation_client import FoundationModelsRequest
@@ -43,6 +41,7 @@ from supermenu_core.api.model_capabilities import (
 )
 from supermenu_core.config.provider_settings import CUSTOM_REASONING_EFFORTS
 from supermenu_core.ui.theme_manager import ThemeManager
+from supermenu_core.ui.settings_panel import form_layout, scrollable_form
 from supermenu_core.ui.verification_status import VerificationStatus
 from src.utils import updater as app_updater
 from src.utils.hotkey_manager import HotkeyRecorderDialog
@@ -56,27 +55,6 @@ from src.utils.permissions import (
     request_accessibility_permission,
 )
 from supermenu_core.utils.validators import Validators
-
-
-def _create_form_layout(parent):
-    """Build a form whose fields use the width available, as on Windows.
-
-    QFormLayout reads its growth policy from the active style. QMacStyle asks
-    for FieldsStayAtSizeHint, so every line edit and text area stayed at its
-    minimum width with dead space beside it, while the Windows styles default
-    to AllNonFixedFieldsGrow. Setting it explicitly makes both compositions
-    lay out the same way.
-    """
-    form = QFormLayout(parent)
-    form.setFieldGrowthPolicy(
-        QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-    )
-    return form
-
-
-class NoWheelComboBox(QComboBox):
-    def wheelEvent(self, event):
-        event.ignore()
 
 
 class UpdateCheckWorker(QThread):
@@ -153,24 +131,30 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("SuperMenu - Configuration")
         self.setMinimumSize(860, 700)
-        self.resize(1000, 780)
+        self.resize(1100, 820)
         self.setWindowIcon(QIcon(resource_path("resources", "icons", "icon.png")))
 
+        from supermenu_core.ui.window_header import WindowHeader
+
         root = QWidget()
+        root.setObjectName("desktopRoot")
         root_layout = QVBoxLayout(root)
+        root_layout.setContentsMargins(24, 20, 24, 16)
+        root_layout.setSpacing(12)
+        root_layout.addWidget(WindowHeader())
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._create_prompts_tab(), "📝 Prompts")
-        self.tabs.addTab(self._create_settings_tab(), "⚙️ Paramètres")
-        self.tabs.addTab(self._create_about_tab(), "ℹ️ À propos")
+        self.tabs.addTab(self._create_prompts_tab(), "Prompts")
+        self.tabs.addTab(self._create_settings_tab(), "Réglages")
+        self.tabs.addTab(self._create_about_tab(), "À propos")
         root_layout.addWidget(self.tabs)
 
         buttons = QHBoxLayout()
         buttons.addStretch()
-        save_button = QPushButton("💾 Enregistrer")
+        save_button = QPushButton("Enregistrer")
         save_button.setDefault(True)
         save_button.clicked.connect(self.save_settings)
         buttons.addWidget(save_button)
-        close_button = QPushButton("❌ Fermer")
+        close_button = QPushButton("Fermer")
         close_button.clicked.connect(self.hide)
         buttons.addWidget(close_button)
         root_layout.addLayout(buttons)
@@ -191,7 +175,7 @@ class MainWindow(QMainWindow):
         splitter.setChildrenCollapsible(False)
 
         left = QWidget()
-        left.setFixedWidth(300)
+        left.setFixedWidth(260)
         left_layout = QVBoxLayout(left)
         self.prompt_search = QLineEdit()
         self.prompt_search.setPlaceholderText("Rechercher un prompt…")
@@ -207,44 +191,38 @@ class MainWindow(QMainWindow):
         self.prompt_list.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.prompt_list.setDropIndicatorShown(True)
         self.prompt_list.setSpacing(6)
-        self.prompt_list.setStyleSheet(
-            "QListWidget { border-radius: 6px; border: 1px solid rgba(52, 152, 219, 0.3); }"
-            "QListWidget:focus { border: 2px solid #3498db; }"
-            "QListWidget::item { padding: 8px; border-left: 3px solid transparent; }"
-            "QListWidget::item:hover { border-left: 3px solid #64B5F6; background-color: rgba(100, 181, 246, 0.10); }"
-            "QListWidget::item:selected { border-left: 3px solid #64B5F6; background-color: rgba(100, 181, 246, 0.18); }"
-        )
         self.prompt_list.currentItemChanged.connect(self._load_selected_prompt)
         self.prompt_list.model().rowsMoved.connect(self._save_prompt_order)
         left_layout.addWidget(self.prompt_list)
         prompt_buttons = QHBoxLayout()
-        add_button = QPushButton("➕ Ajouter")
+        add_button = QPushButton("Ajouter")
         add_button.clicked.connect(self.add_prompt)
         prompt_buttons.addWidget(add_button)
-        delete_button = QPushButton("🗑️ Supprimer")
+        delete_button = QPushButton("Supprimer")
+        delete_button.setProperty("variant", "danger")
         delete_button.clicked.connect(self.delete_prompt)
         prompt_buttons.addWidget(delete_button)
         left_layout.addLayout(prompt_buttons)
         transfer_buttons = QHBoxLayout()
-        import_button = QPushButton("📥 Importer")
+        import_button = QPushButton("Importer")
         import_button.clicked.connect(self.import_prompts)
         transfer_buttons.addWidget(import_button)
-        export_button = QPushButton("📤 Exporter")
+        export_button = QPushButton("Exporter")
         export_button.clicked.connect(self.export_prompts)
         transfer_buttons.addWidget(export_button)
         left_layout.addLayout(transfer_buttons)
 
         right = QWidget()
         right_layout = QVBoxLayout(right)
-        form_group = QGroupBox("✏️ Éditer le prompt")
-        form = _create_form_layout(form_group)
+        form_group = QGroupBox("Votre prompt")
+        form = form_layout(form_group, stacked=True)
         self.prompt_name = QLineEdit()
-        form.addRow("🏷️ Nom affiché :", self.prompt_name)
+        form.addRow("Nom", self.prompt_name)
         self.prompt_instruction = QTextEdit()
         self.prompt_instruction.setMinimumHeight(180)
-        form.addRow("📝 Prompt :", self.prompt_instruction)
+        form.addRow("Instructions", self.prompt_instruction)
         self.prompt_status = QLineEdit()
-        form.addRow("⏳ Message d’attente :", self.prompt_status)
+        form.addRow("Message pendant le traitement", self.prompt_status)
         self.prompt_direct = QCheckBox(
             "Insérer directement la réponse dans l’application cible"
         )
@@ -259,9 +237,10 @@ class MainWindow(QMainWindow):
         clear_button = QPushButton("Effacer")
         clear_button.clicked.connect(self.prompt_hotkey.clear)
         hotkey_row.addWidget(clear_button)
-        form.addRow("⌨️ Raccourci direct :", hotkey_row)
-        right_layout.addWidget(form_group)
-        save_prompt_button = QPushButton("💾 Enregistrer le prompt")
+        form.addRow("Raccourci direct", hotkey_row)
+        right_layout.addWidget(scrollable_form(form_group), 1)
+        save_prompt_button = QPushButton("Enregistrer le prompt")
+        save_prompt_button.setProperty("variant", "primary")
         save_prompt_button.clicked.connect(self.save_current_prompt)
         right_layout.addWidget(save_prompt_button)
         right_layout.addStretch()
@@ -283,7 +262,7 @@ class MainWindow(QMainWindow):
         app_page = container.add_page("app", "Application", "Gérez l’apparence, les mises à jour et les autorisations du Mac.")
 
         layout.addWidget(QLabel("Moteur de texte"))
-        self.provider_combo = NoWheelComboBox()
+        self.provider_combo = ChoiceBox()
         self.provider_combo.addItem("OpenAI", "openai")
         self.provider_combo.addItem("Ollama / LM Studio", "custom")
         self.provider_combo.addItem("Apple Intelligence — local (bêta)", "apple")
@@ -301,14 +280,14 @@ class MainWindow(QMainWindow):
         self.api_key.setPlaceholderText("sk-…")
         api_layout.addWidget(self.api_key)
         api_layout.addWidget(QLabel("Modèle :"))
-        self.model_combo = NoWheelComboBox()
+        self.model_combo = ChoiceBox()
         self.model_combo.addItems(AVAILABLE_MODELS)
         self.model_combo.setCurrentText(self.settings.get_model())
         self.model_combo.currentTextChanged.connect(self._refresh_reasoning_options)
         api_layout.addWidget(self.model_combo)
         openai_advanced = Disclosure()
         openai_advanced.content_layout.addWidget(QLabel("Raisonnement"))
-        self.reasoning_combo = NoWheelComboBox()
+        self.reasoning_combo = ChoiceBox()
         openai_advanced.content_layout.addWidget(self.reasoning_combo)
         api_layout.addWidget(openai_advanced)
         layout.addWidget(api_group)
@@ -334,7 +313,7 @@ class MainWindow(QMainWindow):
         )
         endpoint_options.addWidget(self.custom_endpoint_api_key)
         endpoint_options.addWidget(QLabel("Type d’endpoint :"))
-        self.endpoint_type = NoWheelComboBox()
+        self.endpoint_type = ChoiceBox()
         self.endpoint_type.addItem("Ollama", "ollama")
         self.endpoint_type.addItem("LM Studio", "lmstudio")
         type_index = self.endpoint_type.findData(
@@ -344,7 +323,7 @@ class MainWindow(QMainWindow):
         endpoint_options.addWidget(self.endpoint_type)
         endpoint_layout.addWidget(QLabel("Modèle :"))
         custom_model_row = QHBoxLayout()
-        self.custom_model = NoWheelComboBox()
+        self.custom_model = ChoiceBox()
         self.custom_model.setEditable(True)
         self.custom_model.setPlaceholderText("Sélectionnez ou entrez un modèle")
         saved_custom_model = self.settings.get_custom_model()
@@ -359,7 +338,7 @@ class MainWindow(QMainWindow):
         endpoint_layout.addLayout(custom_model_row)
         self.custom_reasoning_label = QLabel("Raisonnement / think :")
         endpoint_options.addWidget(self.custom_reasoning_label)
-        self.custom_reasoning = NoWheelComboBox()
+        self.custom_reasoning = ChoiceBox()
         endpoint_options.addWidget(self.custom_reasoning)
         self.custom_endpoint.textChanged.connect(
             self._invalidate_custom_model_details
@@ -407,8 +386,8 @@ class MainWindow(QMainWindow):
         self.provider_combo.currentIndexChanged.connect(self.toggle_provider)
         QApplication.instance().aboutToQuit.connect(self._cancel_apple_probe)
 
-        shortcuts_group = QGroupBox("⌨️ Raccourcis clavier")
-        shortcuts_form = _create_form_layout(shortcuts_group)
+        shortcuts_group = QGroupBox("Raccourcis clavier")
+        shortcuts_form = form_layout(shortcuts_group)
         main_row = QHBoxLayout()
         self.main_hotkey = QLineEdit(self.settings.get_hotkey())
         self.main_hotkey.setReadOnly(True)
@@ -430,7 +409,7 @@ class MainWindow(QMainWindow):
         shortcuts_form.addRow("Test sans raccourci", test_menu_button)
         shortcuts_page.addWidget(shortcuts_group)
 
-        permissions_group = QGroupBox("🔐 Autorisations macOS")
+        permissions_group = QGroupBox("Autorisations macOS")
         permissions_layout = QVBoxLayout(permissions_group)
         explanation = QLabel(
             "SuperMenu utilise Accessibilité pour détecter ses raccourcis "
@@ -455,7 +434,7 @@ class MainWindow(QMainWindow):
         self.hotkey_service_status = QLabel()
         self.hotkey_service_status.setWordWrap(True)
         status_row.addWidget(self.hotkey_service_status, 1)
-        recheck_button = QPushButton("🔄 Revérifier")
+        recheck_button = QPushButton("Revérifier")
         recheck_button.clicked.connect(
             lambda: self.refresh_permission_status(force_reload=True)
         )
@@ -466,15 +445,15 @@ class MainWindow(QMainWindow):
         permissions_layout.addLayout(status_row)
         app_page.addWidget(permissions_group)
 
-        general_group = QGroupBox("🎨 Interface et mises à jour")
-        general_form = _create_form_layout(general_group)
-        self.theme_combo = NoWheelComboBox()
+        general_group = QGroupBox("Interface et mises à jour")
+        general_form = form_layout(general_group)
+        self.theme_combo = ChoiceBox()
         for key, label in ThemeManager.get_theme_names().items():
             self.theme_combo.addItem(label, key)
         theme_index = self.theme_combo.findData(self.settings.get_theme())
         self.theme_combo.setCurrentIndex(max(0, theme_index))
         general_form.addRow("Thème", self.theme_combo)
-        self.channel_combo = NoWheelComboBox()
+        self.channel_combo = ChoiceBox()
         self.channel_combo.addItem("Stable", "stable")
         self.channel_combo.addItem("Bêta", "beta")
         channel_index = self.channel_combo.findData(
@@ -507,7 +486,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(tab)
         title = QLabel("SuperMenu")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("font-size: 28px; font-weight: 600; padding: 20px;")
+        title.setObjectName("aboutTitle")
         layout.addWidget(title)
         version = QLabel(f"Version {APP_VERSION} — composition macOS")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1205,7 +1184,7 @@ class MainWindow(QMainWindow):
         icon = QIcon(resource_path("resources", "icons", "icon.png"))
         tray = QSystemTrayIcon(icon, self)
         tray.setToolTip("SuperMenu")
-        menu = QMenu(self)
+        menu = Menu(self)
         open_action = QAction("Ouvrir SuperMenu", self)
         open_action.triggered.connect(self.show_main_window)
         menu.addAction(open_action)
@@ -1221,7 +1200,7 @@ class MainWindow(QMainWindow):
             and self.context_menu_manager.show_response_window()
         )
         menu.addAction(response_action)
-        update_action = QAction("Rechercher une mise à jour", self)
+        update_action = QAction("Vérifier les mises à jour", self)
         update_action.triggered.connect(lambda: self.check_for_updates(False))
         menu.addAction(update_action)
         permission_action = QAction("Autorisations macOS…", self)
