@@ -1,6 +1,6 @@
 import Foundation
 import Speech
-import AVFAudio
+@preconcurrency import AVFAudio
 
 // PCM and transcripts travel exclusively over inherited private pipes.
 private enum SpeechError: Error {

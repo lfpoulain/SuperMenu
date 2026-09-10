@@ -24,8 +24,7 @@ fi
 
 upload_path="${artifact_path}"
 cleanup_path=""
-assess_type="open"
-assess_args=(--context context:primary-signature)
+assess_args=(--type open --context context:primary-signature)
 
 if [[ "${artifact_path}" == *.app ]]; then
     cleanup_path="$(mktemp -d "${TMPDIR:-/tmp}/supermenu-notarize.XXXXXX")"
@@ -33,8 +32,8 @@ if [[ "${artifact_path}" == *.app ]]; then
     # ditto preserves the bundle's symlinks and extended attributes; `zip`
     # would corrupt the signature.
     ditto -c -k --keepParent "${artifact_path}" "${upload_path}"
-    assess_type="exec"
-    assess_args=()
+    # Bash 3.2 (shipped with macOS) treats an empty array as unset with -u.
+    assess_args=(--type exec)
 fi
 
 trap '[[ -n "${cleanup_path}" ]] && rm -rf "${cleanup_path}"' EXIT
@@ -49,7 +48,6 @@ xcrun notarytool submit "${upload_path}" \
 xcrun stapler staple "${artifact_path}"
 xcrun stapler validate "${artifact_path}"
 spctl --assess \
-    --type "${assess_type}" \
     "${assess_args[@]}" \
     --verbose=2 \
     "${artifact_path}"
