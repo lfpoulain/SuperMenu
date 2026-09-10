@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QApplication
 from src.audio import speech_backend
 from src.config.settings import Settings
 from supermenu_core.audio.backends import OpenAISpeechBackend, ProcessSpeechBackend
+from supermenu_core.audio.resident import ResidentSpeechBackend
 
 
 def test_voice_provider_round_trip_is_independent_of_text(tmp_path):
@@ -38,10 +39,15 @@ def test_apple_backend_launches_bundled_helper_without_key(monkeypatch, tmp_path
     backend = speech_backend.create_speech_backend(
         settings, {"provider": "apple", "language": "fr"}
     )
-    assert isinstance(backend, ProcessSpeechBackend)
+    assert isinstance(backend, ResidentSpeechBackend)
     assert backend.command == (str(helper), [])
     assert "api_key" not in backend.options
     backend.cancel()
+    probe = speech_backend.create_speech_backend(
+        settings, {"provider": "apple", "action": "probe", "language": "fr"}
+    )
+    assert isinstance(probe, ProcessSpeechBackend)
+    probe.cancel()
     assert app is not None
 
 

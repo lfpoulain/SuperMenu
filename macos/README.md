@@ -42,6 +42,16 @@ transmettre d’audio. La préparation distingue la vérification, le téléchar
 éventuel et le chargement en mémoire du modèle installé.
 
 L’accès au microphone est demandé au lancement d’une dictée ou du test du micro.
+
+Le modèle Apple Speech reste en mémoire entre les dictées pendant **5 minutes
+d’inactivité** par défaut. Le délai se règle dans **Paramètres > Dictée > Options
+avancées** : après chaque dictée, après 1, 5, 15 ou 30 minutes, ou à la fermeture
+de SuperMenu. **Décharger maintenant** libère le moteur inactif sans supprimer
+les fichiers téléchargés. Le microphone s’arrête à chaque fin de dictée.
+Le composant Apple utilise la [conservation des modèles pendant la durée du
+processus](https://developer.apple.com/documentation/speech/speechanalyzer/options/modelretention-swift.enum/processlifetime)
+et crée une nouvelle session de transcription pour chaque dictée.
+
 Ouvrez **Dicter du texte…** dans le menu de barre des menus ou dans le menu des
 prompts. Le texte et le niveau du microphone apparaissent en direct. **Terminer**
 arrête le microphone et ouvre le résultat à copier ou à insérer ; **Annuler**

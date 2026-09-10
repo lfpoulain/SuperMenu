@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from supermenu_core.audio.microphone import microphones
 from supermenu_core.audio.settings import languages, local_language
+from supermenu_core.audio.resident import get_resident_service
 from .verification_status import VerificationStatus
 from .settings_panel import Disclosure, NoWheelComboBox as QComboBox
 from .microphone_test import MicrophoneTest
@@ -123,6 +124,39 @@ class SpeechSettingsWidget(QGroupBox):
             self.device_combo.findData(settings.get_speech_device())
         )
         advanced.addWidget(self.device_combo)
+        self.memory_options = QWidget()
+        memory = QVBoxLayout(self.memory_options)
+        memory.setContentsMargins(0, 0, 0, 0)
+        memory.addWidget(QLabel("Décharger le modèle vocal après"))
+        self.idle_combo = QComboBox()
+        for title, seconds in (
+            ("Chaque dictée", 0),
+            ("1 minute d’inactivité", 60),
+            ("5 minutes d’inactivité (par défaut)", 300),
+            ("15 minutes d’inactivité", 900),
+            ("30 minutes d’inactivité", 1800),
+            ("À la fermeture de SuperMenu", -1),
+        ):
+            self.idle_combo.addItem(title, seconds)
+        self.idle_combo.setCurrentIndex(
+            self.idle_combo.findData(settings.get_speech_idle_seconds())
+        )
+        memory.addWidget(self.idle_combo)
+        hint = QLabel(
+            "Garder le modèle en mémoire accélère les prochaines dictées et occupe de la RAM ou de la mémoire GPU. Le microphone reste arrêté entre les dictées."
+        )
+        hint.setWordWrap(True)
+        memory.addWidget(hint)
+        self.memory_status = QLabel()
+        self.memory_status.setWordWrap(True)
+        memory.addWidget(self.memory_status)
+        self.unload_button = QPushButton("Décharger maintenant")
+        self.resident = get_resident_service()
+        self.unload_button.clicked.connect(self.resident.unload_idle)
+        self.resident.state_changed.connect(self._memory_changed)
+        memory.addWidget(self.unload_button)
+        advanced.addWidget(self.memory_options)
+        self._memory_changed()
         self.context_options = QWidget()
         context = QVBoxLayout(self.context_options)
         context.setContentsMargins(0, 0, 0, 0)
@@ -229,7 +263,7 @@ class SpeechSettingsWidget(QGroupBox):
         self.device_combo.setVisible(provider == "foundry")
         self.device_label.setVisible(provider == "foundry")
         self.context_options.setVisible(provider == "openai")
-        self.advanced.setVisible(provider != "apple")
+        self.memory_options.setVisible(provider != "openai")
         self.cloud_group.setVisible(provider == "openai")
         self.download_button.hide()
         self.download_button.setEnabled(False)
@@ -266,6 +300,16 @@ class SpeechSettingsWidget(QGroupBox):
             widget.setEnabled(not active)
         self.cancel_button.setVisible(active)
         self.download_button.setEnabled(False)
+
+    def _memory_changed(self):
+        if self.resident.busy:
+            message = "Modèle en cours d’utilisation. Le déchargement sera possible après la dictée."
+        elif self.resident.loaded:
+            message = "Modèle en mémoire — prêt pour la prochaine dictée."
+        else:
+            message = "Modèle déchargé — il sera chargé à la prochaine dictée. Les fichiers téléchargés sont conservés."
+        self.memory_status.setText(message)
+        self.unload_button.setEnabled(self.resident.loaded and not self.resident.busy)
 
     def prepare(self, action):
         if self.backend:
@@ -371,6 +415,10 @@ class SpeechSettingsWidget(QGroupBox):
             self.settings.set_api_key(options["api_key"])
         self.settings.set_speech_device(options["device"])
         self.settings.set_speech_microphone(options["microphone"])
+        self.settings.set_speech_idle_seconds(self.idle_combo.currentData())
+        self.resident.set_idle_seconds(self.idle_combo.currentData())
+        if options["provider"] == "openai":
+            self.resident.unload_idle()
         self.settings.set_transcription_languages(self.languages_input.text().strip())
         self.settings.set_transcription_prompt(options["prompt"])
         self.settings.set_transcription_keywords(self.keywords_input.text().strip())

@@ -75,6 +75,7 @@ class DictationSession(QObject):
             "load": "Chargement en mémoire…",
             "download": "Téléchargement…",
             "connect": "Connexion…",
+            "reuse": "Modèle déjà en mémoire",
         }
         self.recording_dialog._title(titles.get(self.backend.phase, "Préparation…"))
         self.recording_dialog.hint_label.setText(message)

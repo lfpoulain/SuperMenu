@@ -6,6 +6,7 @@ import sys
 NEMOTRON_MODEL = "nemotron-3.5-asr-streaming-0.6b"
 OPENAI_SPEECH_MODEL = "gpt-live-transcribe"
 MAX_DICTATION_SECONDS = 300
+MODEL_IDLE_CHOICES = (0, 60, 300, 900, 1800, -1)
 
 
 def languages(value):
@@ -36,6 +37,19 @@ def local_language(value, provider):
 
 
 class SpeechSettingsMixin:
+    def get_speech_idle_seconds(self):
+        try:
+            value = int(self.settings.value("speech_idle_seconds", 300))
+        except (TypeError, ValueError):
+            return 300
+        return value if value in MODEL_IDLE_CHOICES else 300
+
+    def set_speech_idle_seconds(self, value):
+        value = int(value)
+        if value not in MODEL_IDLE_CHOICES:
+            raise ValueError("Délai de déchargement inconnu")
+        self.settings.setValue("speech_idle_seconds", value)
+
     def get_speech_provider(self):
         value = str(self.settings.value("speech_provider", "openai"))
         return value if value in {"openai", "apple", "foundry"} else "openai"

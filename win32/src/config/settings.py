@@ -814,6 +814,7 @@ class Settings(SpeechSettingsMixin):
         self.set_speech_provider("openai")
         self.set_speech_device("auto")
         self.set_speech_microphone("")
+        self.set_speech_idle_seconds(300)
         self.set_transcription_languages(
             self.default_transcription_languages
         )

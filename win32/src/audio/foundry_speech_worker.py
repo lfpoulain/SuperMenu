@@ -58,58 +58,98 @@ def describe(model):
 
 def run(source, emit, runtime=None):
     runtime = runtime or FoundryRuntime()
-    request = json.loads(source.readline())
-    action = request.get("action", "start")
-    if action not in {"probe", "download", "start"}:
-        raise LocalError("Opération vocale inconnue.")
-    emit(
-        {
-            "event": "progress",
-            "phase": "verify",
-            "message": "Vérification de Nemotron et des fichiers déjà installés…",
-        }
-    )
-    model = select_speech_model(runtime, request.get("device", "auto"), emit)
-    if action == "probe":
-        emit({"event": "result", "data": describe(model)})
-        return
-    if action == "download":
-        if not model.is_cached:
-            last = [-1]
+    model, device = None, None
+    loaded = False
+    current_emit = emit
+    try:
+        while line := source.readline():
+            request = json.loads(line)
+            action = request.get("action", "start")
+            # A cancellation may cross a completed session in the pipe.
+            if action in {"cancel", "stop"}:
+                continue
+            sid = request.get("session_id")
 
-            def progress(percent):
-                value = round(percent)
-                if value != last[0]:
-                    last[0] = value
-                    emit(
+            def session_emit(event, session_id=sid):
+                emit({**event, **({"session_id": session_id} if session_id else {})})
+
+            current_emit = session_emit
+            if action not in {"probe", "download", "start"}:
+                raise LocalError("Opération vocale inconnue.")
+            requested_device = request.get("device", "auto")
+            if model is None or device != requested_device:
+                if model is not None and loaded:
+                    model.unload()
+                current_emit(
+                    {
+                        "event": "progress",
+                        "phase": "verify",
+                        "message": "Vérification de Nemotron et des fichiers déjà installés…",
+                    }
+                )
+                model = select_speech_model(runtime, requested_device, current_emit)
+                device = requested_device
+                loaded = False
+            if action == "download" and not model.is_cached:
+                last = [-1]
+
+                def progress(percent):
+                    value = round(percent)
+                    if value != last[0]:
+                        last[0] = value
+                        current_emit(
+                            {
+                                "event": "progress",
+                                "phase": "download",
+                                "message": "Téléchargement de Nemotron 3.5…",
+                                "percent": value,
+                            }
+                        )
+
+                model.download(progress)
+            if action in {"probe", "download"}:
+                current_emit({"event": "result", "data": describe(model)})
+            else:
+                if not model.is_cached:
+                    raise LocalError(
+                        "Téléchargez le modèle vocal Nemotron dans les réglages de dictée avant de commencer."
+                    )
+                if loaded:
+                    current_emit(
                         {
                             "event": "progress",
-                            "phase": "download",
-                            "message": "Téléchargement de Nemotron 3.5…",
-                            "percent": value,
+                            "phase": "reuse",
+                            "message": "Nemotron est déjà en mémoire. Ouverture d’une nouvelle dictée…",
                         }
                     )
+                else:
+                    current_emit(
+                        {
+                            "event": "progress",
+                            "phase": "load",
+                            "message": "Chargement de Nemotron en mémoire · "
+                            + describe(model)["device"],
+                        }
+                    )
+                    model.load()
+                    loaded = True
+                transcribe(source, current_emit, model, request)
+            if not request.get("keep_alive"):
+                return
+    except LocalError as exc:
+        current_emit({"event": "error", "message": str(exc)})
+        raise
+    finally:
+        if model is not None and loaded:
+            model.unload()
 
-            model.download(progress)
-        emit({"event": "result", "data": describe(model)})
-        return
-    if not model.is_cached:
-        raise LocalError(
-            "Téléchargez le modèle vocal Nemotron dans les réglages de dictée avant de commencer."
-        )
+
+def transcribe(source, emit, model, request):
     session = None
     reader = None
     result = {"text": "", "error": None}
+    action = None
     try:
-        emit(
-            {
-                "event": "progress",
-                "phase": "load",
-                "message": "Nemotron est déjà sur ce PC. Chargement en mémoire · "
-                + describe(model)["device"],
-            }
-        )
-        model.load()
         session = model.get_audio_client().create_live_transcription_session()
         session.settings.language = request.get("language") or "auto"
         session.settings.sample_rate = 16000
@@ -120,7 +160,6 @@ def run(source, emit, runtime=None):
             try:
                 for event in session.get_stream():
                     text = event.content[0].text if event.content else ""
-                    # SDK 1.2.4 emits deltas, followed by the full final transcript.
                     result["text"] = text if event.is_final else result["text"] + text
                     emit({"event": "transcript", "text": result["text"].strip()})
             except Exception as exc:
@@ -136,13 +175,14 @@ def run(source, emit, runtime=None):
         reader.start()
         emit({"event": "ready"})
         total = 0
-        stopped = False
         for line in source:
             if len(line) > 100_000:
                 raise LocalError("Bloc audio trop volumineux.")
             message = json.loads(line)
-            if message.get("action") == "stop":
-                stopped = True
+            if message.get("session_id") != request.get("session_id"):
+                continue
+            action = message.get("action")
+            if action in {"stop", "cancel"}:
                 break
             pcm = base64.b64decode(message["audio"], validate=True)
             if len(pcm) % 2:
@@ -155,12 +195,15 @@ def run(source, emit, runtime=None):
         reader.join(15)
         if reader.is_alive() or result["error"]:
             raise LocalError("Nemotron n’a pas pu finaliser la dictée. Réessayez.")
-        if stopped:
-            emit({"event": "complete", "text": result["text"].strip()})
     finally:
         if session:
             session.stop()
-        model.unload()
+    # A terminal response means the native session has fully stopped and a new
+    # session can safely reuse the model. Never retain audio/transcript history.
+    if action == "stop":
+        emit({"event": "complete", "text": result["text"].strip()})
+    elif action == "cancel":
+        emit({"event": "cancelled"})
 
 
 def main():

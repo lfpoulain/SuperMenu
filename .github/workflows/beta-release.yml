@@ -358,6 +358,13 @@ jobs:
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
 
+            Les modèles vocaux locaux restent désormais en mémoire entre les dictées.
+            Déchargement après 5 minutes d’inactivité par défaut, configurable dans
+            Dictée > Options avancées : immédiat, 1/5/15/30 minutes, ou fermeture de
+            SuperMenu. Bouton « Décharger maintenant » et état de la mémoire visible.
+            Chaque dictée conserve sa propre session ; le microphone reste arrêté
+            entre les dictées. Les fichiers téléchargés ne sont pas supprimés.
+
             Correctif microphone : correction d’un contrôle Qt 6.11 qui signalait
             à tort « Impossible d’ouvrir le microphone » pour toutes les entrées.
             Réglages simplifiés en quatre rubriques : Texte, Dictée, Raccourcis,

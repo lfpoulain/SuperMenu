@@ -9,8 +9,10 @@ private enum SpeechError: Error {
 
 private enum Output {
     static let lock = NSLock()
-    static func send(_ value: [String: Any]) {
-        guard var data = try? JSONSerialization.data(withJSONObject: value) else { return }
+    static func send(_ value: [String: Any], sessionID: String? = nil) {
+        var message = value
+        if let sessionID { message["session_id"] = sessionID }
+        guard var data = try? JSONSerialization.data(withJSONObject: message) else { return }
         data.append(10)
         lock.lock()
         defer { lock.unlock() }
@@ -26,12 +28,22 @@ struct SpeechHelper {
                          "message": "Apple Speech nécessite macOS 26 ou une version ultérieure."])
             return
         }
+        var sessionID: String?
+        var warm = false
         do {
-            guard let line = readLine(), let data = line.data(using: .utf8),
-                  let request = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw SpeechError.invalidAudio
+            while let line = readLine() {
+                guard let data = line.data(using: .utf8),
+                      let request = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    throw SpeechError.invalidAudio
+                }
+                let action = request["action"] as? String ?? "start"
+                // A late cancellation can cross the completion of its session.
+                if action == "cancel" || action == "stop" { continue }
+                sessionID = request["session_id"] as? String
+                try await run(request, warm: warm)
+                if request["keep_alive"] as? Bool != true { break }
+                if action == "start" { warm = true }
             }
-            try await run(request)
         } catch {
             let message: String
             switch error {
@@ -46,12 +58,13 @@ struct SpeechHelper {
             default:
                 message = "Apple Speech n’a pas pu terminer l’opération. Vérifiez le modèle de langue puis réessayez."
             }
-            Output.send(["event": "error", "message": message])
+            Output.send(["event": "error", "message": message], sessionID: sessionID)
         }
     }
 
     @available(macOS 26.0, *)
-    private static func run(_ request: [String: Any]) async throws {
+    private static func run(_ request: [String: Any], warm: Bool) async throws {
+        let sessionID = request["session_id"] as? String
         guard SpeechTranscriber.isAvailable else { throw SpeechError.unavailable }
         guard let language = request["language"] as? String, !language.isEmpty,
               let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: language)) else {
@@ -61,7 +74,7 @@ struct SpeechHelper {
                                             reportingOptions: [.volatileResults], attributeOptions: [])
         let action = request["action"] as? String ?? "start"
         if action == "download" {
-            Output.send(["event": "progress", "phase": "download", "message": "Téléchargement et installation du modèle Apple Speech pour \(locale.identifier)…"])
+            Output.send(["event": "progress", "phase": "download", "message": "Téléchargement et installation du modèle Apple Speech pour \(locale.identifier)…"], sessionID: sessionID)
             if let installation = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
                 try await installation.downloadAndInstall()
             }
@@ -70,11 +83,12 @@ struct SpeechHelper {
         let cached = installed.contains { $0.identifier == locale.identifier }
         if action == "probe" || action == "download" {
             Output.send(["event": "result", "data": ["cached": cached,
-                         "device": "Apple Speech sur ce Mac · \(locale.identifier)"]])
+                         "device": "Apple Speech sur ce Mac · \(locale.identifier)"]], sessionID: sessionID)
             return
         }
         guard action == "start", cached else { throw SpeechError.missingModel }
-        Output.send(["event": "progress", "phase": "load", "message": "Chargement du modèle Apple Speech installé en mémoire…"])
+        Output.send(["event": "progress", "phase": warm ? "reuse" : "load",
+                     "message": warm ? "Le modèle Apple Speech est déjà en mémoire. Ouverture d’une nouvelle dictée…" : "Chargement du modèle Apple Speech installé en mémoire…"], sessionID: sessionID)
         guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]),
               let inputFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000,
                                               channels: 1, interleaved: false),
@@ -82,7 +96,12 @@ struct SpeechHelper {
             throw SpeechError.invalidAudio
         }
         converter.primeMethod = .none
-        let analyzer = SpeechAnalyzer(modules: [transcriber])
+        // Keep Apple's model cache alive across fresh analyzers. The shared
+        // supervisor exits this helper at the configured idle deadline.
+        let retention: SpeechAnalyzer.Options.ModelRetention =
+            request["keep_alive"] as? Bool == true ? .processLifetime : .whileInUse
+        let analyzer = SpeechAnalyzer(modules: [transcriber],
+                                      options: .init(priority: .userInitiated, modelRetention: retention))
         try await analyzer.prepareToAnalyze(in: format)
         let (inputs, continuation) = AsyncStream<AnalyzerInput>.makeStream(bufferingPolicy: .bufferingOldest(64))
         let results = Task {
@@ -97,16 +116,16 @@ struct SpeechHelper {
                     } else {
                         provisional = text
                     }
-                    Output.send(["event": "transcript", "text": finalized + provisional])
+                    Output.send(["event": "transcript", "text": finalized + provisional], sessionID: sessionID)
                 }
                 return finalized + provisional
             } catch {
-                Output.send(["event": "error", "message": "Apple Speech a interrompu la transcription. Réessayez."])
+                Output.send(["event": "error", "message": "Apple Speech a interrompu la transcription. Réessayez."], sessionID: sessionID)
                 throw error
             }
         }
         try await analyzer.start(inputSequence: inputs)
-        Output.send(["event": "ready"])
+        Output.send(["event": "ready"], sessionID: sessionID)
         let producer = Task.detached {
             defer { continuation.finish() }
             var bytes = 0
@@ -115,7 +134,9 @@ struct SpeechHelper {
                       let event = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     throw SpeechError.invalidAudio
                 }
+                if event["session_id"] as? String != sessionID { continue }
                 if event["action"] as? String == "stop" { return true }
+                if event["action"] as? String == "cancel" { return false }
                 guard let encoded = event["audio"] as? String,
                       let pcm = Data(base64Encoded: encoded), !pcm.isEmpty, pcm.count % 2 == 0 else {
                     throw SpeechError.invalidAudio
@@ -150,9 +171,15 @@ struct SpeechHelper {
             }
             return false
         }
-        let stopped = try await producer.value
-        try await analyzer.finalizeAndFinishThroughEndOfInput()
-        let text = try await results.value
-        if stopped { Output.send(["event": "complete", "text": text]) }
+        do {
+            let stopped = try await producer.value
+            try await analyzer.finalizeAndFinishThroughEndOfInput()
+            let text = try await results.value
+            Output.send(stopped ? ["event": "complete", "text": text] : ["event": "cancelled"], sessionID: sessionID)
+        } catch {
+            await analyzer.cancelAndFinishNow()
+            results.cancel()
+            throw error
+        }
     }
 }

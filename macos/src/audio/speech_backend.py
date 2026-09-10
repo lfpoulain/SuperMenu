@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from supermenu_core.audio.backends import OpenAISpeechBackend, ProcessSpeechBackend
+from supermenu_core.audio.resident import ResidentSpeechBackend
 from src.utils.paths import resource_path
 
 
@@ -28,4 +29,8 @@ def create_speech_backend(settings, options):
     helper = Path(resource_path(*parts))
     if not helper.is_file():
         raise ValueError("Le composant vocal Apple manque. Réinstallez la bêta macOS.")
-    return ProcessSpeechBackend((str(helper), []), options)
+    if options.get("action", "start") in {"probe", "download"}:
+        return ProcessSpeechBackend((str(helper), []), options)
+    return ResidentSpeechBackend(
+        (str(helper), []), options, settings.get_speech_idle_seconds()
+    )

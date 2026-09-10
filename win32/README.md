@@ -31,6 +31,15 @@ La préparation indique chaque étape : **vérification** des fichiers existants
 modèle manquant, puis **chargement en mémoire** du modèle installé. Les modèles
 locaux sont conservés entre les mises à jour de SuperMenu.
 
+Le modèle vocal local reste en mémoire entre les dictées, puis se décharge après
+**5 minutes d’inactivité** par défaut. Dans **Réglages > Dictée > Options avancées**,
+choisissez un déchargement après chaque dictée, après 1, 5, 15 ou 30 minutes, ou
+à la fermeture de SuperMenu. **Décharger maintenant** libère la mémoire quand
+aucune dictée n’est active, sans supprimer le modèle téléchargé. Le microphone
+et la session de transcription sont arrêtés entre les dictées ; leurs textes
+ne sont pas réutilisés. Ce réglage concerne le modèle vocal, indépendamment du
+modèle de texte Qwen.
+
 Le texte apparaît pendant que vous parlez, avec un indicateur de niveau du micro.
 **Terminer** arrête le micro puis finalise la transcription ; **Annuler** interrompt
 également le moteur. Le résultat peut être copié ou inséré dans l’application
