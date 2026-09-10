@@ -204,7 +204,7 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(6)
         from supermenu_core.ui.text_prompt_form import TextPromptForm
-        from supermenu_core.ui.page_actions import PageActions
+        from supermenu_core.ui.page_actions import PromptActions
 
         self.text_prompt_form = TextPromptForm()
         self.prompt_name = self.text_prompt_form.name
@@ -215,9 +215,8 @@ class MainWindow(QMainWindow):
         self.text_prompt_form.record_requested.connect(self.record_prompt_hotkey)
         self.text_prompt_form.clear_requested.connect(self.prompt_hotkey.clear)
         right_layout.addWidget(scrollable_form(self.text_prompt_form), 1)
-        actions = PageActions()
-        actions.add_action("Enregistrer", lambda: self.save_current_prompt(), primary=True)
-        right_layout.addWidget(actions)
+        self.prompt_actions = PromptActions(self.reset_prompt, lambda: self.save_current_prompt())
+        right_layout.addWidget(self.prompt_actions)
 
         splitter.addWidget(left)
         splitter.addWidget(right)
@@ -486,6 +485,9 @@ class MainWindow(QMainWindow):
             item.setHidden(query not in item.text().casefold())
 
     def _load_selected_prompt(self, current, _previous=None):
+        self.prompt_actions.reset_button.setEnabled(
+            current is not None and current.data(Qt.ItemDataRole.UserRole) in self.settings.default_prompts
+        )
         if current is None:
             return
         prompt_id = current.data(Qt.ItemDataRole.UserRole)
@@ -647,6 +649,15 @@ class MainWindow(QMainWindow):
         if show_confirmation:
             QMessageBox.information(self, "Prompt enregistré", "Le prompt a été enregistré.")
         return True
+
+    def reset_prompt(self):
+        from supermenu_core.ui.text_prompt_form import reset_text_prompt
+
+        item = self.prompt_list.currentItem()
+        prompt_id = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if reset_text_prompt(self.settings, prompt_id, self):
+            self._reload_prompts(prompt_id)
+            self._refresh_prompt_hotkeys()
 
     def record_prompt_hotkey(self):
         self._open_hotkey_recorder(self.prompt_hotkey.setText)

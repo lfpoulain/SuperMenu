@@ -70,3 +70,34 @@ def test_configuration_uses_shared_shell_and_visible_voice_actions(window):
     for button in (window.speech_settings.save_button, window.speech_settings.test_button):
         assert button.isVisible()
         assert button.window() is window
+
+
+def test_text_reset_requires_confirmation_and_preserves_other_prompts(window, monkeypatch):
+    from PySide6.QtCore import Qt
+
+    prompt_id = window.prompt_list.currentItem().data(Qt.ItemDataRole.UserRole)
+    prompts = window.settings.get_prompts()
+    prompts[prompt_id].update(prompt="Instructions modifiées", position=1234, hotkey="Cmd+Shift+K")
+    window.settings.set_prompts(prompts)
+    window._reload_prompts(prompt_id)
+    monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.StandardButton.No)
+    window.prompt_actions.reset_button.click()
+    assert window.settings.get_prompts() == prompts
+    monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.StandardButton.Yes)
+    window.prompt_actions.reset_button.click()
+    expected = {**window.settings.default_prompts[prompt_id], "position": 1234}
+    actual = window.settings.get_prompt(prompt_id)
+    assert actual["prompt"] == expected["prompt"]
+    assert actual["position"] == 1234
+    assert actual["hotkey"] == expected.get("hotkey", "")
+    assert window.prompt_instruction.toPlainText() == expected["prompt"]
+    remaining = window.settings.get_prompts()
+    remaining.pop(prompt_id)
+    prompts.pop(prompt_id)
+    assert remaining == prompts
+
+
+def test_custom_text_prompt_has_no_reset_to_defaults(window):
+    prompt_id = window.settings.add_prompt(None, "Personnel", "Mon instruction", "Travail")
+    window._reload_prompts(prompt_id)
+    assert not window.prompt_actions.reset_button.isEnabled()

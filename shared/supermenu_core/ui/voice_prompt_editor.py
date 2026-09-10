@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from supermenu_core.config.voice_prompts import VOICE_ORDER_CHOICES
 from .controls import ChoiceBox
 from .settings_panel import form_layout, scrollable_form
+from .page_actions import PromptActions
 
 
 class VoicePromptEditor(QWidget):
@@ -88,6 +89,7 @@ class VoicePromptEditor(QWidget):
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(6)
         self.form = QGroupBox("Votre prompt vocal")
         form = form_layout(self.form, stacked=True)
         self.name_input = QLineEdit()
@@ -114,19 +116,11 @@ class VoicePromptEditor(QWidget):
         self.feedback = QLabel()
         self.feedback.setWordWrap(True)
         right_layout.addWidget(self.feedback)
-        actions = QHBoxLayout()
-        self.reset_button = QPushButton("Réinitialiser")
-        self.reset_button.clicked.connect(self.reset_prompt)
-        actions.addWidget(self.reset_button)
-        actions.addStretch()
-        self.save_button = QPushButton("Enregistrer")
-        self.save_button.setProperty("variant", "primary")
-        self.save_button.clicked.connect(self.save)
-        actions.addWidget(self.save_button)
-        self.run_button = QPushButton("Dicter")
-        self.run_button.clicked.connect(self.run)
-        actions.addWidget(self.run_button)
-        right_layout.addLayout(actions)
+        self.actions = PromptActions(self.reset_prompt, self.save, run=self.run)
+        self.reset_button = self.actions.reset_button
+        self.save_button = self.actions.save_button
+        self.run_button = self.actions.run_button
+        right_layout.addWidget(self.actions)
         splitter.addWidget(right)
         self.reload()
 

@@ -243,7 +243,7 @@ class MainWindow(QMainWindow):
         right_layout.setSpacing(6)
         
         from supermenu_core.ui.text_prompt_form import TextPromptForm
-        from supermenu_core.ui.page_actions import PageActions
+        from supermenu_core.ui.page_actions import PromptActions
 
         self.text_prompt_form = TextPromptForm()
         self.prompt_name_input = self.text_prompt_form.name
@@ -254,10 +254,8 @@ class MainWindow(QMainWindow):
         self.text_prompt_form.record_requested.connect(self.record_prompt_hotkey)
         self.text_prompt_form.clear_requested.connect(self.clear_prompt_hotkey)
         right_layout.addWidget(scrollable_form(self.text_prompt_form), 1)
-        actions = PageActions()
-        actions.add_action("Réinitialiser", self.reset_prompt)
-        actions.add_action("Enregistrer", self.save_prompt, primary=True)
-        right_layout.addWidget(actions)
+        self.prompt_actions = PromptActions(self.reset_prompt, self.save_prompt)
+        right_layout.addWidget(self.prompt_actions)
 
         # Connect prompt selection change
         self.prompt_combo.currentIndexChanged.connect(self.load_prompt)
@@ -781,6 +779,9 @@ class MainWindow(QMainWindow):
 
     def load_prompt(self, index):
         """Load the selected prompt into the editing fields"""
+        self.prompt_actions.reset_button.setEnabled(
+            self.prompt_combo.currentData() in self.settings.default_prompts
+        )
         if index < 0 or self.prompt_combo.count() == 0:
             return
             
@@ -1087,56 +1088,17 @@ class MainWindow(QMainWindow):
                               f"Le prompt '{name}' a été enregistré avec succès.")
 
     def reset_prompt(self):
-        """Reset the current prompt to default"""
-        if self.prompt_combo.count() == 0:
-            return
-            
-        index = self.prompt_combo.currentIndex()
-        prompt_id = self.prompt_combo.currentData()
-        
-        # Confirm reset
-        reply = QMessageBox.question(
-            self,
-            "Confirmer la réinitialisation",
-            f"Êtes-vous sûr de vouloir réinitialiser le prompt '{self.prompt_combo.itemText(index)}' ?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        
-        if reply == QMessageBox.Yes:
-            # Get the default prompt
-            default_prompts = self.settings.default_prompts
-            if prompt_id in default_prompts:
-                default_prompt = default_prompts[prompt_id]
-                
-                # Update the settings
-                self.settings.update_prompt(
-                    prompt_id,
-                    default_prompt["name"],
-                    default_prompt["prompt"],
-                    default_prompt["status"],
-                    default_prompt.get("insert_directly", False),
-                    default_prompt.get("position", 999),
-                    hotkey=default_prompt.get("hotkey", ""),
-                )
-                
-                # Update the form
-                self.prompt_name_input.setText(default_prompt["name"])
-                self.prompt_text_input.setText(default_prompt["prompt"])
-                self.prompt_status_input.setText(default_prompt["status"])
-                self.prompt_insert_directly.setChecked(default_prompt.get("insert_directly", False))
-                self.prompt_hotkey_input.setText(
-                    default_prompt.get("hotkey", "")
-                )
-                if self.prompt_hotkey_manager is not None:
-                    self.prompt_hotkey_manager.refresh_hotkeys()
-                
-                # Update the combo box
-                self.prompt_combo.setItemText(index, default_prompt["name"])
+        from supermenu_core.ui.text_prompt_form import reset_text_prompt
 
-                self.populate_prompt_order_list()
-                
-                QMessageBox.information(self, "Succès", "Prompt réinitialisé avec succès.")
+        prompt_id = self.prompt_combo.currentData()
+        if reset_text_prompt(self.settings, prompt_id, self):
+            if self.prompt_hotkey_manager is not None:
+                self.prompt_hotkey_manager.refresh_hotkeys()
+            self.prompt_combo.setItemText(
+                self.prompt_combo.currentIndex(), self.settings.get_prompt(prompt_id)["name"]
+            )
+            self.populate_prompt_order_list()
+            self.load_prompt(self.prompt_combo.currentIndex())
 
     def reset_all_settings(self):
         """Reset all settings to defaults"""

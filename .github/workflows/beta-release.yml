@@ -358,6 +358,11 @@ jobs:
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
 
+            Boutons des éditeurs Prompts et Voix unifiés : Réinitialiser à gauche,
+            Enregistrer à droite et Dicter avant Enregistrer pour les prompts vocaux.
+            Réinitialisation également disponible pour les prompts texte d’origine
+            sur Mac, avec confirmation et conservation de l’ordre des prompts.
+
             Interface Mac et Windows harmonisée : fenêtre, navigation, formulaires
             de prompts, raccourcis, apparence et page À propos partagés.
             Actions Enregistrer et Dicter au même emplacement dans les rubriques.
