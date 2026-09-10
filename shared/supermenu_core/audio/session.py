@@ -21,7 +21,7 @@ class DictationSession(QObject):
         self._generation = 0
         self._cancelled = False
 
-    def start_voice_recognition(self, insert_text=False):
+    def start_voice_recognition(self):
         if self.is_recording or self.is_processing:
             return False
         provider = self.options["provider"]

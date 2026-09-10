@@ -44,8 +44,14 @@ class FakeMenuSettings:
     def get_voice_prompts(self):
         return {}
 
-    def get_microphone_index(self):
-        return None
+    def get_speech_provider(self):
+        return "openai"
+
+    def get_speech_device(self):
+        return "auto"
+
+    def get_speech_microphone(self):
+        return "qt-device-id"
 
     def get_transcription_languages(self):
         return "fr, en"
@@ -188,27 +194,36 @@ def test_context_menu_passes_transcription_settings(monkeypatch):
     manager = ContextMenuManager(settings)
     captured = {}
 
-    class FakeVoiceRecognition:
-        def __init__(self, **kwargs):
-            captured.update(kwargs)
+    class FakeDictationSession:
+        def __init__(self, factory, options, callback):
+            captured.update(factory=factory, options=options, callback=callback)
 
     monkeypatch.setattr(
-        "src.utils.context_menu.VoiceRecognition",
-        FakeVoiceRecognition,
+        "src.utils.context_menu.DictationSession",
+        FakeDictationSession,
     )
 
     callback = lambda _text: None
-    target = object()
-    manager._create_voice_recognition(
-        callback=callback,
-        target=target,
-    )
+    manager._create_voice_recognition(callback=callback)
 
-    assert captured["transcription_languages"] == "fr, en"
-    assert captured["transcription_prompt"] == "Contexte technique"
-    assert captured["transcription_keywords"] == "SuperMenu, PySide6"
+    assert captured["options"] == {
+        "provider": "openai",
+        "device": "auto",
+        "microphone": "qt-device-id",
+        "language": "",
+        "languages": ["fr", "en"],
+        "prompt": "Contexte technique",
+        "keywords": ["SuperMenu", "PySide6"],
+    }
     assert captured["callback"] is callback
-    assert captured["target"] is target
+    backend_calls = []
+    monkeypatch.setattr(
+        "src.utils.context_menu.create_speech_backend",
+        lambda settings, options: backend_calls.append((settings, options)),
+    )
+    captured["factory"](captured["options"])
+    assert backend_calls == [(settings, captured["options"])]
+    manager.close()
 
 
 def test_write_by_voice_opens_response_window_instead_of_direct_paste(
@@ -222,8 +237,8 @@ def test_write_by_voice_opens_response_window_instead_of_direct_paste(
     presented = []
 
     class FakeVoiceRecognition:
-        def start_voice_recognition(self, insert_text=True):
-            captured["insert_text"] = insert_text
+        def start_voice_recognition(self):
+            captured["started"] = True
 
     def fake_create_voice_recognition(**kwargs):
         captured.update(kwargs)
@@ -240,8 +255,7 @@ def test_write_by_voice_opens_response_window_instead_of_direct_paste(
     manager._handle_voice_action(target=target)
     captured["callback"]("Texte dicté")
 
-    assert captured["insert_text"] is False
-    assert "fenêtre de réponse" in captured["callback_success_message"]
+    assert captured["started"] is True
     assert manager.response_window.response_text.toPlainText() == "Texte dicté"
     assert manager.response_window.paste_target is target
     assert presented == ["present"]
@@ -264,8 +278,8 @@ def test_direct_voice_prompt_uses_tracked_request_lifecycle(monkeypatch):
     target = object()
 
     class FakeVoiceRecognition:
-        def start_voice_recognition(self, insert_text=True):
-            captured["insert_text"] = insert_text
+        def start_voice_recognition(self):
+            captured["started"] = True
 
         def cleanup(self):
             pass
@@ -280,7 +294,7 @@ def test_direct_voice_prompt_uses_tracked_request_lifecycle(monkeypatch):
     manager._handle_voice_prompt_action("voice", target=target)
     captured["callback"]("texte dicté")
 
-    assert captured["insert_text"] is False
+    assert captured["started"] is True
     assert requests == [
         (
             ("Corrige :\n\ntexte dicté", "", True),

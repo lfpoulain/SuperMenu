@@ -9,7 +9,11 @@ from PySide6.QtWidgets import QApplication
 from supermenu_core.audio import session as session_module
 from supermenu_core.audio.backends import OpenAISpeechBackend, SpeechBackend
 from supermenu_core.audio.microphone import PCMConverter
-from supermenu_core.audio.settings import SpeechSettingsMixin, local_language
+from supermenu_core.audio.settings import (
+    MAX_DICTATION_SECONDS,
+    SpeechSettingsMixin,
+    local_language,
+)
 from supermenu_core.audio.session import DictationSession
 from supermenu_core.ui.dictation_dialog import RecordingDialog
 from supermenu_core.ui.speech_settings import SpeechSettingsWidget
@@ -182,6 +186,63 @@ def test_cancel_during_finalization_stops_engine_once(app):
     dialog.close()
     dialog.close()
     assert calls == [True]
+
+
+def test_time_limit_excludes_model_preparation_and_finalizes_only_once(
+    app, monkeypatch
+):
+    now = [1000.0]
+    monkeypatch.setattr(
+        "supermenu_core.ui.dictation_dialog.time.monotonic", lambda: now[0]
+    )
+    monkeypatch.setattr(session_module, "Microphone", FakeMicrophone)
+    backend = FakeBackend()
+    finishes = []
+    backend.finish = lambda: finishes.append(True)
+    session = DictationSession(lambda _: backend, {"provider": "foundry"})
+    session.start_voice_recognition()
+    dialog = session.recording_dialog
+
+    now[0] += MAX_DICTATION_SECONDS + 100
+    dialog._update_recording_ui()
+    assert not finishes
+    assert session.microphone is None
+
+    session._start_microphone()
+    microphone = session.microphone
+    now[0] += MAX_DICTATION_SECONDS - 1
+    dialog._update_recording_ui()
+    assert not finishes
+    now[0] += 1
+    dialog._update_recording_ui()
+    dialog._update_recording_ui()
+    dialog.stop_button.click()
+    assert finishes == [True]
+    assert microphone.stop_count == 1
+    assert not session.is_recording
+    session.cleanup()
+
+
+def test_cancelling_live_capture_stops_microphone_and_discards_late_result(
+    app, monkeypatch
+):
+    monkeypatch.setattr(session_module, "Microphone", FakeMicrophone)
+    backend, completed = FakeBackend(), []
+    session = DictationSession(
+        lambda _: backend, {"provider": "openai"}, completed.append
+    )
+    session.start_voice_recognition()
+    session._start_microphone()
+    microphone = session.microphone
+    backend.transcript.emit("Texte provisoire")
+    session.recording_dialog.cancel_button.click()
+    backend.completed.emit("Résultat arrivé après annulation")
+    assert microphone.stop_count == 1
+    assert session.microphone is None
+    assert backend.cancelled
+    assert not backend.finished
+    assert completed == []
+    session.cleanup()
 
 
 class Settings(SpeechSettingsMixin):

@@ -61,7 +61,7 @@ ciblée depuis le menu contextuel. Durée maximale : cinq minutes par dictée.
 
 ### 🎙️ Voix & Dictée
 - **Commandes Vocales** : Parle à l'IA (`Ctrl+Alt+²`).
-- **GPT Transcribe** : Modèle OpenAI recommandé pour les enregistrements terminés, avec détection ou indices multilingues.
+- **Dictée en direct** : OpenAI GPT Live Transcribe ou Nemotron avec Foundry Local, capture Qt partagée avec Mac et aucun fichier audio temporaire.
 - **Retour Visuel Complet** : Durée d'enregistrement, limite visible, préparation, transcription, succès et erreurs dans une seule carte.
 - **Vocabulaire Personnalisé** : Langues attendues, termes techniques et contexte facultatif configurables.
 - **Contexte Mixte** : Combine ta voix avec le texte sélectionné à l'écran.

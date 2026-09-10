@@ -358,6 +358,11 @@ jobs:
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
 
+            Nettoyage Windows : suppression de l’ancienne capture PyAudio et de
+            la transcription par fichier WAV. La dictée utilise directement le
+            contrôleur et la capture Qt partagés avec Mac. Les réglages actuels
+            de microphone, de moteur vocal et de maintien en mémoire sont conservés.
+
             Les modèles vocaux locaux restent désormais en mémoire entre les dictées.
             Déchargement après 5 minutes d’inactivité par défaut, configurable dans
             Dictée > Options avancées : immédiat, 1/5/15/30 minutes, ou fermeture de

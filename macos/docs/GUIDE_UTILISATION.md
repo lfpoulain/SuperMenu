@@ -25,9 +25,10 @@ La distribution actuelle cible les Mac **Apple Silicon**. Le nom de chaque
 asset contient explicitement `arm64` afin d’éviter son installation sur un Mac
 Intel incompatible.
 
-La version macOS traite uniquement du texte. Elle ne propose pas la
-transcription audio ni la capture d’écran de la composition Windows et ne
-demande donc pas les permissions Microphone ou Enregistrement de l’écran.
+La version macOS propose le texte et la transcription en direct avec OpenAI ou
+Apple Speech local (macOS 26+). La dictée demande la permission Microphone.
+La capture d’écran reste propre à Windows ; SuperMenu ne demande pas la
+permission Enregistrement de l’écran sur Mac.
 
 ## Installation
 
@@ -35,7 +36,8 @@ demande donc pas les permissions Microphone ou Enregistrement de l’écran.
 
 - **Stable** : version recommandée pour un usage quotidien ;
 - **Beta** : version reconstruite automatiquement après chaque changement de
-  `main` dont la CI complète réussit.
+  `main` dont la CI complète réussit, ainsi que depuis la branche de test dédiée
+  `codex/foundry-local-windows`.
 
 Les deux canaux sont disponibles sur
 [GitHub Releases](https://github.com/lfpoulain/SuperMenu/releases).
@@ -96,6 +98,20 @@ n’améliore pas le fonctionnement normal de cette version.
 ## Configurer le fournisseur IA
 
 Ouvrez **SuperMenu > Paramètres** depuis l’icône de la barre des menus.
+
+Pour la voix, ouvrez **Dictée** : le moteur vocal se choisit séparément du moteur
+de texte. Sélectionnez OpenAI ou Apple Speech, une langue et le microphone.
+**Tester le micro** affiche son niveau pendant cinq secondes, sans sauvegarde
+ni envoi. Pour Apple Speech, utilisez **Vérifier** puis téléchargez les ressources
+si nécessaire. Enregistrez vos choix, cliquez sur **Dicter** et attendez
+**À l’écoute** avant de parler. Le texte apparaît en direct ; **Terminer** le
+finalise et **Annuler** arrête la capture. La limite est de cinq minutes de parole,
+hors préparation du moteur.
+
+Dans **Options avancées**, choisissez quand décharger le modèle local :
+immédiatement, après 1/5/15/30 minutes d’inactivité, ou à la fermeture de
+SuperMenu. La valeur par défaut est cinq minutes. **Décharger maintenant**
+libère la mémoire sans supprimer les ressources téléchargées.
 
 ### OpenAI
 

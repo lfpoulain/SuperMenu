@@ -88,16 +88,17 @@ Lors du premier lancement de SuperMenu, ou en accédant aux paramètres via l'ic
     *   Règles : les raccourcis doivent contenir au moins un modificateur (`Ctrl`, `Alt` ou `Shift`). Les touches de fonction `F1` à `F24` sont prises en charge. La touche `Win` n'est pas autorisée et les raccourcis à une seule touche ne sont pas supportés.
 
 4. **Dictée et transcription** :
-   * Sélectionnez le microphone à utiliser.
-   * Indiquez une ou plusieurs langues attendues (`fr`, `en`, `zh-cn`, etc.). Laissez le champ vide pour laisser GPT Transcribe les détecter.
-   * Ajoutez éventuellement des noms propres ou termes techniques dans **Vocabulaire à reconnaître**.
-   * Le **Contexte facultatif** décrit brièvement l'enregistrement ; il ne sert pas à réécrire le texte.
-   * Enregistrez l'ensemble avec **Enregistrer les réglages de dictée**.
+   * Dans **Réglages > Dictée**, choisissez OpenAI ou Foundry Local avec Nemotron. Ce choix est indépendant du moteur de texte.
+   * Sélectionnez le microphone puis utilisez **Tester le micro** : le niveau s'affiche pendant cinq secondes, sans sauvegarde ni envoi d'audio.
+   * Choisissez la langue. OpenAI accepte plusieurs langues attendues ; Nemotron accepte une langue ou la détection automatique.
+   * Avec Foundry Local, **Vérifier** indique si les composants et le modèle sont disponibles. Téléchargez-les si nécessaire ; le chargement en mémoire intervient ensuite pour dicter.
+   * Dans **Options avancées**, ajustez le vocabulaire, le contexte et le délai de déchargement du modèle local. Par défaut, il reste en mémoire cinq minutes après la dernière dictée. **Décharger maintenant** libère la mémoire sans supprimer les fichiers téléchargés.
+   * Enregistrez les réglages avant de lancer une dictée.
 
 ### Configuration de l'API
 
 1. Ouvrez les paramètres de SuperMenu
-2. Allez dans l'onglet "Modèles"
+2. Allez dans **Réglages > Texte**
 3. Renseignez la clé API (si vous utilisez OpenAI)
 4. Sélectionnez un modèle
 5. (Optionnel) activez un endpoint personnalisé et configurez l'URL + le modèle
@@ -141,15 +142,18 @@ Chaque prompt peut avoir son propre raccourci, ou aucun. Deux prompts ne peuvent
 
 ### Reconnaissance vocale
 
-1. Appuyez sur **Ctrl+Alt+²** (ou votre raccourci personnalisé)
-2. Parlez clairement dans votre microphone
-3. La carte affiche la durée et la limite d'une minute
-4. Cliquez sur **Terminer et transcrire**, ou sur **Annuler** pour supprimer la prise
-5. La même carte indique la préparation, la transcription avec GPT Transcribe, puis le résultat
-6. Avec **Écrire à la voix**, la transcription s'ouvre dans la fenêtre de réponse : vous pouvez la relire, la copier ou cliquer sur **Écrire**
+1. Appuyez sur **Ctrl+Alt+²** (ou votre raccourci personnalisé), puis choisissez l'action vocale
+2. Attendez **À l'écoute** avant de parler. Le modèle local déjà en mémoire est réutilisé
+3. La fenêtre affiche le texte en direct, le niveau du microphone et la durée, limitée à cinq minutes de capture
+4. Cliquez sur **Terminer** pour finaliser, ou sur **Annuler** pour abandonner la dictée et arrêter le microphone
+5. La finalisation intègre les derniers mots ; vous pouvez copier le texte affiché
+6. Avec la dictée simple, la transcription s'ouvre dans la fenêtre de réponse : vous pouvez la relire, la copier ou cliquer sur **Écrire**
 7. Avec un prompt vocal, la transcription est traitée selon les options de ce prompt
 
-Le champ de langues utilise des indices, pas une contrainte de sortie. Avec plusieurs langues, GPT Transcribe peut reconnaître un enregistrement multilingue et signale les langues détectées. Les mots-clés doivent rester courts et réellement susceptibles d'être prononcés.
+La préparation du moteur ne compte pas dans les cinq minutes de capture. Aucun
+fichier audio n'est sauvegardé. Avec OpenAI, le son est transmis au service ; avec
+Nemotron, il est traité sur le PC. Les mots-clés doivent rester courts et
+correspondre à des termes susceptibles d'être prononcés.
 
 ### Capture d'écran
 
@@ -257,12 +261,11 @@ Le menu utilise toujours le composant Qt natif. L'ancien choix « Standard Qt / 
 
 ### Problèmes de reconnaissance vocale
 
-1. Vérifiez que votre microphone fonctionne correctement
-2. Dans les paramètres, onglet "Réglages", sélectionnez explicitement votre microphone
-3. Parlez clairement et à un volume normal
-4. Assurez-vous d'être dans un environnement relativement calme
-
-Note : le micro et les indices GPT Transcribe sont enregistrés ensemble via **💾 Enregistrer les réglages de dictée**.
+1. Dans **Réglages > Dictée**, sélectionnez votre microphone et cliquez sur **Tester le micro**
+2. Si aucun niveau n'apparaît, vérifiez les autorisations Microphone de Windows et essayez une autre entrée
+3. Pour OpenAI, vérifiez la clé API et la connexion Internet. Pour Foundry Local, utilisez **Vérifier** puis téléchargez les composants manquants
+4. Distinguez le téléchargement sur disque du chargement en mémoire : un modèle déchargé peut être rechargé sans être téléchargé à nouveau
+5. Enregistrez les réglages puis relancez une dictée ; attendez **À l'écoute** avant de parler
 
 ### Erreurs d'API
 

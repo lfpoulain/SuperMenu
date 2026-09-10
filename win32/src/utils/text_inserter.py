@@ -9,7 +9,7 @@ from pynput.keyboard import Controller, Key
 from src.utils.logger import log
 from src.utils.clipboard_manager import ClipboardManager
 from src.utils.window_target import PasteTarget
-from src.audio.audio_config import CLIPBOARD_PASTE_DELAY, CLIPBOARD_COPY_DELAY, CLIPBOARD_RESTORE_DELAY
+from src.utils.clipboard_config import CLIPBOARD_PASTE_DELAY, CLIPBOARD_COPY_DELAY, CLIPBOARD_RESTORE_DELAY
 
 class TextInserter:
     """Classe pour insérer du texte à la position actuelle du curseur."""

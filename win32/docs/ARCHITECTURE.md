@@ -12,6 +12,7 @@ que `win32/src` porte uniquement l'application et les intégrations Windows.
 SuperMenu/
 ├── shared/supermenu_core/      # Cœur commun, sans API native
 │   ├── api/                    # OpenAI, Ollama, LM Studio
+│   ├── audio/                  # Capture Qt, dictée en direct, modèles résidents
 │   ├── config/                 # Modèles et schémas de prompts
 │   ├── ui/                     # Widgets Qt composables
 │   └── utils/                  # Validateurs purs
@@ -19,7 +20,7 @@ SuperMenu/
     ├── src/
     │   ├── main.py             # Composition de l'application
     │   ├── api/                # Adaptateur multimodal du client
-    │   ├── audio/              # Enregistrement et transcription
+    │   ├── audio/              # Moteurs vocaux Windows et worker Nemotron
     │   ├── config/             # Persistance Windows
     │   ├── ui/                 # UI Windows et capture
     │   └── utils/              # Hotkeys, cible et presse-papiers
@@ -124,14 +125,19 @@ La fenêtre de résultat n'expose plus plusieurs moteurs expérimentaux. `Respon
 ### Reconnaissance vocale
 
 1. L'utilisateur appuie sur le raccourci vocal (par défaut: Ctrl+Alt+²)
-2. `VoiceRecognition` affiche `RecordingDialog`, qui expose la durée, la limite, l'annulation et les états de traitement
-3. `AudioRecorder` capture en PCM mono 48 kHz et produit directement un WAV natif
-4. `Transcriber` vérifie le format, la taille maximale de 25 Mo et appelle `/v1/audio/transcriptions` avec `gpt-transcribe`
-5. Les champs OpenAI actuels sont utilisés : `languages`, `keywords` et `prompt`; la réponse JSON est lue via son champ `text`
-6. La finalisation WAV, le réseau et le nettoyage restent hors du thread Qt; des signaux mettent l'interface à jour
-7. L'action **Écrire à la voix** transmet la transcription à une `ResponseWindow` autonome, sans ancienne requête réessayable, puis laisse l'utilisateur choisir **Copier** ou **Écrire**
+2. `ContextMenuManager` crée directement le `DictationSession` de `shared/supermenu_core/audio`, également utilisé sur Mac
+3. La fenêtre partagée `RecordingDialog` indique la préparation du moteur ; le microphone ne démarre qu'une fois celui-ci prêt
+4. `Microphone` capture via Qt Multimedia et convertit le flux en PCM mono : 24 kHz pour OpenAI GPT Live Transcribe, 16 kHz pour Foundry Local Nemotron
+5. Les fragments audio sont transmis au moteur au fur et à mesure, sans fichier audio sur disque ; les signaux actualisent la transcription en direct
+6. **Terminer**, ou la limite de cinq minutes de capture, arrête le microphone et finalise la transcription. **Annuler** libère la capture et ignore tout résultat tardif
+7. L'action **Dicter** transmet le texte final à une `ResponseWindow` autonome, puis laisse l'utilisateur choisir **Copier** ou **Écrire**
 8. Un prompt vocal combine la transcription avec son instruction et respecte son option `insert_directly`
-9. Les fichiers audio temporaires et les ressources PyAudio sont nettoyés dans tous les chemins de sortie
+9. Le service partagé `ResidentSpeechService` conserve le moteur local entre les dictées, avec une session distincte pour chacune et un déchargement après cinq minutes d'inactivité par défaut. Le délai est configurable ; le microphone reste fermé entre les dictées
+
+`src/audio` contient uniquement les moteurs propres à Windows. Les délais de
+copie et de collage résident dans `src/utils/clipboard_config.py`. Le microphone
+est identifié par son ID Qt (`speech_microphone`) ; l'ancien index PortAudio est
+retiré du fichier de configuration sans toucher aux préférences vocales actuelles.
 
 ### Capture d'écran
 
@@ -155,7 +161,7 @@ La classe `Settings` dans `src/config/settings.py` gère tous les paramètres de
 - Stockage sécurisé de la clé API via `keyring`
 - Gestion des prompts textuels et vocaux
 - Configuration des raccourcis clavier
-- Paramètres du microphone et indices GPT Transcribe
+- Moteur vocal, ID Qt du microphone, langues, contexte et délai de déchargement du modèle local
 - Thème de l'application
 
 Emplacements par défaut :

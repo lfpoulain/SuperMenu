@@ -16,8 +16,16 @@ La version macOS suit quatre règles :
 4. **Cible explicite** : toute lecture ou insertion est associée à une
    application capturée par PID et bundle identifier.
 
-La composition macOS est textuelle. Les modules audio et capture d’écran
-restent dans `win32/` et ne font pas partie de ses dépendances ou permissions.
+La composition macOS propose le texte et la dictée en direct. La capture
+microphone Qt, `DictationSession` et la fenêtre de transcription résident dans
+`shared/supermenu_core`. `src/audio/speech_backend.py` choisit OpenAI ou Apple
+Speech via `native/SpeechHelper.swift` (macOS 26+). La permission Microphone est
+demandée avant la capture. La capture d’écran reste propre à Windows.
+
+Le service partagé de modèles résidents conserve le processus Apple Speech
+entre les dictées et ouvre une nouvelle session pour chaque capture. Il le
+décharge après cinq minutes d’inactivité par défaut, selon le réglage choisi.
+Le microphone est arrêté entre les dictées et aucun audio n’est sauvegardé.
 
 ## Vue d’ensemble
 

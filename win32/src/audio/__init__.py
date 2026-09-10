@@ -2,6 +2,5 @@
 # -*- coding: utf-8 -*-
 
 """
-Module audio pour SuperMenu.
-Gère l'enregistrement et la transcription audio.
+Moteurs vocaux Windows ; la capture et la session de dictée sont partagées.
 """

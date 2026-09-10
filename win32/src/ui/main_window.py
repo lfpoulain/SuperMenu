@@ -703,12 +703,6 @@ class MainWindow(QMainWindow):
             self.settings, lambda options: create_speech_backend(self.settings, options), self
         )
         microphone_group = self.speech_settings
-        # Compatibility names used by existing diagnostics and settings reloads.
-        self.microphone_combo = self.speech_settings.microphone_combo
-        self.transcription_languages_input = self.speech_settings.languages_input
-        self.transcription_keywords_input = self.speech_settings.keywords_input
-        self.transcription_prompt_input = self.speech_settings.prompt_input
-        self.save_microphone_button = self.speech_settings.save_button
         self.speech_settings.dictation_requested.connect(self.start_dictation)
         self.api_key_input.textChanged.connect(self.speech_settings.api_key_input.setText)
         self.speech_settings.api_key_input.textChanged.connect(self.api_key_input.setText)
@@ -1158,16 +1152,6 @@ class MainWindow(QMainWindow):
             from src.utils.window_target import PasteTarget
             self.context_menu_manager._handle_voice_action(target=PasteTarget.capture())
 
-    def populate_microphone_combo(self):
-        if hasattr(self, "speech_settings"):
-            self.speech_settings.refresh_microphones()
-
-    def save_audio_settings(self):
-        return self.speech_settings.save()
-
-    def save_microphone_selection(self):
-        return self.save_audio_settings()
-
     def on_screenshot_capture_mode_changed(self, *args):
         self._update_screenshot_capture_mode_ui_state()
 
@@ -1548,17 +1532,17 @@ class MainWindow(QMainWindow):
             self._update_screenshot_capture_mode_ui_state()
             self._refresh_update_channel_ui()
 
-            self.populate_microphone_combo()
+            self.speech_settings.refresh_microphones()
             self.speech_settings.provider_combo.setCurrentIndex(0)
             self.speech_settings.device_combo.setCurrentIndex(0)
             self.speech_settings.microphone_combo.setCurrentIndex(0)
-            self.transcription_languages_input.setText(
+            self.speech_settings.languages_input.setText(
                 self.settings.get_transcription_languages()
             )
-            self.transcription_keywords_input.setText(
+            self.speech_settings.keywords_input.setText(
                 self.settings.get_transcription_keywords()
             )
-            self.transcription_prompt_input.setPlainText(
+            self.speech_settings.prompt_input.setPlainText(
                 self.settings.get_transcription_prompt()
             )
             self.speech_settings._changed()

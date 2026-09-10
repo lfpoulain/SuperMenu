@@ -1,5 +1,4 @@
 import os
-import wave
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -7,11 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QMimeData
 from PySide6.QtWidgets import QApplication, QComboBox, QVBoxLayout, QWidget
 
-from src.audio import audio_recorder as audio_recorder_module
-from src.audio.audio_config import CHANNELS, CHUNK_SIZE, SAMPLE_RATE
-from src.audio.audio_recorder import AudioRecorder
-from src.audio.transcription import MAX_TRANSCRIPTION_FILE_BYTES
-from src.audio.voice_recognition import RecordingDialog
+from supermenu_core.ui.dictation_dialog import RecordingDialog
 from src.config import settings as settings_module
 from src.config.settings import Settings
 from src.ui.main_window import MainWindow
@@ -46,141 +41,6 @@ def test_recording_dialog_stop_switches_to_processing():
     assert calls == ["stop"]
     assert dialog._state == "processing"
     assert dialog.stop_button.isEnabled() is False
-
-
-def test_audio_callback_never_exceeds_the_recording_limit(monkeypatch):
-    monkeypatch.setattr(audio_recorder_module, "MAX_RECORDING_CHUNKS", 2)
-    recorder = AudioRecorder.__new__(AudioRecorder)
-    recorder.frames = []
-    recorder.stop_event = audio_recorder_module.threading.Event()
-
-    recorder._callback(b"first", 1, None, 0)
-    recorder._callback(b"second", 1, None, 0)
-    _data, status = recorder._callback(b"third", 1, None, 0)
-
-    assert recorder.frames == [b"first", b"second"]
-    assert recorder.stop_event.is_set()
-    assert status == audio_recorder_module.pyaudio.paComplete
-
-
-def test_audio_recording_always_creates_a_wav_file():
-    class FakeStream:
-        def start_stream(self):
-            pass
-
-        def is_active(self):
-            return True
-
-        def stop_stream(self):
-            pass
-
-        def close(self):
-            pass
-
-    class FakePyAudio:
-        def open(self, **_kwargs):
-            return FakeStream()
-
-    recorder = AudioRecorder.__new__(AudioRecorder)
-    recorder.input_device_index = None
-    recorder.pyaudio = FakePyAudio()
-    recorder.stream = None
-    recorder.frames = []
-    recorder.is_recording = False
-    recorder.stop_event = audio_recorder_module.threading.Event()
-    recorder.temp_files = []
-
-    recording_path = recorder.start_recording()
-
-    try:
-        assert recording_path.endswith(".wav")
-        assert os.path.isfile(recording_path)
-    finally:
-        recorder.cancel_recording()
-
-
-def test_stop_recording_writes_native_pcm_wav(tmp_path, monkeypatch):
-    class FakeStream:
-        def is_active(self):
-            return True
-
-        def stop_stream(self):
-            pass
-
-        def close(self):
-            pass
-
-    class FakePyAudio:
-        @staticmethod
-        def get_sample_size(_audio_format):
-            return 2
-
-    payload = b"\x00\x00\x10\x00\xf0\xff\x00\x00"
-    recording_path = tmp_path / "recording.wav"
-    recorder = AudioRecorder.__new__(AudioRecorder)
-    recorder.pyaudio = FakePyAudio()
-    recorder.stream = FakeStream()
-    recorder.frames = [payload[:4], payload[4:]]
-    recorder.is_recording = True
-    recorder.stop_event = audio_recorder_module.threading.Event()
-    recorder.temp_files = [str(recording_path)]
-    monkeypatch.setattr(audio_recorder_module.time, "sleep", lambda _delay: None)
-
-    result = recorder.stop_recording()
-
-    assert result == str(recording_path)
-    assert recorder.stream is None
-    with wave.open(result, "rb") as wav_file:
-        assert wav_file.getnchannels() == CHANNELS
-        assert wav_file.getsampwidth() == 2
-        assert wav_file.getframerate() == SAMPLE_RATE
-        assert wav_file.getcomptype() == "NONE"
-        assert wav_file.readframes(wav_file.getnframes()) == payload
-    assert recording_path.stat().st_size == 44 + len(payload)
-
-
-def test_maximum_native_wav_stays_below_transcription_limit():
-    sample_width = 2
-    maximum_size = (
-        44
-        + audio_recorder_module.MAX_RECORDING_CHUNKS
-        * CHUNK_SIZE
-        * CHANNELS
-        * sample_width
-    )
-
-    assert maximum_size < MAX_TRANSCRIPTION_FILE_BYTES
-
-
-def test_audio_cancel_discards_the_temporary_recording(tmp_path):
-    class FakeStream:
-        def __init__(self):
-            self.closed = False
-
-        def is_active(self):
-            return True
-
-        def stop_stream(self):
-            pass
-
-        def close(self):
-            self.closed = True
-
-    recording_path = tmp_path / "cancelled.wav"
-    recording_path.write_bytes(b"temporary audio")
-    recorder = AudioRecorder.__new__(AudioRecorder)
-    recorder.stop_event = audio_recorder_module.threading.Event()
-    recorder.frames = [b"audio"]
-    recorder.stream = FakeStream()
-    recorder.is_recording = True
-    recorder.temp_files = [str(recording_path)]
-
-    recorder.cancel_recording()
-
-    assert recorder.stream is None
-    assert recorder.frames == []
-    assert recorder.temp_files == []
-    assert not recording_path.exists()
 
 
 def test_clipboard_snapshot_restores_text_and_rich_formats():
@@ -383,7 +243,7 @@ def test_main_window_constructs_without_duplicate_prompts(monkeypatch, tmp_path)
     )
     monkeypatch.setattr(Settings, "get_api_key", lambda _self: "")
     monkeypatch.setattr(
-        "src.audio.voice_recognition.VoiceRecognition.list_microphones",
+        "supermenu_core.ui.speech_settings.microphones",
         lambda: [],
     )
     settings = Settings()
@@ -392,9 +252,9 @@ def test_main_window_constructs_without_duplicate_prompts(monkeypatch, tmp_path)
 
     assert window.prompt_combo.count() == len(settings.get_prompts())
     assert window.main_layout.count() == 2
-    assert hasattr(window, "transcription_languages_input")
-    assert hasattr(window, "transcription_keywords_input")
-    assert hasattr(window, "transcription_prompt_input")
+    assert hasattr(window.speech_settings, "languages_input")
+    assert hasattr(window.speech_settings, "keywords_input")
+    assert hasattr(window.speech_settings, "prompt_input")
     assert not hasattr(window, "response_window_open_mode_combo")
     assert window.update_channel_combo.currentData() == "stable"
 

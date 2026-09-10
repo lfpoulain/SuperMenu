@@ -21,13 +21,15 @@ from supermenu_core.ui.safe_dialogs import SafeDialogs
 from src.ui.response_window import ResponseWindow
 from src.ui.prompt_dialog import PromptDialog
 from src.ui.screen_capture import capture_screen
-from src.audio.voice_recognition import VoiceRecognition
+from supermenu_core.audio.session import DictationSession
+from supermenu_core.audio.settings import speech_options
+from src.audio.speech_backend import create_speech_backend
 from src.utils.text_inserter import TextInserter
 from src.utils.logger import log
 from src.utils.clipboard_manager import ClipboardManager
 from supermenu_core.ui.loading_indicator import SimpleLoadingIndicator
 from src.utils.window_target import PasteTarget
-from src.audio.audio_config import CLIPBOARD_COPY_DELAY, CLIPBOARD_RESTORE_DELAY
+from src.utils.clipboard_config import CLIPBOARD_COPY_DELAY, CLIPBOARD_RESTORE_DELAY
 
 class ContextMenuManager(QObject):
     """Manage the context menu for text operations"""
@@ -347,41 +349,12 @@ class ContextMenuManager(QObject):
         self._last_lbutton_down = False
         self._menu_opened_at = None
     
-    def _create_voice_recognition(
-        self,
-        *,
-        callback=None,
-        target=None,
-        callback_success_message=(
-            "Le texte a été transcrit. Le traitement IA est lancé."
-        ),
-    ):
-        """Créer une session vocale avec une configuration centralisée."""
-        get_languages = getattr(
-            self.settings,
-            "get_transcription_languages",
-            lambda: "fr",
-        )
-        get_prompt = getattr(
-            self.settings,
-            "get_transcription_prompt",
-            lambda: "",
-        )
-        get_keywords = getattr(
-            self.settings,
-            "get_transcription_keywords",
-            lambda: "",
-        )
-        return VoiceRecognition(
-            settings=self.settings,
-            api_key=self.settings.get_api_key(),
-            microphone_index=self.settings.get_microphone_index(),
-            callback=callback,
-            target=target,
-            transcription_languages=get_languages(),
-            transcription_prompt=get_prompt(),
-            transcription_keywords=get_keywords(),
-            callback_success_message=callback_success_message,
+    def _create_voice_recognition(self, *, callback=None):
+        """Créer une dictée avec le contrôleur commun aux deux plateformes."""
+        return DictationSession(
+            lambda options: create_speech_backend(self.settings, options),
+            speech_options(self.settings),
+            callback,
         )
     
     def show_menu(self):
@@ -858,9 +831,6 @@ class ContextMenuManager(QObject):
         if self._closed:
             return
         try:
-            # Récupérer l'index du microphone depuis les paramètres
-            microphone_index = self.settings.get_microphone_index()
-
             # Arrêter toute reconnaissance vocale en cours
             self.stop_voice_recognition()
 
@@ -877,21 +847,11 @@ class ContextMenuManager(QObject):
 
             self.voice_recognition = self._create_voice_recognition(
                 callback=show_transcription,
-                target=target,
-                callback_success_message=(
-                    "La transcription est prête dans la fenêtre de réponse."
-                ),
             )
-
-            # Afficher un message de débogage sur le microphone utilisé
-            if microphone_index is not None:
-                log(f"Utilisation du microphone avec l'index: {microphone_index}", logging.DEBUG)
-            else:
-                log("Utilisation du microphone par défaut du système", logging.DEBUG)
 
             # Transcrire sans coller automatiquement : la fenêtre de réponse
             # propose explicitement de copier ou d'écrire le texte.
-            self.voice_recognition.start_voice_recognition(insert_text=False)
+            self.voice_recognition.start_voice_recognition()
         except Exception as e:
             SafeDialogs.show_critical("Erreur de reconnaissance vocale",
                                 f"Une erreur s'est produite lors de la reconnaissance vocale : {str(e)}")
@@ -901,9 +861,6 @@ class ContextMenuManager(QObject):
         if self._closed:
             return
         try:
-            # Récupérer l'index du microphone depuis les paramètres
-            microphone_index = self.settings.get_microphone_index()
-            
             # Récupérer les données du prompt vocal
             prompt_data = self.settings.get_voice_prompt(prompt_id)
             if not prompt_data:
@@ -982,17 +939,10 @@ class ContextMenuManager(QObject):
 
             self.voice_recognition = self._create_voice_recognition(
                 callback=process_transcription,
-                target=target,
             )
 
-            # Afficher un message de débogage sur le microphone utilisé
-            if microphone_index is not None:
-                log(f"Utilisation du microphone avec l'index: {microphone_index}", logging.DEBUG)
-            else:
-                log("Utilisation du microphone par défaut du système", logging.DEBUG)
-
             # Démarrer la reconnaissance vocale sans insérer le texte (car nous allons le traiter avec la fonction de rappel)
-            self.voice_recognition.start_voice_recognition(insert_text=False)
+            self.voice_recognition.start_voice_recognition()
             
         except Exception as e:
             SafeDialogs.show_critical("Erreur de prompt vocal", 
@@ -1009,10 +959,7 @@ class ContextMenuManager(QObject):
             
             if not custom_prompt:
                 return  # L'utilisateur a annulé
-                
-            # Récupérer l'index du microphone depuis les paramètres
-            microphone_index = self.settings.get_microphone_index()
-            
+
             # Fonction de rappel pour traiter le texte transcrit
             def process_transcription(text):
                 if self._closed:
@@ -1044,17 +991,10 @@ class ContextMenuManager(QObject):
 
             self.voice_recognition = self._create_voice_recognition(
                 callback=process_transcription,
-                target=target,
             )
 
-            # Afficher un message de débogage sur le microphone utilisé
-            if microphone_index is not None:
-                log(f"Utilisation du microphone avec l'index: {microphone_index}", logging.DEBUG)
-            else:
-                log("Utilisation du microphone par défaut du système", logging.DEBUG)
-
             # Démarrer la reconnaissance vocale sans insérer le texte (car nous allons le traiter avec la fonction de rappel)
-            self.voice_recognition.start_voice_recognition(insert_text=False)
+            self.voice_recognition.start_voice_recognition()
 
         except Exception as e:
             SafeDialogs.show_critical("Erreur de prompt personnalisé",

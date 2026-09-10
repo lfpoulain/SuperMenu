@@ -58,7 +58,6 @@ class Settings(SpeechSettingsMixin):
         self.default_custom_endpoint = ""
         self.default_custom_model = ""
         self.default_use_custom_endpoint = False
-        self.default_microphone_index = -1
         self.default_transcription_languages = "fr"
         self.default_transcription_prompt = ""
         self.default_transcription_keywords = ""
@@ -140,8 +139,8 @@ class Settings(SpeechSettingsMixin):
         if not self.settings.contains("use_custom_endpoint"):
             self.settings.setValue("use_custom_endpoint", self.default_use_custom_endpoint)
             
-        if not self.settings.contains("microphone_index"):
-            self.settings.setValue("microphone_index", self.default_microphone_index)  # -1 = utiliser le microphone par défaut
+        # Retire the old PortAudio index; Qt stores the current device ID separately.
+        self.settings.remove("microphone_index")
 
         if not self.settings.contains("transcription_languages"):
             self.settings.setValue(
@@ -369,20 +368,6 @@ class Settings(SpeechSettingsMixin):
     def set_foundry_device(self, device):
         self.settings.setValue("foundry_device", "cpu" if device == "cpu" else "auto")
         
-    def get_microphone_index(self):
-        """Get the selected microphone index"""
-        index = self.settings.value("microphone_index", self.default_microphone_index)
-        try:
-            index = int(index)
-        except (ValueError, TypeError) as e:
-            log(f"Invalid microphone index, using default: {e}", logging.WARNING)
-            index = self.default_microphone_index
-        return index if index >= 0 else None
-    
-    def set_microphone_index(self, index):
-        """Set the microphone index"""
-        self.settings.setValue("microphone_index", index if index is not None else -1)
-
     def get_hotkey(self):
         """Get the hotkey"""
         return self.settings.value("hotkey", self.default_hotkey)
@@ -425,7 +410,7 @@ class Settings(SpeechSettingsMixin):
         )
 
     def get_transcription_prompt(self):
-        """Return optional recording context sent to GPT Transcribe."""
+        """Return optional context for live speech recognition."""
         value = self.settings.value(
             "transcription_prompt",
             self.default_transcription_prompt,
@@ -810,7 +795,6 @@ class Settings(SpeechSettingsMixin):
         self.set_use_custom_endpoint(self.default_use_custom_endpoint)
         self.set_foundry_model(DEFAULT_FOUNDRY_MODEL)
         self.set_foundry_device("auto")
-        self.set_microphone_index(self.default_microphone_index)
         self.set_speech_provider("openai")
         self.set_speech_device("auto")
         self.set_speech_microphone("")
