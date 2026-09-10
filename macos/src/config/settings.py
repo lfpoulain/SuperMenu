@@ -9,6 +9,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings
 from supermenu_core.audio.settings import SpeechSettingsMixin
+from supermenu_core.config.model_memory import TextMemorySettingsMixin
 from supermenu_core.config.voice_prompts import VoicePromptSettingsMixin
 from supermenu_core.config.prompt_transfer import export_prompt_bundle, import_prompt_bundle
 
@@ -48,7 +49,7 @@ def _normalize_prompts(value) -> dict[str, dict]:
         return {}
 
 
-class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin):
+class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettingsMixin):
     def __init__(self, config_path: str | None = None):
         self.config_path = str(config_path or settings_file())
         Path(self.config_path).parent.mkdir(parents=True, exist_ok=True)

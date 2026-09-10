@@ -358,6 +358,16 @@ jobs:
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
 
+            Dictée simple dans une seule fenêtre : transcription, édition, Copier
+            et Insérer. Options de collage automatique et de correction avant
+            insertion avec le moteur texte choisi. Les prompts vocaux gardent leur
+            fenêtre de réponse. Raccourci de dictée instantanée configurable :
+            appuyer une fois ou maintenir pour parler puis relâcher pour terminer.
+            Relâcher pendant le chargement annule le démarrage du microphone.
+            Foundry texte : délai de déchargement réglable et déchargement manuel
+            sans interrompre les requêtes ni supprimer les modèles téléchargés.
+            Titre de chargement sur une ligne et emoji devant « Votre réponse ».
+
             Interface affinée sur Windows et Mac : fenêtres plus compactes,
             espacements réduits, listes latérales harmonisées, boutons plus lisibles
             en clair et en sombre, et logo de l’application dans l’en-tête.

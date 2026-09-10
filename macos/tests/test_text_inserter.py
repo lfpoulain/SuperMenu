@@ -171,3 +171,19 @@ def test_paste_failure_is_reported_without_leaving_the_clipboard_dirty(monkeypat
 
     assert results == [(False, "paste_failed")]
     assert ("restore", "snapshot", "réponse") in clipboard_events
+
+
+def test_dictation_cancel_before_paste_restores_clipboard_without_posting_keys(monkeypatch):
+    clipboard_events = _stub_clipboard(monkeypatch)
+    scheduler, api, target = QueuedScheduler(), FakeQuartzKeyAPI(), FakeTarget()
+    results, cancelled = [], []
+    inserter = _inserter(scheduler, api)
+    inserter.insert_text_async("dictée", target, lambda *args: results.append(args), is_cancelled=lambda: bool(cancelled))
+    target.active = True
+    scheduler.run_next()
+    assert clipboard_events == [("set", "dictée")]
+    cancelled.append(True)
+    scheduler.drain()
+    assert not api.posted
+    assert results == [(False, "cancelled")]
+    assert clipboard_events[-1] == ("restore", "snapshot", "dictée")

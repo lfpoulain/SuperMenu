@@ -802,34 +802,54 @@ class ContextMenuManager(QObject):
                 self._cleanup_screenshot(screenshot_path)
     
     def _handle_voice_action(self, target=None):
-        """Gérer l'action de reconnaissance vocale"""
+        """Keep ordinary dictation and its delivery actions in one window."""
         if self._closed:
             return
-        try:
-            # Arrêter toute reconnaissance vocale en cours
-            self.stop_voice_recognition()
+        from supermenu_core.audio.dictation_flow import PlainDictationSession
+        self.stop_voice_recognition()
+        target = target or PasteTarget.capture()
 
-            def show_transcription(text):
-                if self._closed or not text:
+        def insert(text, finished, active):
+            deadline = time.monotonic() + 4
+
+            def paste_when_released():
+                if not active():
                     return
-                self.response_window.set_trigger_position(QCursor.pos())
-                self.response_window.set_paste_target(target)
-                self.response_window.set_standalone_response(
-                    text,
-                    title="🎙️ SuperMenu - Transcription",
-                )
-                self._present_response_window()
+                held = any(win32api.GetAsyncKeyState(key) & 0x8000 for key in (0x10, 0x11, 0x12, 0x5B, 0x5C))
+                if held and time.monotonic() < deadline:
+                    QTimer.singleShot(20, paste_when_released)
+                    return
+                success = bool(target) and not held and TextInserter().insert_text(text, target=target)
+                finished(success)
 
-            self.voice_recognition = self._create_voice_recognition(
-                callback=show_transcription,
+            paste_when_released()
+
+        try:
+            self.voice_recognition = PlainDictationSession(
+                lambda options: create_speech_backend(self.settings, options),
+                speech_options(self.settings), insert_text=insert,
+                correction_factory=self._create_api_client,
+                auto_insert=self.settings.get_dictation_auto_insert(),
+                correct_before_insert=self.settings.get_dictation_correct_before_insert(),
+                parent=self,
             )
-
-            # Transcrire sans coller automatiquement : la fenêtre de réponse
-            # propose explicitement de copier ou d'écrire le texte.
             self.voice_recognition.start_voice_recognition()
-        except Exception as e:
-            SafeDialogs.show_critical("Erreur de reconnaissance vocale",
-                                f"Une erreur s'est produite lors de la reconnaissance vocale : {str(e)}")
+        except ValueError as exc:
+            SafeDialogs.show_information("Réglages de dictée", str(exc))
+
+    def start_instant_dictation(self):
+        self._instant_session = None
+        session = self.voice_recognition
+        if session and (session.is_recording or session.is_processing or getattr(session, "_delivery_busy", False)):
+            return
+        self._handle_voice_action(target=PasteTarget.capture())
+        self._instant_session = self.voice_recognition
+
+    def finish_instant_dictation(self):
+        session = getattr(self, "_instant_session", None)
+        self._instant_session = None
+        if session is not None and session is self.voice_recognition:
+            session.stop_listening()
 
     def _handle_voice_prompt_action(self, prompt_id, target=None):
         """Gérer l'action d'un prompt vocal spécifique"""

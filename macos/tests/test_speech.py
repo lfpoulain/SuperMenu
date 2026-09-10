@@ -61,46 +61,31 @@ def test_openai_voice_remains_available_on_older_macos(monkeypatch, tmp_path):
     assert app is not None
 
 
-def test_dictation_delivers_final_text_to_original_target_and_cleans_up(
-    monkeypatch, tmp_path
-):
-    from supermenu_core.audio import session as sessions
+def test_dictation_delivers_final_text_to_original_target_without_second_window(monkeypatch, tmp_path):
+    from supermenu_core.audio.backends import SpeechBackend
+    from src.audio import speech_backend
     from src.utils import context_menu
-
-    app = QApplication.instance() or QApplication([])
-    created = []
-
-    class Session:
-        def __init__(self, factory, options, callback, parent):
-            self.callback, self.options = callback, options
-            self.cleaned = False
-            created.append(self)
-
-        def start_voice_recognition(self):
-            pass
-
-        def cleanup(self):
-            self.cleaned = True
-
-        def deleteLater(self):
-            pass
-
-    monkeypatch.setattr(sessions, "DictationSession", Session)
+    QApplication.instance() or QApplication([])
+    backend = SpeechBackend()
+    backend.start = lambda: None
+    backend.cancel = lambda: None
+    monkeypatch.setattr(speech_backend, "create_speech_backend", lambda *_: backend)
     monkeypatch.setattr(context_menu, "activate_current_application", lambda: True)
     manager = context_menu.ContextMenuManager(Settings(str(tmp_path / "settings.ini")))
-    targets, results = [], []
-    monkeypatch.setattr(manager.response_window, "set_paste_target", targets.append)
-    monkeypatch.setattr(
-        manager.response_window,
-        "set_standalone_response",
-        lambda text, title: results.append(text),
-    )
-    monkeypatch.setattr(manager.response_window, "present", lambda: None)
+    inserted, presented = [], []
+    def insert(self, text, target, done, *, is_cancelled):
+        assert not is_cancelled()
+        inserted.append((text, target))
+        done(True, "")
+    monkeypatch.setattr(context_menu.TextInserter, "insert_text_async", insert)
+    monkeypatch.setattr(manager.response_window, "present", lambda: presented.append(True))
     target = object()
     manager.start_dictation(target=target)
-    created[0].callback("Bonjour, monde.")
-    assert targets == [target]
-    assert results == ["Bonjour, monde."]
+    backend.completed.emit("Bonjour, monde.")
+    dialog = manager._dictation.recording_dialog
+    assert dialog.isVisible() and not presented
+    dialog.insert_button.click()
+    assert inserted == [("Bonjour, monde.", target)]
+    assert not presented
     manager.close()
-    assert created[0].cleaned
-    assert app is not None
+    assert manager._dictation.recording_dialog is None

@@ -36,10 +36,24 @@ class DictationSession(QObject):
         self.recording_dialog.recording_stopped.connect(self.finish)
         self.recording_dialog.recording_cancelled.connect(self.cancel)
         self.recording_dialog.retry_requested.connect(self._start)
+        self._configure_dialog()
         self.recording_dialog.set_preparing()
         self.recording_dialog.show()
         self._start()
         return True
+
+    def _configure_dialog(self):
+        """Allow plain dictation to add delivery actions to this same surface."""
+
+    def stop_listening(self):
+        if self.is_recording:
+            self.finish()
+        elif self.is_processing and self.microphone is None:
+            # Releasing a held shortcut during model loading must never start
+            # the microphone later, including after a permission response.
+            self.cancel()
+            if self.recording_dialog:
+                self.recording_dialog.dismiss()
 
     def _start(self):
         self._release()
@@ -155,7 +169,7 @@ class DictationSession(QObject):
             return
         self.recording_dialog.set_transcript(text)
         self.recording_dialog.set_success(
-            "Votre texte est prêt. Vous pouvez le copier ou utiliser la fenêtre de résultat."
+            "Votre texte est prêt. Vous pouvez le copier."
         )
         if self.callback:
             try:

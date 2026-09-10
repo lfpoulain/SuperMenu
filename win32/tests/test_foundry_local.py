@@ -294,6 +294,16 @@ def test_foundry_settings_download_progress_and_save_without_key(
     from src.ui import foundry_settings
 
     class FakeService(QObject):
+        state_changed = Signal()
+        loaded = False
+        busy = False
+
+        def set_idle_seconds(self, value):
+            self.idle_seconds = value
+
+        def unload_idle(self):
+            return True
+
         completed = Signal(str, object)
         failed = Signal(str, str)
         progress = Signal(str, object)
@@ -477,3 +487,39 @@ def test_switching_loaded_cpu_to_gpu_unloads_the_actual_cpu_variant(
     assert cpu.unloads == 1
     assert gpu.loads == 1
     assert runtime.loaded_model is gpu
+
+
+def test_text_model_retention_reuses_process_and_unloads_only_when_idle(app, service):
+    results = []
+    service.completed.connect(lambda *args: results.append(args))
+    service.set_idle_seconds(-1)
+    service.submit("generate", content="first")
+    wait_until(app, lambda: len(results) == 1)
+    pid = service._process.processId()
+    assert pid and service.loaded and not service._idle_timer.isActive()
+    service.submit("generate", content="second")
+    assert service.busy and not service.unload_idle()
+    wait_until(app, lambda: len(results) == 2)
+    assert service._process.processId() == pid
+    service.set_idle_seconds(60)
+    assert service._idle_timer.isActive()
+    # Shortening the policy accounts for time already spent idle.
+    service._idle_since -= 61
+    service.set_idle_seconds(60)
+    assert not service.loaded and not service._process.processId()
+    service.submit("generate", content="third")
+    wait_until(app, lambda: len(results) == 3)
+    assert service.loaded and service._process.processId()
+    assert service.unload_idle() and not service.loaded
+
+
+def test_immediate_text_unload_preserves_queued_generation(app, service):
+    results = []
+    service.completed.connect(lambda *args: results.append(args))
+    service.set_idle_seconds(0)
+    service.submit("generate", content="one")
+    service.submit("generate", content="two")
+    wait_until(app, lambda: len(results) == 2)
+    assert [result[1]["text"] for result in results] == ["one", "two"]
+    assert not service.busy and not service.loaded
+    assert not service._process.processId()

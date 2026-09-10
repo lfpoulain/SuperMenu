@@ -20,7 +20,7 @@ class TextInserter:
         self.keys = keys or KeyEventPoster()
         self._schedule = scheduler or QTimer.singleShot
 
-    def insert_text_async(self, text, target, on_finished) -> None:
+    def insert_text_async(self, text, target, on_finished, *, is_cancelled=lambda: False) -> None:
         """Insert after macOS has had a main-loop turn to change focus."""
         finished = False
         clipboard_snapshot = None
@@ -40,6 +40,9 @@ class TextInserter:
             on_finished(bool(success), str(reason or ""))
 
         def paste_now():
+            if is_cancelled():
+                finish(False, "cancelled")
+                return
             if not target.is_current():
                 log(
                     "Insertion annulée : une autre application est devenue "
@@ -62,6 +65,9 @@ class TextInserter:
 
         def prepare_clipboard():
             nonlocal clipboard_snapshot, clipboard_changed
+            if is_cancelled():
+                finish(False, "cancelled")
+                return
             if not target.is_current():
                 finish(False, "activation_failed")
                 return
@@ -76,12 +82,18 @@ class TextInserter:
             )
 
         def verify_forced_activation():
+            if is_cancelled():
+                finish(False, "cancelled")
+                return
             if not target.is_current():
                 finish(False, "activation_failed")
                 return
             prepare_clipboard()
 
         def verify_cooperative_activation():
+            if is_cancelled():
+                finish(False, "cancelled")
+                return
             if target.is_current():
                 prepare_clipboard()
                 return

@@ -21,6 +21,7 @@ from supermenu_core.audio.resident import get_resident_service
 from .verification_status import VerificationStatus
 from .settings_panel import Disclosure
 from .controls import ChoiceBox
+from supermenu_core.config.model_memory import idle_choices
 from .microphone_test import MicrophoneTest
 
 
@@ -130,14 +131,7 @@ class SpeechSettingsWidget(QGroupBox):
         memory.setContentsMargins(0, 0, 0, 0)
         memory.addWidget(QLabel("Décharger le modèle vocal après"))
         self.idle_combo = ChoiceBox()
-        for title, seconds in (
-            ("Chaque dictée", 0),
-            ("1 minute d’inactivité", 60),
-            ("5 minutes d’inactivité (par défaut)", 300),
-            ("15 minutes d’inactivité", 900),
-            ("30 minutes d’inactivité", 1800),
-            ("À la fermeture de SuperMenu", -1),
-        ):
+        for title, seconds in idle_choices("Chaque dictée"):
             self.idle_combo.addItem(title, seconds)
         self.idle_combo.setCurrentIndex(
             self.idle_combo.findData(settings.get_speech_idle_seconds())

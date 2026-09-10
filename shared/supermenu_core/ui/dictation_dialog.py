@@ -23,6 +23,8 @@ class RecordingDialog(QDialog):
     recording_stopped = Signal()
     recording_cancelled = Signal()
     retry_requested = Signal()
+    insert_requested = Signal()
+    closed = Signal()
 
     def __init__(self, parent=None, *, engine="Dictée", local=True):
         super().__init__(parent)
@@ -80,6 +82,12 @@ class RecordingDialog(QDialog):
         self.copy_button.setEnabled(False)
         self.copy_button.clicked.connect(self.copy_transcript)
         buttons.addWidget(self.copy_button)
+        self.insert_button = QPushButton("Insérer")
+        self.insert_button.setProperty("variant", "primary")
+        self.insert_button.setEnabled(False)
+        self.insert_button.hide()
+        self.insert_button.clicked.connect(self.insert_requested)
+        buttons.addWidget(self.insert_button)
         buttons.addStretch()
         self.cancel_button = QPushButton("Annuler")
         self.cancel_button.clicked.connect(self._on_cancel_clicked)
@@ -109,12 +117,14 @@ class RecordingDialog(QDialog):
         self.animation_timer.stop()
         if self._state in {"recording", "preparing", "processing"}:
             self._request_cancel()
+        self.closed.emit()
         super().closeEvent(event)
 
     def reject(self):
         self.animation_timer.stop()
         if self._state in {"recording", "preparing", "processing"}:
             self._request_cancel()
+        self.closed.emit()
         super().reject()
 
     def _request_cancel(self):
@@ -153,6 +163,8 @@ class RecordingDialog(QDialog):
         self.hint_label.setText(message)
         self.transcript_edit.clear()
         self.copy_button.setEnabled(False)
+        self.insert_button.setEnabled(False)
+        self.transcript_edit.setReadOnly(True)
         self.timer_label.setText("00:00")
         self.progress_bar.setRange(0, 0)
         self.progress_bar.show()

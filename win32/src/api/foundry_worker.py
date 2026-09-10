@@ -320,6 +320,7 @@ def main():
     runtime = FoundryRuntime()
 
     def emit(payload):
+        payload["loaded_model"] = runtime.loaded_model is not None
         sink.write(json.dumps(payload, ensure_ascii=False) + "\n")
         sink.flush()
 

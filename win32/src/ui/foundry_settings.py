@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from supermenu_core.ui.verification_status import VerificationStatus
 from supermenu_core.ui.settings_panel import Disclosure
 from supermenu_core.ui.controls import ChoiceBox
+from supermenu_core.config.model_memory import idle_choices
 from src.api.foundry_client import get_foundry_service
 from src.api.foundry_worker import platform_error
 from src.config.foundry_models import FOUNDRY_MODELS
@@ -22,6 +23,8 @@ class FoundrySettingsWidget(QGroupBox):
     def __init__(self, settings, parent=None):
         super().__init__("Foundry Local", parent)
         self.service = get_foundry_service()
+        self.settings = settings
+        self.service.set_idle_seconds(settings.get_text_idle_seconds())
         self.request_id = None
         self.operation = None
         self.models = {}
@@ -70,10 +73,25 @@ class FoundrySettingsWidget(QGroupBox):
         layout.addLayout(buttons)
         self.cache_label = QLabel()
         self.cache_label.setWordWrap(True)
-        advanced = Disclosure("Matériel et détails du modèle")
+        advanced = Disclosure("Matériel et mémoire du modèle")
         advanced.content_layout.addWidget(QLabel("Calcul local"))
         advanced.content_layout.addWidget(self.device_combo)
         advanced.content_layout.addWidget(self.cache_label)
+        advanced.content_layout.addWidget(QLabel("Décharger le modèle texte après"))
+        self.idle_combo = ChoiceBox()
+        for title, seconds in idle_choices("Chaque requête"):
+            self.idle_combo.addItem(title, seconds)
+        self.idle_combo.setCurrentIndex(self.idle_combo.findData(settings.get_text_idle_seconds()))
+        self.idle_combo.currentIndexChanged.connect(self._save_memory_policy)
+        advanced.content_layout.addWidget(self.idle_combo)
+        self.memory_status = QLabel()
+        self.memory_status.setWordWrap(True)
+        advanced.content_layout.addWidget(self.memory_status)
+        self.unload_button = QPushButton("Décharger maintenant")
+        self.unload_button.clicked.connect(self.service.unload_idle)
+        advanced.content_layout.addWidget(self.unload_button)
+        self.service.state_changed.connect(self._memory_changed)
+        self._memory_changed()
         layout.addWidget(advanced)
         note = QLabel(
             'Modèles sous licence <a href="https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE">Apache 2.0</a>. '
@@ -88,6 +106,22 @@ class FoundrySettingsWidget(QGroupBox):
         self.service.failed.connect(self.failed)
         self.service.progress.connect(self.progress)
         self.update_model()
+
+    def _save_memory_policy(self):
+        seconds = self.idle_combo.currentData()
+        self.settings.set_text_idle_seconds(seconds)
+        self.settings.sync()
+        self.service.set_idle_seconds(seconds)
+
+    def _memory_changed(self):
+        if self.service.busy:
+            message = "Moteur en cours d’utilisation. Le déchargement attend la fin des requêtes."
+        elif self.service.loaded:
+            message = "Modèle texte en mémoire — prêt pour la prochaine requête."
+        else:
+            message = "Modèle texte déchargé. Les fichiers restent installés ; il sera chargé à la prochaine requête."
+        self.memory_status.setText(message)
+        self.unload_button.setEnabled(self.service.loaded and not self.service.busy)
 
     def selected_model(self):
         return self.model_combo.currentData()

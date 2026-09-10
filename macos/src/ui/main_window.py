@@ -109,6 +109,7 @@ class MainWindow(QMainWindow):
         hotkey_manager=None,
         custom_hotkey_manager=None,
         prompt_hotkey_manager=None,
+        dictation_hotkey_manager=None,
     ):
         super().__init__()
         self.settings = settings
@@ -116,6 +117,7 @@ class MainWindow(QMainWindow):
         self.hotkey_manager = hotkey_manager
         self.custom_hotkey_manager = custom_hotkey_manager
         self.prompt_hotkey_manager = prompt_hotkey_manager
+        self.dictation_hotkey_manager = dictation_hotkey_manager
         self.tray_icon = None
         self.tray_menu = None
         self._quitting = False
@@ -423,6 +425,10 @@ class MainWindow(QMainWindow):
         test_menu_button.clicked.connect(self.show_prompt_menu)
         shortcuts_form.addRow("Test sans raccourci", test_menu_button)
         shortcuts_page.addWidget(shortcuts_group)
+        from supermenu_core.ui.dictation_settings import DictationShortcutSettings
+        self.dictation_shortcut_settings = DictationShortcutSettings(self.settings, self.dictation_hotkey_manager)
+        self.dictation_shortcut_settings.record_requested.connect(self.record_dictation_hotkey)
+        shortcuts_page.insertWidget(2, self.dictation_shortcut_settings)
 
         permissions_group = QGroupBox("Autorisations macOS")
         permissions_layout = QVBoxLayout(permissions_group)
@@ -490,6 +496,9 @@ class MainWindow(QMainWindow):
         QApplication.instance().aboutToQuit.connect(lambda: self.speech_settings.cancel(silent=True))
         self.speech_settings.save_button.hide()
         voice_page.addWidget(self.speech_settings)
+        from supermenu_core.ui.dictation_settings import DictationBehaviorSettings
+        self.dictation_behavior = DictationBehaviorSettings(self.settings)
+        voice_page.addWidget(self.dictation_behavior)
         self.settings_panel.set_footer("voice", self.speech_settings.actions_widget)
         self._refresh_reasoning_options(self.settings.get_model())
         self.toggle_provider()
@@ -932,6 +941,9 @@ class MainWindow(QMainWindow):
             self._custom_models_worker = None
         worker.deleteLater()
 
+    def record_dictation_hotkey(self):
+        self._open_hotkey_recorder(self.dictation_shortcut_settings.set_shortcut)
+
     def record_main_hotkey(self):
         if self.hotkey_manager:
             self._open_hotkey_recorder(
@@ -961,6 +973,7 @@ class MainWindow(QMainWindow):
         for manager in (
             self.hotkey_manager,
             self.custom_hotkey_manager,
+            self.dictation_hotkey_manager,
             self.prompt_hotkey_manager,
         ):
             if manager is not None:
@@ -1028,7 +1041,7 @@ class MainWindow(QMainWindow):
 
     def _reload_all_hotkeys(self):
         results = []
-        for manager in (self.hotkey_manager, self.custom_hotkey_manager):
+        for manager in (self.hotkey_manager, self.custom_hotkey_manager, getattr(self, "dictation_hotkey_manager", None)):
             if manager is not None:
                 results.append(manager.register_hotkey())
         if self.prompt_hotkey_manager is not None:
@@ -1072,6 +1085,7 @@ class MainWindow(QMainWindow):
             for manager in (
                 self.hotkey_manager,
                 self.custom_hotkey_manager,
+                getattr(self, "dictation_hotkey_manager", None),
                 self.prompt_hotkey_manager,
             )
             if manager is not None and hasattr(manager, "service")
@@ -1094,6 +1108,9 @@ class MainWindow(QMainWindow):
             for manager in (self.hotkey_manager, self.custom_hotkey_manager)
             if manager is not None
         ]
+        dictation_manager = getattr(self, "dictation_hotkey_manager", None)
+        if dictation_manager is not None and self.settings.get_dictation_hotkey():
+            hotkey_managers.append(dictation_manager)
         listeners_registered = bool(hotkey_managers) and all(
             manager.registered for manager in hotkey_managers
         )
@@ -1120,7 +1137,7 @@ class MainWindow(QMainWindow):
         else:
             errors = [
                 manager.last_register_error
-                for manager in (self.hotkey_manager, self.custom_hotkey_manager)
+                for manager in hotkey_managers
                 if manager is not None and manager.last_register_error
             ]
             errors.extend(str(error) for error in prompt_errors.values() if error)

@@ -96,9 +96,9 @@ class BaseResponseWindow(QWidget):
         header_layout.setContentsMargins(0, 0, 0, 10)
 
         # Title
-        self.title_label = QLabel("Votre réponse")
+        self.title_label = QLabel("💬 Votre réponse")
         self.title_label.setObjectName("pageTitle")
-        self.title_label.setWordWrap(True)
+        self.title_label.setWordWrap(False)
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
 
@@ -148,7 +148,7 @@ class BaseResponseWindow(QWidget):
         self.copy_button.setEnabled(False)
         self.write_button.setEnabled(False)
         self.response_text.setText(status)
-        self.title_label.setText(f"💬 SuperMenu - {status}")
+        self.title_label.setText("⏳ SuperMenu - Chargement…")
         self.status_label.setText(status)
 
     def set_response(self, response):
@@ -177,7 +177,7 @@ class BaseResponseWindow(QWidget):
         # setPlainText alone: setText auto-detects rich text, so a model answer
         # containing angle brackets was parsed as HTML before being discarded.
         self.response_text.setPlainText(display_text)
-        self.title_label.setText("Votre réponse")
+        self.title_label.setText("💬 Votre réponse")
         self.status_label.setText("✅ Terminé")
         self._set_status("success")
         self.retry_button.setEnabled(True)

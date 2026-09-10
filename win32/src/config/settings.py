@@ -8,6 +8,7 @@ import logging
 import keyring
 from PySide6.QtCore import QSettings
 from supermenu_core.audio.settings import SpeechSettingsMixin
+from supermenu_core.config.model_memory import TextMemorySettingsMixin
 from supermenu_core.config.voice_prompts import VoicePromptSettingsMixin
 from supermenu_core.config.prompt_transfer import export_prompt_bundle, import_prompt_bundle
 from src.config.build_info import BUILD_CHANNEL
@@ -35,7 +36,7 @@ _normalize_update_channel = normalize_update_channel
 _normalize_prompt_collection = normalize_prompt_collection
 
 
-class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin):
+class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettingsMixin):
     """Manage application settings"""
     
     def __init__(self):
@@ -666,6 +667,11 @@ class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin):
         self.set_speech_device("auto")
         self.set_speech_microphone("")
         self.set_speech_idle_seconds(300)
+        self.set_text_idle_seconds(300)
+        self.set_dictation_hotkey("")
+        self.set_dictation_hotkey_mode("press")
+        self.set_dictation_auto_insert(False)
+        self.set_dictation_correct_before_insert(False)
         self.set_transcription_languages(
             self.default_transcription_languages
         )

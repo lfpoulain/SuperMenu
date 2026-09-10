@@ -19,12 +19,15 @@ from PySide6.QtWidgets import (
 )
 
 from src.utils.logger import log
+from supermenu_core.audio.dictation_shortcut import DictationShortcut, ReleaseBinding
 
 
 try:
     from AppKit import (
         NSEvent,
         NSEventMaskKeyDown,
+        NSEventMaskKeyUp,
+        NSEventMaskFlagsChanged,
         NSEventModifierFlagCommand,
         NSEventModifierFlagControl,
         NSEventModifierFlagDeviceIndependentFlagsMask,
@@ -33,7 +36,7 @@ try:
     )
 except ImportError:  # Allows the macOS source tests to run on other hosts.
     NSEvent = None
-    NSEventMaskKeyDown = 0
+    NSEventMaskKeyDown = NSEventMaskKeyUp = NSEventMaskFlagsChanged = 0
     NSEventModifierFlagCommand = 0
     NSEventModifierFlagControl = 0
     NSEventModifierFlagDeviceIndependentFlagsMask = 0
@@ -296,7 +299,7 @@ class _AppKitEventAPI:
         if NSEvent is None:
             raise RuntimeError("AppKit est indisponible")
         return NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(
-            NSEventMaskKeyDown,
+            NSEventMaskKeyDown | NSEventMaskKeyUp | NSEventMaskFlagsChanged,
             handler,
         )
 
@@ -305,7 +308,7 @@ class _AppKitEventAPI:
         if NSEvent is None:
             raise RuntimeError("AppKit est indisponible")
         return NSEvent.addLocalMonitorForEventsMatchingMask_handler_(
-            NSEventMaskKeyDown,
+            NSEventMaskKeyDown | NSEventMaskKeyUp | NSEventMaskFlagsChanged,
             handler,
         )
 
@@ -322,6 +325,7 @@ class _MacOSGlobalHotKeys:
         self._event_api = event_api or _AppKitEventAPI()
         self._bindings_lock = threading.RLock()
         self._bindings = {}
+        self._held_bindings = {}
         self._suspended = False
         self._global_monitor = None
         self._local_monitor = None
@@ -332,10 +336,13 @@ class _MacOSGlobalHotKeys:
             _native_binding_signature(shortcut): (shortcut, callback)
             for shortcut, callback in bindings.items()
         }
+        self._release_held()
         with self._bindings_lock:
             self._bindings = parsed
 
     def set_suspended(self, suspended):
+        if suspended:
+            self._release_held()
         with self._bindings_lock:
             self._suspended = bool(suspended)
 
@@ -379,6 +386,7 @@ class _MacOSGlobalHotKeys:
         if not self._alive:
             return
         self._alive = False
+        self._release_held()
         global_monitor = self._global_monitor
         local_monitor = self._local_monitor
         self._global_monitor = None
@@ -391,7 +399,7 @@ class _MacOSGlobalHotKeys:
     def join(self, timeout=None):
         """Compatibility with the previous threaded listener interface."""
 
-    def _event_signature(self, event):
+    def _event_modifiers(self, event):
         flags = int(event.modifierFlags()) & int(
             self._event_api.independent_flags_mask
         )
@@ -405,14 +413,33 @@ class _MacOSGlobalHotKeys:
             if flags & int(flag):
                 modifiers.add(name)
 
+        return frozenset(modifiers)
+
+    def _event_signature(self, event):
+        modifiers = self._event_modifiers(event)
         key_code = int(event.keyCode())
         key = _MACOS_SPECIAL_KEY_CODES.get(key_code)
         if key is None:
             key = str(event.charactersIgnoringModifiers() or "").lower()
         return frozenset(modifiers), key, key_code
 
+    def _release_held(self, predicate=lambda key, modifiers: True):
+        with self._bindings_lock:
+            released = [key for key, (modifiers, callback) in self._held_bindings.items() if predicate(key, modifiers)]
+            callbacks = [self._held_bindings.pop(key)[1] for key in released]
+        for callback in callbacks:
+            callback()
+
     def _handle_event(self, event):
         try:
+            event_type = int(event.type()) if hasattr(event, "type") else 10
+            if event_type == 11:  # NSEventTypeKeyUp
+                self._release_held(lambda key, mods: key == int(event.keyCode()))
+                return
+            if event_type == 12:  # NSEventTypeFlagsChanged
+                modifiers = self._event_modifiers(event)
+                self._release_held(lambda key, mods: not mods.issubset(modifiers))
+                return
             if bool(event.isARepeat()):
                 return
             modifiers, key, key_code = self._event_signature(event)
@@ -433,6 +460,12 @@ class _MacOSGlobalHotKeys:
             if binding is None:
                 return
             shortcut, callback = binding
+            release = getattr(callback, "release", None)
+            if release is not None:
+                with self._bindings_lock:
+                    if key_code in self._held_bindings:
+                        return
+                    self._held_bindings[key_code] = (modifiers, release)
             log(f"Raccourci global AppKit détecté : {shortcut}")
             callback()
         except Exception as exc:
@@ -646,11 +679,15 @@ class HotkeyManager(QObject):
     custom_hotkey_triggered = Signal()
     # Internal hop used to unwind the AppKit handler before any work starts.
     _dispatch_requested = Signal()
+    _dictation_edge = Signal(bool)
 
-    def __init__(self, settings, custom_hotkey: bool = False, service=None):
+    def __init__(self, settings, custom_hotkey: bool = False, service=None, *, dictation_hotkey=False):
         super().__init__()
         self.settings = settings
         self.custom_hotkey = custom_hotkey
+        self.dictation_hotkey = dictation_hotkey
+        self.dictation_shortcut = DictationShortcut(settings, self)
+        self._dictation_edge.connect(self._deliver_dictation_edge, Qt.ConnectionType.QueuedConnection)
         self.hotkey = ""
         self._dispatch_requested.connect(
             self._deliver_hotkey,
@@ -658,24 +695,32 @@ class HotkeyManager(QObject):
         )
         self.service = service or HotkeyService()
         self._owns_service = service is None
-        self._owner = "mode personnalisé" if custom_hotkey else "menu principal"
+        self._owner = "dictée instantanée" if dictation_hotkey else ("mode personnalisé" if custom_hotkey else "menu principal")
         self._binding_active = False
         self._last_register_error = ""
         self.register_hotkey()
 
     def _get_configured_hotkey(self) -> str:
+        if self.dictation_hotkey:
+            return self.settings.get_dictation_hotkey()
         if self.custom_hotkey:
             return self.settings.get_custom_hotkey()
         return self.settings.get_hotkey()
 
     def _set_configured_hotkey(self, hotkey: str) -> None:
-        if self.custom_hotkey:
+        if self.dictation_hotkey:
+            self.settings.set_dictation_hotkey(hotkey)
+        elif self.custom_hotkey:
             self.settings.set_custom_hotkey(hotkey)
         else:
             self.settings.set_hotkey(hotkey)
 
     def register_hotkey(self) -> bool:
         self.hotkey = self._get_configured_hotkey()
+        if self.dictation_hotkey and not self.hotkey:
+            self.unregister_hotkey()
+            self._last_register_error = ""
+            return True
         normalized, error = normalize_hotkey(self.hotkey)
         if error:
             self._last_register_error = error
@@ -686,7 +731,7 @@ class HotkeyManager(QObject):
             return False
         success, error = self.service.replace_owner_bindings(
             self._owner,
-            {normalized: self._on_hotkey_triggered},
+            {normalized: ReleaseBinding(lambda: self._dictation_edge.emit(True), lambda: self._dictation_edge.emit(False)) if self.dictation_hotkey else self._on_hotkey_triggered},
         )
         self._binding_active = success
         self._last_register_error = error
@@ -697,6 +742,14 @@ class HotkeyManager(QObject):
     def unregister_hotkey(self) -> None:
         self.service.replace_owner_bindings(self._owner, {})
         self._binding_active = False
+
+    def _deliver_dictation_edge(self, pressed):
+        if pressed and not self._binding_active:
+            return
+        if pressed:
+            self.dictation_shortcut.press()
+        else:
+            self.dictation_shortcut.release()
 
     def _on_hotkey_triggered(self) -> None:
         """Runs inside the native key handler; hand off and return at once.

@@ -54,6 +54,9 @@ class SuperMenu(QObject):
             custom_hotkey=True,
             service=self.hotkey_service,
         )
+        self.dictation_hotkey_manager = HotkeyManager(self.settings, dictation_hotkey=True, service=self.hotkey_service)
+        self.dictation_hotkey_manager.dictation_shortcut.started.connect(self.context_menu_manager.start_instant_dictation)
+        self.dictation_hotkey_manager.dictation_shortcut.released.connect(self.context_menu_manager.finish_instant_dictation)
         self.prompt_hotkey_manager = PromptHotkeyManager(
             self.settings,
             service=self.hotkey_service,
@@ -73,6 +76,7 @@ class SuperMenu(QObject):
             hotkey_manager=self.hotkey_manager,
             custom_hotkey_manager=self.custom_hotkey_manager,
             prompt_hotkey_manager=self.prompt_hotkey_manager,
+            dictation_hotkey_manager=self.dictation_hotkey_manager,
         )
         ThemeManager.apply_theme(self.app, self.settings.get_theme())
         self.app.aboutToQuit.connect(self._close_services)
@@ -183,6 +187,7 @@ class SuperMenu(QObject):
             self.hotkey_manager,
             self.custom_hotkey_manager,
             self.prompt_hotkey_manager,
+            self.dictation_hotkey_manager,
         ):
             manager.close()
         self.hotkey_service.close()

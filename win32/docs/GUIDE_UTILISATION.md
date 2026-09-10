@@ -84,7 +84,7 @@ Lors du premier lancement de SuperMenu, ou en accédant aux paramètres via l'ic
 3.  **Raccourcis Clavier** :
     *   **Raccourci Principal** : Pour afficher le menu contextuel après avoir sélectionné du texte (par défaut : `Ctrl+²`).
     *   **Raccourci Capture d'Écran** : Pour lancer l'outil de capture d'écran (par défaut : `Ctrl+Alt+&`).
-    *   **Raccourci Vocal** : Pour lancer la reconnaissance vocale (par défaut : `Ctrl+Alt+²`).
+    *   **Raccourci Vocal** : Pour ouvrir le menu vocal (par défaut : `Ctrl+Alt+²`).
     *   Règles : les raccourcis doivent contenir au moins un modificateur (`Ctrl`, `Alt` ou `Shift`). Les touches de fonction `F1` à `F24` sont prises en charge. La touche `Win` n'est pas autorisée et les raccourcis à une seule touche ne sont pas supportés.
 
 4. **Dictée et transcription** :
@@ -94,6 +94,11 @@ Lors du premier lancement de SuperMenu, ou en accédant aux paramètres via l'ic
    * Avec Foundry Local, **Vérifier** indique si les composants et le modèle sont disponibles. Téléchargez-les si nécessaire ; le chargement en mémoire intervient ensuite pour dicter.
    * Dans **Options avancées**, ajustez le vocabulaire, le contexte et le délai de déchargement du modèle local. Par défaut, il reste en mémoire cinq minutes après la dernière dictée. **Décharger maintenant** libère la mémoire sans supprimer les fichiers téléchargés.
    * Enregistrez les réglages avant de lancer une dictée.
+   * La dictée simple affiche son texte final dans la même fenêtre, avec **Copier** et **Insérer**. Vous pouvez retoucher le texte avant l’insertion.
+   * Dans **Après la dictée**, **Coller automatiquement** et **Corriger avec le moteur de texte avant d’insérer** sont deux options indépendantes. Une correction utilise le moteur choisi dans **Texte**. Un échec conserve votre dictée sans rien coller. Les prompts vocaux conservent leur fonctionnement propre.
+   * Dans **Réglages > Raccourcis > Dictée instantanée**, définissez un raccourci facultatif, sans passer par le menu. Choisissez **Appuyer une fois** (arrêt avec **Terminer**) ou **Maintenir pour parler** (arrêt au relâchement). Attendez **À l’écoute** avant de parler ; un relâchement pendant le chargement annule le démarrage.
+
+5. **Mémoire du modèle texte Foundry** : dans **Texte > Foundry Local > Matériel et mémoire du modèle**, choisissez un déchargement après chaque requête, après 1/5/15/30 minutes d’inactivité, ou à la fermeture. Le délai par défaut est de cinq minutes. **Décharger maintenant** libère la RAM/VRAM quand aucune requête n’est en cours ; les modèles restent téléchargés.
 
 ### Configuration de l'API
 

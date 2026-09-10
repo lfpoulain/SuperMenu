@@ -54,6 +54,9 @@ class SuperMenu:
 
         # Prompt shortcuts are registered after the core shortcuts so a
         # conflicting prompt never disables an application-level command.
+        self.dictation_hotkey_manager = HotkeyManager(self.settings, dictation_hotkey=True)
+        self.dictation_hotkey_manager.dictation_shortcut.started.connect(self.context_menu_manager.start_instant_dictation)
+        self.dictation_hotkey_manager.dictation_shortcut.released.connect(self.context_menu_manager.finish_instant_dictation)
         self.prompt_hotkey_manager = PromptHotkeyManager(self.settings)
         self.prompt_hotkey_manager.prompt_hotkey_triggered.connect(
             self.run_prompt_hotkey
@@ -68,6 +71,7 @@ class SuperMenu:
             screenshot_hotkey_manager=self.screenshot_hotkey_manager,
             custom_hotkey_manager=self.custom_hotkey_manager,
             prompt_hotkey_manager=self.prompt_hotkey_manager,
+            dictation_hotkey_manager=self.dictation_hotkey_manager,
         )
         
         # Apply theme
@@ -210,6 +214,7 @@ class SuperMenu:
             self.screenshot_hotkey_manager,
             self.custom_hotkey_manager,
             self.prompt_hotkey_manager,
+            self.dictation_hotkey_manager,
         ):
             manager.close()
         self.context_menu_manager.close()

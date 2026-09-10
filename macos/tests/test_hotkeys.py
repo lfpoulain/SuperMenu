@@ -344,3 +344,56 @@ def test_native_probe_reports_a_refused_monitor_without_raising():
     assert result["ran"] is True
     assert result["monitors_installed"] is False
     assert "moniteurs" in result["error"]
+
+
+@pytest.mark.parametrize("release_type,flags", [(11, 9), (12, 1)])
+def test_native_dictation_binding_releases_on_key_or_modifier_up(release_type, flags):
+    from supermenu_core.audio.dictation_shortcut import ReleaseBinding
+    api = FakeAppKitEventAPI()
+    listener = _MacOSGlobalHotKeys(api)
+    events = []
+    binding = ReleaseBinding(lambda: events.append("press"), lambda: events.append("release"))
+    listener.replace_bindings({"<cmd>+<shift>+d": binding})
+    listener.start()
+    press = FakeAppKitKeyEvent(flags=9, key_code=2, characters="d")
+    press.type = lambda: 10
+    api.global_handler(press)
+    api.local_handler(press)
+    assert events == ["press"]
+    release = FakeAppKitKeyEvent(flags=flags, key_code=2)
+    release.type = lambda: release_type
+    api.global_handler(release)
+    api.local_handler(release)
+    assert events == ["press", "release"]
+    listener.stop()
+    assert events == ["press", "release"]
+
+
+def test_dictation_shortcut_is_queued_and_does_not_replace_other_mac_bindings(tmp_path):
+    from PySide6.QtWidgets import QApplication
+    from src.config.settings import Settings
+    app = QApplication.instance() or QApplication([])
+    settings = Settings(str(tmp_path / "settings.ini"))
+    settings.set_dictation_hotkey("Cmd+Shift+D")
+    settings.set_dictation_hotkey_mode("hold")
+    service = HotkeyService(listener_factory=FakePersistentListener)
+    main = HotkeyManager(settings, service=service)
+    voice = HotkeyManager(settings, service=service, dictation_hotkey=True)
+    events = []
+    voice.dictation_shortcut.started.connect(lambda: events.append("start"))
+    voice.dictation_shortcut.released.connect(lambda: events.append("stop"))
+    listener = FakePersistentListener.instances[-1]
+    binding = listener.bindings["<cmd>+<shift>+d"]
+    binding()
+    binding.release()
+    assert not events
+    app.processEvents()
+    assert events == ["start", "stop"]
+    assert not voice.set_hotkey(settings.get_hotkey())
+    assert settings.get_dictation_hotkey() == "Cmd+Shift+D"
+    assert "<cmd>+<shift>+<space>" in listener.bindings
+    assert voice.set_hotkey("")
+    assert "<cmd>+<shift>+d" not in listener.bindings
+    main.close()
+    voice.close()
+    service.close()

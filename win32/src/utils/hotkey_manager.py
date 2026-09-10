@@ -10,6 +10,7 @@ from PySide6.QtCore import QAbstractNativeEventFilter, QCoreApplication, QObject
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout
 from src.utils.logger import log
+from supermenu_core.audio.dictation_shortcut import DictationShortcut
 
 _WM_HOTKEY = 0x0312
 _MOD_ALT = 0x0001
@@ -392,6 +393,7 @@ class HotkeyManager(QObject):
         voice_hotkey=False,
         screenshot_hotkey=False,
         custom_hotkey=False,
+        dictation_hotkey=False,
     ):
         super().__init__()
         self.settings = settings
@@ -400,6 +402,12 @@ class HotkeyManager(QObject):
         self.voice_hotkey = voice_hotkey
         self.screenshot_hotkey = screenshot_hotkey
         self.custom_hotkey = custom_hotkey
+        self.dictation_hotkey = dictation_hotkey
+        self.dictation_shortcut = DictationShortcut(settings, self)
+        self._release_timer = QTimer(self)
+        self._release_timer.setInterval(20)
+        self._release_timer.timeout.connect(self._check_dictation_release)
+        self._dictation_keys = []
         self._hotkey_id = None
         self._last_register_error = ""
 
@@ -413,6 +421,8 @@ class HotkeyManager(QObject):
         self.register_hotkey()
 
     def _get_configured_hotkey(self):
+        if self.dictation_hotkey:
+            return self.settings.get_dictation_hotkey()
         if self.voice_hotkey:
             return self.settings.get_voice_hotkey()
         if self.screenshot_hotkey:
@@ -422,6 +432,9 @@ class HotkeyManager(QObject):
         return self.settings.get_hotkey()
 
     def _set_configured_hotkey(self, hotkey):
+        if self.dictation_hotkey:
+            self.settings.set_dictation_hotkey(hotkey)
+            return
         if self.voice_hotkey:
             self.settings.set_voice_hotkey(hotkey)
             return
@@ -439,6 +452,8 @@ class HotkeyManager(QObject):
         self.hotkey = self._get_configured_hotkey()
         self._last_register_error = ""
 
+        if self.dictation_hotkey and not self.hotkey:
+            return True
         modifiers, vk, err = _parse_hotkey_to_win32(self.hotkey)
         if err:
             self._last_register_error = err
@@ -460,11 +475,14 @@ class HotkeyManager(QObject):
             return False
 
         self._hotkey_id = hotkey_id
+        self._dictation_keys = [vk] + [key for flag, key in ((_MOD_SHIFT, 0x10), (_MOD_CONTROL, 0x11), (_MOD_ALT, 0x12)) if modifiers & flag]
         self.registered = True
         log(f"Registering hotkey: {self.hotkey}", logging.INFO)
         return True
 
     def unregister_hotkey(self):
+        self._release_timer.stop()
+        self.dictation_shortcut.release()
         if self._hotkey_id is not None:
             _REGISTRY.unregister(self._hotkey_id)
             self._hotkey_id = None
@@ -472,7 +490,10 @@ class HotkeyManager(QObject):
 
     def _on_hotkey_triggered(self):
         try:
-            if self.voice_hotkey:
+            if self.dictation_hotkey:
+                self.dictation_shortcut.press()
+                self._release_timer.start()
+            elif self.voice_hotkey:
                 self.voice_hotkey_triggered.emit()
             elif self.screenshot_hotkey:
                 self.screenshot_hotkey_triggered.emit()
@@ -482,6 +503,22 @@ class HotkeyManager(QObject):
                 self.hotkey_triggered.emit()
         except Exception as e:
             log(f"Error emitting hotkey signal: {e}", logging.ERROR)
+
+    def _check_dictation_release(self):
+        if _USER32 is None or not all(_USER32.GetAsyncKeyState(key) & 0x8000 for key in self._dictation_keys):
+            self._release_timer.stop()
+            self.dictation_shortcut.release()
+
+    def set_hotkey(self, hotkey):
+        previous = self._get_configured_hotkey()
+        self._set_configured_hotkey(hotkey)
+        if self.register_hotkey():
+            return True
+        error = self._last_register_error
+        self._set_configured_hotkey(previous)
+        self.register_hotkey()
+        self._last_register_error = error
+        return False
 
     def close(self):
         self.unregister_hotkey()

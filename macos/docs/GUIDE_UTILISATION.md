@@ -133,6 +133,18 @@ si nécessaire. Enregistrez vos choix, cliquez sur **Dicter** et attendez
 finalise et **Annuler** arrête la capture. La limite est de cinq minutes de parole,
 hors préparation du moteur.
 
+La dictée simple reste dans cette fenêtre : le texte final peut être retouché,
+copié ou inséré dans l’application d’origine. Dans **Dictée > Après la dictée**,
+activez si souhaité **Coller automatiquement** et/ou **Corriger avec le moteur de
+texte avant d’insérer**. Une correction échouée conserve la dictée sans la coller.
+Les prompts vocaux conservent leur propre traitement et leur fenêtre de réponse.
+
+Dans **Réglages > Raccourcis > Dictée instantanée**, définissez une combinaison
+(facultative, désactivée initialement). Choisissez **Appuyer une fois** pour arrêter
+avec **Terminer**, ou **Maintenir pour parler** pour arrêter au relâchement.
+Attendez **À l’écoute** avant de parler ; relâcher pendant la préparation annule
+le démarrage du microphone. Le raccourci conserve l’application où vous écriviez.
+
 Dans **Options avancées**, choisissez quand décharger le modèle local :
 immédiatement, après 1/5/15/30 minutes d’inactivité, ou à la fermeture de
 SuperMenu. La valeur par défaut est cinq minutes. **Décharger maintenant**

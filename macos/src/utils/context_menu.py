@@ -254,17 +254,52 @@ class ContextMenuManager(QObject):
     def start_dictation(self, *, from_ui=False, target=None):
         if self._closed:
             return
+        from supermenu_core.audio.dictation_flow import PlainDictationSession
+        from supermenu_core.audio.settings import speech_options
+        from src.audio.speech_backend import create_speech_backend
         target = target or PasteTarget.capture(fall_back_to_last_known=from_ui)
+        if self._dictation is not None:
+            self._dictation.cleanup()
+            self._dictation.deleteLater()
 
-        def show_result(text):
-            if self._closed:
-                return
-            self.response_window.set_paste_target(target)
-            self.response_window.set_trigger_position(QCursor.pos())
-            self.response_window.set_standalone_response(text, "SuperMenu — Dictée")
-            self.response_window.present()
+        def insert(text, finished, active):
+            inserter = TextInserter()
+            self._active_inserters.append(inserter)
 
-        self._start_voice_session(show_result)
+            def done(success, reason):
+                if inserter in self._active_inserters:
+                    self._active_inserters.remove(inserter)
+                finished(success, reason)
+
+            inserter.insert_text_async(text, target, done, is_cancelled=lambda: not active())
+
+        try:
+            self._dictation = PlainDictationSession(
+                lambda options: create_speech_backend(self.settings, options),
+                speech_options(self.settings), insert_text=insert,
+                correction_factory=self._create_api_client,
+                auto_insert=self.settings.get_dictation_auto_insert(),
+                correct_before_insert=self.settings.get_dictation_correct_before_insert(),
+                parent=self,
+            )
+            activate_current_application()
+            self._dictation.start_voice_recognition()
+        except ValueError as exc:
+            SafeDialogs.show_information("Réglages de dictée", str(exc))
+
+    def start_instant_dictation(self):
+        self._instant_session = None
+        session = self._dictation
+        if session and (session.is_recording or session.is_processing or getattr(session, "_delivery_busy", False)):
+            return
+        self.start_dictation()
+        self._instant_session = self._dictation
+
+    def finish_instant_dictation(self):
+        session = getattr(self, "_instant_session", None)
+        self._instant_session = None
+        if session is not None and session is self._dictation:
+            session.stop_listening()
 
     def _start_voice_session(self, callback):
         from src.audio.speech_backend import create_speech_backend

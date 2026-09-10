@@ -3,10 +3,11 @@
 import re
 import sys
 
+from supermenu_core.config.model_memory import MODEL_IDLE_CHOICES
+
 NEMOTRON_MODEL = "nemotron-3.5-asr-streaming-0.6b"
 OPENAI_SPEECH_MODEL = "gpt-live-transcribe"
 MAX_DICTATION_SECONDS = 300
-MODEL_IDLE_CHOICES = (0, 60, 300, 900, 1800, -1)
 
 
 def languages(value):
@@ -37,6 +38,33 @@ def local_language(value, provider):
 
 
 class SpeechSettingsMixin:
+    def get_dictation_hotkey(self):
+        return str(self.settings.value("dictation_hotkey", "") or "")
+
+    def set_dictation_hotkey(self, value):
+        self.settings.setValue("dictation_hotkey", str(value or "").strip())
+
+    def get_dictation_hotkey_mode(self):
+        value = self.settings.value("dictation_hotkey_mode", "press")
+        return value if value in {"press", "hold"} else "press"
+
+    def set_dictation_hotkey_mode(self, value):
+        if value not in {"press", "hold"}:
+            raise ValueError("Mode de raccourci inconnu")
+        self.settings.setValue("dictation_hotkey_mode", value)
+
+    def get_dictation_auto_insert(self):
+        return self.settings.value("dictation_auto_insert", False, type=bool)
+
+    def set_dictation_auto_insert(self, value):
+        self.settings.setValue("dictation_auto_insert", bool(value))
+
+    def get_dictation_correct_before_insert(self):
+        return self.settings.value("dictation_correct_before_insert", False, type=bool)
+
+    def set_dictation_correct_before_insert(self, value):
+        self.settings.setValue("dictation_correct_before_insert", bool(value))
+
     def get_speech_idle_seconds(self):
         try:
             value = int(self.settings.value("speech_idle_seconds", 300))

@@ -4,6 +4,7 @@ from collections import deque
 import json
 from pathlib import Path
 import sys
+import time
 import uuid
 
 from PySide6.QtCore import (
@@ -17,6 +18,7 @@ from PySide6.QtCore import (
 
 from src.api.foundry_worker import platform_error
 from src.config.foundry_models import MAX_INPUT_CHARS
+from supermenu_core.config.model_memory import MODEL_IDLE_CHOICES
 
 
 def worker_command():
@@ -35,6 +37,7 @@ class FoundryService(QObject):
     completed = Signal(str, object)
     failed = Signal(str, str)
     progress = Signal(str, object)
+    state_changed = Signal()
 
     def __init__(self, parent=None, command=None):
         super().__init__(parent)
@@ -43,6 +46,9 @@ class FoundryService(QObject):
         self._active = None
         self._buffer = b""
         self._closed = False
+        self.loaded = False
+        self.idle_seconds = 300
+        self._idle_since = None
         self._process = QProcess(self)
         self._process.setStandardErrorFile(QProcess.nullDevice())
         environment = QProcessEnvironment.systemEnvironment()
@@ -60,14 +66,39 @@ class FoundryService(QObject):
         self._timer.timeout.connect(self._timeout)
         self._idle_timer = QTimer(self)
         self._idle_timer.setSingleShot(True)
-        self._idle_timer.setInterval(300000)
-        self._idle_timer.timeout.connect(self._stop)
+        self._idle_timer.timeout.connect(self.unload_idle)
+
+    @property
+    def busy(self):
+        return bool(self._active or self._queue)
+
+    def set_idle_seconds(self, value):
+        value = int(value)
+        if value not in MODEL_IDLE_CHOICES:
+            raise ValueError("Délai de déchargement inconnu")
+        self.idle_seconds = value
+        self._idle_timer.stop()
+        if self.busy or self._idle_since is None or value < 0:
+            return
+        remaining = value - (time.monotonic() - self._idle_since)
+        if remaining <= 0:
+            self.unload_idle()
+        else:
+            self._idle_timer.start(max(1, round(remaining * 1000)))
+
+    def unload_idle(self):
+        if self.busy:
+            return False
+        self._stop()
+        return True
 
     def submit(self, operation, *, request_id=None, **payload):
         request_id = request_id or uuid.uuid4().hex
         if self._closed:
             return request_id
         self._queue.append({"id": request_id, "operation": operation, **payload})
+        self._idle_timer.stop()
+        self.state_changed.emit()
         QTimer.singleShot(0, self._next)
         return request_id
 
@@ -75,7 +106,9 @@ class FoundryService(QObject):
         if self._closed or self._active or not self._queue:
             return
         self._idle_timer.stop()
+        self._idle_since = None
         self._active = self._queue.popleft()
+        self.state_changed.emit()
         timeout = {"download": 1800000, "generate": 600000, "probe": 1800000}
         self._timer.start(timeout.get(self._active["operation"], 90000))
         if self._process.state() == QProcess.NotRunning:
@@ -111,6 +144,8 @@ class FoundryService(QObject):
             if "progress" in message:
                 self.progress.emit(request_id, message["progress"])
                 continue
+            operation = self._active["operation"]
+            self.loaded = bool(message.get("loaded_model", self.loaded or (operation == "generate" and "result" in message)))
             self._active = None
             self._timer.stop()
             if "error" in message:
@@ -119,14 +154,20 @@ class FoundryService(QObject):
                 self.completed.emit(request_id, message["result"])
             else:
                 self.failed.emit(request_id, "Réponse locale invalide.")
-            self._idle_timer.start()
+            self._idle_since = time.monotonic()
+            self.set_idle_seconds(self.idle_seconds)
+            self.state_changed.emit()
             QTimer.singleShot(0, self._next)
 
     def _stop(self):
+        self._idle_timer.stop()
+        self._idle_since = None
+        self.loaded = False
         if self._process.state() != QProcess.NotRunning:
             self._process.kill()
             self._process.waitForFinished(1000)
         self._buffer = b""
+        self.state_changed.emit()
 
     def _abort(self, message):
         active, self._active = self._active, None
@@ -157,6 +198,9 @@ class FoundryService(QObject):
         self._queue = deque(r for r in self._queue if r["id"] != request_id)
         if self._active and self._active["id"] == request_id:
             self._abort("Opération locale annulée.")
+        elif not self.busy:
+            self.set_idle_seconds(self.idle_seconds)
+            self.state_changed.emit()
 
     def close(self):
         self._closed = True
@@ -189,6 +233,8 @@ class FoundryClient(QObject):
         self.model = settings.get_foundry_model()
         self.device = settings.get_foundry_device()
         self._service = service or get_foundry_service()
+        if hasattr(self._service, "set_idle_seconds"):
+            self._service.set_idle_seconds(settings.get_text_idle_seconds())
         self._pending = {}
         self._closed = False
         self._service.completed.connect(self._completed)

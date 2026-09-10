@@ -133,6 +133,7 @@ class MainWindow(QMainWindow):
         screenshot_hotkey_manager=None,
         custom_hotkey_manager=None,
         prompt_hotkey_manager=None,
+        dictation_hotkey_manager=None,
     ):
         super().__init__()
         self.settings = settings
@@ -148,6 +149,7 @@ class MainWindow(QMainWindow):
         self.screenshot_hotkey_manager = screenshot_hotkey_manager
         self.custom_hotkey_manager = custom_hotkey_manager
         self.prompt_hotkey_manager = prompt_hotkey_manager
+        self.dictation_hotkey_manager = dictation_hotkey_manager
         
         self._update_check_worker = None
         self._update_download_worker = None
@@ -649,9 +651,16 @@ class MainWindow(QMainWindow):
         
         text_page.addWidget(models_widget)
         voice_page.addWidget(microphone_group)
+        from supermenu_core.ui.dictation_settings import DictationBehaviorSettings
+        self.dictation_behavior = DictationBehaviorSettings(self.settings)
+        voice_page.addWidget(self.dictation_behavior)
         self.settings_panel.set_footer("text", save_api_key_button)
         self.settings_panel.set_footer("voice", self.speech_settings.actions_widget)
         shortcuts_page.addWidget(hotkey_group)
+        from supermenu_core.ui.dictation_settings import DictationShortcutSettings
+        self.dictation_shortcut_settings = DictationShortcutSettings(self.settings, self.dictation_hotkey_manager)
+        self.dictation_shortcut_settings.record_requested.connect(self.record_dictation_hotkey)
+        shortcuts_page.insertWidget(2, self.dictation_shortcut_settings)
         shortcuts_page.addWidget(screenshot_group)
         app_page.addWidget(theme_group)
         app_page.addWidget(response_window_group)
@@ -1079,6 +1088,29 @@ class MainWindow(QMainWindow):
             # L'utilisateur a annulé, réenregistrer l'ancien raccourci
             self.hotkey_manager.register_hotkey()
 
+    def record_dictation_hotkey(self):
+        managers = [manager for manager in (
+            self.hotkey_manager, self.voice_hotkey_manager,
+            self.custom_hotkey_manager, self.screenshot_hotkey_manager,
+            self.dictation_hotkey_manager,
+        ) if manager is not None]
+        for manager in managers:
+            manager.unregister_hotkey()
+        if self.prompt_hotkey_manager:
+            self.prompt_hotkey_manager.unregister_hotkeys()
+        shortcut = None
+        try:
+            dialog = HotkeyRecorderDialog(self)
+            if dialog.exec() == QDialog.Accepted and dialog.recorded_hotkey:
+                shortcut = dialog.recorded_hotkey
+        finally:
+            for manager in managers:
+                manager.register_hotkey()
+            if self.prompt_hotkey_manager:
+                self.prompt_hotkey_manager.refresh_hotkeys()
+        if shortcut:
+            self.dictation_shortcut_settings.set_shortcut(shortcut)
+
     def record_prompt_hotkey(self):
         """Capture a shortcut for the selected prompt without saving it yet."""
         if self.prompt_combo.count() == 0:
@@ -1089,6 +1121,7 @@ class MainWindow(QMainWindow):
             self.voice_hotkey_manager,
             self.custom_hotkey_manager,
             self.screenshot_hotkey_manager,
+            self.dictation_hotkey_manager,
         ]
         active_core_managers = [
             manager for manager in core_managers if manager is not None
@@ -1346,6 +1379,7 @@ class MainWindow(QMainWindow):
             previous_hotkeys = {
                 "hotkey": self.settings.get_hotkey(),
                 "voice_hotkey": self.settings.get_voice_hotkey(),
+                "dictation_hotkey": self.settings.get_dictation_hotkey(),
                 "screenshot_hotkey": self.settings.get_screenshot_hotkey(),
                 "custom_hotkey": self.settings.get_custom_hotkey(),
             }
@@ -1398,6 +1432,14 @@ class MainWindow(QMainWindow):
             self._update_screenshot_capture_mode_ui_state()
             self._refresh_update_channel_ui()
 
+            self.dictation_shortcut_settings.shortcut.setText(self.settings.get_dictation_hotkey())
+            self.dictation_shortcut_settings.mode.setCurrentIndex(0)
+            self.dictation_behavior.auto_insert.setChecked(False)
+            self.dictation_behavior.correct_before_insert.setChecked(False)
+            self.foundry_group.idle_combo.setCurrentIndex(self.foundry_group.idle_combo.findData(300))
+            self.foundry_group.service.set_idle_seconds(300)
+            self.speech_settings.idle_combo.setCurrentIndex(self.speech_settings.idle_combo.findData(300))
+            self.speech_settings.resident.set_idle_seconds(300)
             self.speech_settings.refresh_microphones()
             self.speech_settings.provider_combo.setCurrentIndex(0)
             self.speech_settings.device_combo.setCurrentIndex(0)
@@ -1442,6 +1484,7 @@ class MainWindow(QMainWindow):
             self.voice_hotkey_manager,
             self.screenshot_hotkey_manager,
             self.custom_hotkey_manager,
+            getattr(self, "dictation_hotkey_manager", None),
         ]
         active_managers = [manager for manager in managers if manager is not None]
 
@@ -1466,6 +1509,8 @@ class MainWindow(QMainWindow):
                 previous_hotkeys["screenshot_hotkey"]
             )
             self.settings.set_custom_hotkey(previous_hotkeys["custom_hotkey"])
+            if "dictation_hotkey" in previous_hotkeys:
+                self.settings.set_dictation_hotkey(previous_hotkeys["dictation_hotkey"])
             self.settings.sync()
 
             for manager in active_managers:

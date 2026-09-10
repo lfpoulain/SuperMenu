@@ -226,39 +226,31 @@ def test_context_menu_passes_transcription_settings(monkeypatch):
     manager.close()
 
 
-def test_write_by_voice_opens_response_window_instead_of_direct_paste(
-    monkeypatch,
-):
+def test_write_by_voice_keeps_final_text_and_insertion_in_dictation_window(monkeypatch):
+    from supermenu_core.audio.backends import SpeechBackend
     _app()
     settings = FakeMenuSettings()
+    settings.get_dictation_auto_insert = lambda: False
+    settings.get_dictation_correct_before_insert = lambda: False
+    backend = SpeechBackend()
+    backend.start = lambda: None
+    backend.cancel = lambda: None
+    monkeypatch.setattr("src.utils.context_menu.create_speech_backend", lambda *_: backend)
     manager = ContextMenuManager(settings)
-    target = object()
-    captured = {}
-    presented = []
-
-    class FakeVoiceRecognition:
-        def start_voice_recognition(self):
-            captured["started"] = True
-
-    def fake_create_voice_recognition(**kwargs):
-        captured.update(kwargs)
-        return FakeVoiceRecognition()
-
-    monkeypatch.setattr(
-        manager,
-        "_create_voice_recognition",
-        fake_create_voice_recognition,
-    )
-    monkeypatch.setattr(manager, "stop_voice_recognition", lambda: None)
-    manager.response_window.present = lambda: presented.append("present")
-
+    target, inserted, presented = object(), [], []
+    monkeypatch.setattr("src.utils.context_menu.win32api.GetAsyncKeyState", lambda _key: 0)
+    monkeypatch.setattr("src.utils.context_menu.TextInserter.insert_text", lambda self, text, target: inserted.append((text, target)) or True)
+    manager.response_window.present = lambda: presented.append(True)
     manager._handle_voice_action(target=target)
-    captured["callback"]("Texte dicté")
-
-    assert captured["started"] is True
-    assert manager.response_window.response_text.toPlainText() == "Texte dicté"
-    assert manager.response_window.paste_target is target
-    assert presented == ["present"]
+    backend.transcript.emit("Provisoire")
+    dialog = manager.voice_recognition.recording_dialog
+    assert not dialog.insert_button.isEnabled()
+    backend.completed.emit("Texte dicté")
+    assert dialog.isVisible() and not presented and not inserted
+    dialog.insert_button.click()
+    assert inserted == [("Texte dicté", target)]
+    assert not presented
+    manager.close()
 
 
 def test_direct_voice_prompt_uses_tracked_request_lifecycle(monkeypatch):

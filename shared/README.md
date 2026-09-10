@@ -62,3 +62,18 @@ python -m pytest -q
 python -m compileall -q supermenu_core
 python -m flake8 supermenu_core tests --select=F,E9
 ```
+
+### Dictée instantanée et livraison du texte
+
+`audio/dictation_flow.py` réutilise `DictationSession` pour garder le résultat
+simple dans la fenêtre de transcription. La correction utilise un client texte
+isolé avec des signaux de requête identifiés ; fermeture, annulation et erreurs
+empêchent tout collage tardif. Les adaptateurs natifs conservent la cible de
+collage et reçoivent un prédicat d’annulation pour leurs étapes asynchrones.
+
+`audio/dictation_shortcut.py` partage les transitions appui/relâchement et bloque
+les répétitions. Windows conserve RegisterHotKey et observe la libération de la
+combinaison uniquement pendant l’appui ; Mac réutilise ses moniteurs AppKit avec
+KeyUp/FlagsChanged. `ui/dictation_settings.py` partage les options d’écoute et de
+livraison. `config/model_memory.py` centralise les choix de rétention ; le service
+texte Foundry protège les requêtes actives et en attente avant tout déchargement.
