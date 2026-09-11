@@ -198,7 +198,7 @@ L'architecture de SuperMenu a été conçue pour faciliter l'ajout de nouvelles 
 
 Le fichier `VERSION` contient la prochaine version stable sous la forme `MAJOR.MINOR.PATCH`. Les workflows injectent la version et le canal dans `src/config/build_info.py` avant le packaging :
 
-- **CI** (`ci.yml`) : tests Windows sur Python 3.10 et 3.12, tests macOS
+- **CI** (`ci.yml`) : tests Windows sur Python 3.11 et 3.12, tests macOS
   sur Python 3.12 et construction d'un DMG de test pour les pull requests et
   les pushs sur `main`; aucune publication.
 - **Beta** (`beta-release.yml`) : exécution après la réussite du workflow CI d'un push sur `main`, ou lancement manuel depuis `main`; version `VERSION-beta.RUN_NUMBER`, tag roulant `beta`, prérelease GitHub, installateur `SuperMenu_Beta_Setup.exe` et checksums SHA-256.

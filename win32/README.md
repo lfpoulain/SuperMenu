@@ -1,7 +1,7 @@
 # SuperMenu 🚀
 
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
-![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)
 ![Status](https://img.shields.io/badge/status-Active-success)
 
@@ -122,7 +122,7 @@ Envie de contribuer ou de modifier le code ?
 
 ### Prérequis
 - Windows 10/11
-- Python 3.10+
+- Python 3.11+
 
 ### Installation Dev
 
@@ -168,7 +168,7 @@ dist\SuperMenu.exe --smoke-test
 ### CI et publication
 
 - `../.github/workflows/ci.yml` valide le cœur partagé et Windows avec Python
-  3.10/3.12, valide macOS avec Python 3.12 et construit un DMG de test. Il ne
+  3.11/3.12, valide macOS avec Python 3.12 et construit un DMG de test. Il ne
   publie aucune release.
 - `../.github/workflows/beta-release.yml` construit la prérelease roulante `beta` après la réussite de la CI d'un push sur `main`, avec des artefacts clairement suffixés `Beta` et leurs checksums SHA-256.
 - `../.github/workflows/stable-release.yml` publie une release stable immuable uniquement lors du push d'un tag `vMAJOR.MINOR.PATCH`.

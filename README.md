@@ -4,7 +4,7 @@
 [![GitHub release](https://img.shields.io/github/v/release/lfpoulain/SuperMenu?display_name=tag&sort=semver)](https://github.com/lfpoulain/SuperMenu/releases)
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows)
 ![macOS](https://img.shields.io/badge/macOS-Apple%20Silicon-000000?logo=apple)
-![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.12-3776AB?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)
 [![License](https://img.shields.io/badge/licence-CC%20BY--NC%204.0-lightgrey)](LICENSE)
 
 SuperMenu place l’IA dans les applications où vous travaillez déjà. Sélectionnez
@@ -133,6 +133,9 @@ unique.
 
 ### Windows
 
+Python 3.11 minimum (SDK Foundry Local) ; Python 3.12 recommandé et utilisé
+pour les versions publiées.
+
 ```powershell
 cd win32
 python -m venv .venv
@@ -175,7 +178,7 @@ python run.py --smoke-test
 
 ## CI, versions et releases
 
-- **CI** valide le cœur partagé et Windows sous Python 3.10/3.12, valide macOS
+- **CI** valide le cœur partagé et Windows sous Python 3.11/3.12, valide macOS
   sous Python 3.12, puis construit un DMG de contrôle.
 - **Beta** démarre après une CI réussie sur `main`. Windows et macOS sont
   construits en parallèle ; la prerelease roulante `beta` n’est remplacée que

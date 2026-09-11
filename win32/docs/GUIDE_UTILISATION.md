@@ -38,7 +38,7 @@ Notes :
 
 ### Installation manuelle (pour développeurs)
 
-1. Installez Python 3.10 ou 3.12.
+1. Installez Python 3.11 ou 3.12.
 2. Placez-vous dans le dossier `win32/` du dépôt.
 3. Créez un environnement : `python -m venv .venv`.
 4. Activez-le : `.venv\Scripts\activate`.
