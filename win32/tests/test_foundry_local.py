@@ -84,11 +84,14 @@ def test_legacy_provider_migration_and_foundry_persistence(settings):
     assert reloaded.get_foundry_device() == "auto"
 
 
-def test_private_model_configuration_preserves_weights_and_is_idempotent(tmp_path):
+@pytest.mark.parametrize("legacy", [False, True])
+def test_private_model_configuration_preserves_weights_and_is_idempotent(tmp_path, legacy):
     folder = tmp_path / "cache/models/Microsoft/qwen/v3"
     folder.mkdir(parents=True)
     (folder / "inference_model.json").write_text(json.dumps({"Name": "qwen:3"}))
     template = "{% if enable_thinking is defined and enable_thinking is false %}direct{% endif %}"
+    if legacy:
+        template = "{%- set enable_thinking = false %}\n" + template
     (folder / "chat_template.jinja").write_text(template)
     (folder / "genai_config.json").write_text(
         json.dumps({"search": {"max_length": 262144}, "model": {"test": True}})
@@ -99,7 +102,9 @@ def test_private_model_configuration_preserves_weights_and_is_idempotent(tmp_pat
     first = (folder / "chat_template.jinja").read_text()
     configure_text_model(tmp_path, "qwen:3")
     assert (folder / "chat_template.jinja").read_text() == first
-    assert first.startswith("{%- set enable_thinking = false %}")
+    assert first.startswith("{%- set enable_thinking = messages[0]['content']")
+    assert "supermenu:reasoning:on" in first
+    assert "set enable_thinking = false" not in first
     assert "is false" not in first
     assert weights.read_bytes() == b"original-weights"
     config = json.loads((folder / "genai_config.json").read_text())
@@ -222,12 +227,18 @@ def service(app, tmp_path):
     worker = tmp_path / "worker.py"
     worker.write_text(
         """import json,sys,time
+loaded=False
 for line in sys.stdin:
  r=json.loads(line)
+ if r['operation']=='generate': loaded=True
+ if r['operation']=='unload': loaded=False
+ if r.get('fail_unload'):
+  print(json.dumps({'id':r['id'],'loaded_model':True,'error':'unload failed'}),flush=True)
+  continue
  if r.get('content') == 'crash': sys.exit(2)
  if r.get('content') == 'wait': time.sleep(20)
  print(json.dumps({'id':r['id'],'progress':{'percent':50}}),flush=True)
- print(json.dumps({'id':r['id'],'result':{'text':r.get('content','ok')}}),flush=True)
+ print(json.dumps({'id':r['id'],'loaded_model':loaded,'result':{'text':r.get('content','ok')}}),flush=True)
 """,
         encoding="utf-8",
     )
@@ -525,11 +536,14 @@ def test_text_model_retention_reuses_process_and_unloads_only_when_idle(app, ser
     # Shortening the policy accounts for time already spent idle.
     service._idle_since -= 61
     service.set_idle_seconds(60)
-    assert not service.loaded and not service._process.processId()
+    wait_until(app, lambda: not service.busy and not service.loaded)
+    assert service._process.processId() == pid
     service.submit("generate", content="third")
     wait_until(app, lambda: len(results) == 3)
     assert service.loaded and service._process.processId()
-    assert service.unload_idle() and not service.loaded
+    assert service.unload_idle()
+    wait_until(app, lambda: not service.busy and not service.loaded)
+    assert service._process.processId() == pid
 
 
 def test_immediate_text_unload_preserves_queued_generation(app, service):
@@ -540,5 +554,79 @@ def test_immediate_text_unload_preserves_queued_generation(app, service):
     service.submit("generate", content="two")
     wait_until(app, lambda: len(results) == 2)
     assert [result[1]["text"] for result in results] == ["one", "two"]
-    assert not service.busy and not service.loaded
-    assert not service._process.processId()
+    wait_until(app, lambda: not service.busy and not service.loaded)
+    assert service._process.processId()
+
+
+def test_reasoning_switch_does_not_reload_and_unload_keeps_runtime(tmp_path, monkeypatch):
+    runtime, models = runtime_with_models(tmp_path, monkeypatch)
+    manager = runtime.manager
+    request = {"operation": "generate", "model": "qwen3.5-4b", "prompt": "Analyse", "content": "17 + 25"}
+    for mode in ("off", "on", "off"):
+        runtime.execute({**request, "reasoning_mode": mode}, lambda _p: None)
+    model = models["qwen3.5-4b"]
+    assert model.loads == 1 and model.unloads == 0
+    assert [messages[0]["content"] for messages in model.requests] == [
+        "supermenu:reasoning:off", "supermenu:reasoning:on", "supermenu:reasoning:off"
+    ]
+    runtime.execute({"operation": "unload"}, lambda _p: None)
+    assert runtime.loaded_model is None and model.unloads == 1
+    assert runtime.manager is manager and runtime.hardware_prepared
+    runtime.execute(request, lambda _p: None)
+    assert model.loads == 2 and runtime.manager is manager
+    assert "runtime" not in runtime.timings and "hardware" not in runtime.timings
+
+
+def test_request_arriving_during_unload_reuses_worker(app, service):
+    results = []
+    service.completed.connect(lambda *args: results.append(args))
+    service.submit("generate", content="first")
+    wait_until(app, lambda: len(results) == 1)
+    pid = service._process.processId()
+    assert service.unload_idle()
+    service.submit("generate", content="second")
+    wait_until(app, lambda: len(results) == 2 and not service.busy)
+    assert service.loaded and service._process.processId() == pid
+    assert [r[1]["text"] for r in results] == ["first", "second"]
+
+
+def test_failed_native_unload_restarts_worker_for_queued_request(app, service):
+    errors, results = [], []
+    service.failed.connect(lambda *args: errors.append(args))
+    service.completed.connect(lambda *args: results.append(args))
+    service.submit("generate", content="first")
+    wait_until(app, lambda: len(results) == 1)
+    pid = service._process.processId()
+    service.submit("unload", fail_unload=True)
+    service.submit("generate", content="second")
+    wait_until(app, lambda: len(results) == 2 and not service.busy)
+    assert errors and errors[0][1] == "unload failed"
+    assert service.loaded and service._process.processId() != pid
+    assert results[-1][1] == {"text": "second"}
+
+
+def test_idle_worker_exit_clears_loaded_state_and_recovers(app, service):
+    results = []
+    service.completed.connect(lambda *args: results.append(args))
+    service.submit("generate", content="first")
+    wait_until(app, lambda: len(results) == 1 and not service.busy)
+    assert service.loaded and service._idle_timer.isActive()
+    service._process.kill()
+    wait_until(app, lambda: not service._process.processId() and not service.loaded)
+    assert not service._idle_timer.isActive()
+    service.submit("generate", content="second")
+    wait_until(app, lambda: len(results) == 2)
+    assert service.loaded
+
+
+def test_prompt_reasoning_survives_update_and_export(settings, tmp_path):
+    settings.update_prompt("corriger", "Corriger", "Corrige", "Correction", reasoning_mode="off")
+    settings.update_prompt("corriger", "Corriger", "Corrige mieux", "Correction")
+    assert settings.get_prompt("corriger")["reasoning_mode"] == "off"
+    settings.update_voice_prompt("resumer_vocal", "Analyse", "Analyse", "Analyse", reasoning_mode="on")
+    path = tmp_path / "prompts.json"
+    settings.export_prompts(str(path))
+    settings.update_prompt("corriger", "Corriger", "Corrige", "Correction", reasoning_mode="on")
+    settings.import_prompts(str(path))
+    assert settings.get_prompt("corriger")["reasoning_mode"] == "off"
+    assert settings.get_voice_prompt("resumer_vocal")["reasoning_mode"] == "on"

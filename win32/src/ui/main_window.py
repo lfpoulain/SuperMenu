@@ -793,6 +793,7 @@ class MainWindow(QMainWindow):
             self.prompt_text_input.setText(prompt_data["prompt"])
             self.prompt_status_input.setText(prompt_data["status"])
             self.prompt_insert_directly.setChecked(prompt_data.get("insert_directly", False))
+            self.text_prompt_form.reasoning.set_mode(prompt_data.get("reasoning_mode", "default"))
             self.prompt_hotkey_input.setText(prompt_data.get("hotkey", ""))
 
 
@@ -1057,6 +1058,7 @@ class MainWindow(QMainWindow):
                 insert_directly,
                 position,
                 hotkey=prompt_hotkey,
+                reasoning_mode=self.text_prompt_form.reasoning.currentData(),
             )
         except ValueError as e:
             QMessageBox.warning(self, "Raccourci invalide", str(e))
@@ -1633,6 +1635,7 @@ class MainWindow(QMainWindow):
         self.prompt_text_input.clear()
         self.prompt_status_input.clear()
         self.prompt_insert_directly.setChecked(False)
+        self.text_prompt_form.reasoning.set_mode("default")
         self.prompt_hotkey_input.clear()
 
 

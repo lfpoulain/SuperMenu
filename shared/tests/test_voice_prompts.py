@@ -216,3 +216,15 @@ def test_shared_voice_menu_keeps_native_action_payloads_and_order(tmp_path):
     assert all(action.data()[2] is target for action in actions)
     assert actions[1].text() == "Décrire une réponse"
     assert app is not None
+
+
+def test_reasoning_modes_validate_imports_without_changing_old_prompts():
+    from supermenu_core.config.prompts import normalize_prompt_collection
+    legacy = {"test": {"name": "Test", "prompt": "Teste", "status": "Test", "position": 1, "insert_directly": False, "hotkey": ""}}
+    assert normalize_prompt_collection(legacy) == legacy
+    for mode in ("default", "on", "off"):
+        candidate = {"test": {**legacy["test"], "reasoning_mode": mode}}
+        assert normalize_prompt_collection(candidate)["test"]["reasoning_mode"] == mode
+    for bad in (True, None, "maximum", {}):
+        with pytest.raises(ValueError, match="raisonnement"):
+            normalize_prompt_collection({"test": {**legacy["test"], "reasoning_mode": bad}})

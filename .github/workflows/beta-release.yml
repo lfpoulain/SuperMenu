@@ -1,6 +1,9 @@
 name: Beta Release
 
 on:
+  push:
+    branches:
+      - codex/prompt-reasoning-foundry-retention
   workflow_run:
     workflows:
       - CI
@@ -21,7 +24,8 @@ jobs:
   build-windows-beta:
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/codex/prompt-reasoning-foundry-retention')
     runs-on: windows-latest
     defaults:
       run:
@@ -131,7 +135,8 @@ jobs:
   build-macos-beta:
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/codex/prompt-reasoning-foundry-retention')
     runs-on: macos-15
     timeout-minutes: 45
     defaults:
@@ -353,6 +358,15 @@ jobs:
 
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
+
+            Nouveau cycle : raisonnement réglable par prompt texte ou vocal,
+            avec héritage du moteur, désactivation ou activation selon ses capacités.
+            Le choix est conservé à l’import/export et lors d’un nouvel essai.
+
+            Foundry : déchargement des poids sans fermer le moteur ni réinitialiser
+            le GPU. Le raisonnement Qwen change par requête sans recharger les poids.
+            Étapes d’initialisation, chargement et raisonnement affichées séparément ;
+            durées techniques dans les journaux, sans contenu des requêtes.
 
             Fenêtre de configuration plus haute par défaut sur Mac et Windows
             pour afficher les réglages de dictée sans défilement sur grand écran.

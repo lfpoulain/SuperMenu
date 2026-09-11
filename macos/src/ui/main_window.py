@@ -499,6 +499,7 @@ class MainWindow(QMainWindow):
         self.prompt_instruction.setPlainText(prompt.get("prompt", ""))
         self.prompt_status.setText(prompt.get("status", ""))
         self.prompt_direct.setChecked(bool(prompt.get("insert_directly", False)))
+        self.text_prompt_form.reasoning.set_mode(prompt.get("reasoning_mode", "default"))
         self.prompt_hotkey.setText(prompt.get("hotkey", ""))
         self._loading_prompt = False
 
@@ -619,6 +620,7 @@ class MainWindow(QMainWindow):
             "status": self.prompt_status.text().strip()
             or "Traitement en cours…",
             "insert_directly": self.prompt_direct.isChecked(),
+            "reasoning_mode": self.text_prompt_form.reasoning.currentData(),
             "position": prompt.get("position", 999),
             "hotkey": self.prompt_hotkey.text().strip(),
         }
@@ -639,6 +641,7 @@ class MainWindow(QMainWindow):
                 self.prompt_direct.isChecked(),
                 position=prompt.get("position", 999),
                 hotkey=self.prompt_hotkey.text().strip(),
+                reasoning_mode=self.text_prompt_form.reasoning.currentData(),
             )
         except ValueError as exc:
             QMessageBox.warning(self, "Raccourci invalide", str(exc))

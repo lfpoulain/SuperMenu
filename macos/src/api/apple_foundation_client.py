@@ -145,7 +145,7 @@ class AppleFoundationClient(QObject):
 
     def send_request(
         self, prompt, content, insert_directly=False, include_reasoning=None,
-        request_id=None, target=None,
+        request_id=None, target=None, reasoning_mode="default",
     ):
         request_id = request_id or uuid.uuid4().hex
         if self._closed:

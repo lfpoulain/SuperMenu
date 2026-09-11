@@ -119,7 +119,7 @@ class FoundrySettingsWidget(QGroupBox):
         elif self.service.loaded:
             message = "Modèle texte en mémoire — prêt pour la prochaine requête."
         else:
-            message = "Modèle texte déchargé. Les fichiers restent installés ; il sera chargé à la prochaine requête."
+            message = "Modèle texte déchargé. Le moteur reste prêt pour accélérer le prochain chargement ; les fichiers restent installés."
         self.memory_status.setText(message)
         self.unload_button.setEnabled(self.service.loaded and not self.service.busy)
 

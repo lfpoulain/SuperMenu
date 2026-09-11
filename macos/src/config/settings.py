@@ -272,11 +272,13 @@ class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettings
         insert_directly: bool = False,
         position: int | None = None,
         hotkey: str = "",
+        reasoning_mode: str | None = None,
     ) -> None:
         prompts = self.get_prompts()
         if prompt_id not in prompts:
             raise KeyError(prompt_id)
         prompts[prompt_id] = {
+            "reasoning_mode": reasoning_mode if reasoning_mode is not None else prompts.get(prompt_id, {}).get("reasoning_mode", "default"),
             "name": str(name or prompt_id),
             "prompt": str(prompt or ""),
             "status": str(status or "Traitement en cours…"),
@@ -299,12 +301,14 @@ class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettings
         insert_directly: bool = False,
         position: int = 999,
         hotkey: str = "",
+        reasoning_mode: str | None = None,
     ) -> str:
         prompts = self.get_prompts()
         identifier = str(prompt_id or uuid.uuid4().hex).strip()
         if identifier in prompts:
             raise ValueError("Cet identifiant de prompt existe déjà.")
         prompts[identifier] = {
+            "reasoning_mode": reasoning_mode if reasoning_mode is not None else prompts.get(prompt_id, {}).get("reasoning_mode", "default"),
             "name": str(name or "Nouveau prompt"),
             "prompt": str(prompt or ""),
             "status": str(status or "Traitement en cours…"),

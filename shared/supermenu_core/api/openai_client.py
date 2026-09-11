@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+from supermenu_core.config.prompt_reasoning import resolve_reasoning_effort, normalize_reasoning_mode
 import requests
 import base64
 import json
@@ -246,9 +247,9 @@ class OpenAIClient(QObject):
                     logging.DEBUG,
                 )
 
-    def _build_lmstudio_reasoning_value(self):
+    def _build_lmstudio_reasoning_value(self, reasoning_mode="default"):
         """Translate SuperMenu's effort into the selected model's native option."""
-        requested = (self._get_provider_reasoning_effort() or "none").strip().lower()
+        requested = (self._get_provider_reasoning_effort(reasoning_mode) or "none").strip().lower()
         options = self._lmstudio_reasoning_options
 
         if self._lmstudio_reasoning_supported is False:
@@ -302,7 +303,10 @@ class OpenAIClient(QObject):
                     logging.DEBUG,
                 )
 
-    def _get_provider_reasoning_effort(self):
+    def _get_provider_reasoning_effort(self, reasoning_mode="default"):
+        return resolve_reasoning_effort(self._get_default_reasoning_effort(), reasoning_mode)
+
+    def _get_default_reasoning_effort(self):
         """Read the reasoning setting for the active provider."""
         if self.use_custom_endpoint:
             getter = getattr(self.settings, "get_custom_reasoning_effort", None)
@@ -314,9 +318,9 @@ class OpenAIClient(QObject):
                 return getter(self.model)
         return self.settings.get_reasoning_effort()
 
-    def _build_ollama_think_value(self):
+    def _build_ollama_think_value(self, reasoning_mode="default"):
         """Construit la valeur du paramètre think pour Ollama."""
-        effort = (self._get_provider_reasoning_effort() or "none").strip().lower()
+        effort = (self._get_provider_reasoning_effort(reasoning_mode) or "none").strip().lower()
         if self._is_gpt_oss_model(self.model):
             if effort in OLLAMA_GPT_OSS_THINK_EFFORTS:
                 return effort
@@ -617,8 +621,10 @@ class OpenAIClient(QObject):
         include_reasoning=None,
         request_id=None,
         target=None,
+        reasoning_mode="default",
     ):
         """Envoie une requête à l'API OpenAI en arrière-plan"""
+        reasoning_mode = normalize_reasoning_mode(reasoning_mode)
         request_id = request_id or uuid.uuid4().hex
 
         if self._closing.is_set():
@@ -647,6 +653,8 @@ class OpenAIClient(QObject):
         self.request_started.emit()
         self.request_started_scoped.emit(request_id, insert_directly)
 
+        if reasoning_mode == "off":
+            include_reasoning = False
         # Lancer la requête dans un thread séparé
         if include_reasoning is None:
             include_reasoning = self._should_include_reasoning_by_default(
@@ -662,6 +670,7 @@ class OpenAIClient(QObject):
                 insert_directly,
                 include_reasoning,
                 target,
+                reasoning_mode,
             ),
             daemon=True,
         ).start()
@@ -749,7 +758,7 @@ class OpenAIClient(QObject):
             raise last_exception
         raise Exception("All retry attempts failed")
 
-    def _build_lmstudio_compat_data(self, native_data):
+    def _build_lmstudio_compat_data(self, native_data, reasoning_mode="default"):
         """Convert a native LM Studio request for pre-0.4 compatible servers."""
         native_input = native_data.get("input", "")
         if isinstance(native_input, str):
@@ -780,14 +789,14 @@ class OpenAIClient(QObject):
             # LM Studio's compatible API uses -1 for no artificial output cap.
             "max_tokens": -1,
         }
-        effort = (self._get_provider_reasoning_effort() or "none").strip().lower()
+        effort = (self._get_provider_reasoning_effort(reasoning_mode) or "none").strip().lower()
         if effort in {"low", "medium", "high"}:
             data["reasoning"] = {"effort": effort}
         elif self._is_gpt_oss_model(self.model):
             data["reasoning"] = {"effort": "low"}
         return data
 
-    def _perform_request(self, headers, data, timeout):
+    def _perform_request(self, headers, data, timeout, reasoning_mode="default"):
         """Send a request, retry unsupported reasoning, then fall back if needed."""
         response = self._make_request_with_retry(
             headers,
@@ -809,7 +818,7 @@ class OpenAIClient(QObject):
         if response.status_code not in {404, 405}:
             return response
 
-        compat_data = self._build_lmstudio_compat_data(data)
+        compat_data = self._build_lmstudio_compat_data(data, reasoning_mode)
         response = self._make_request_with_retry(
             headers,
             compat_data,
@@ -862,6 +871,7 @@ class OpenAIClient(QObject):
         insert_directly=False,
         include_reasoning=True,
         target=None,
+        reasoning_mode="default",
     ):
         """Traite la requête dans un thread séparé"""
         cleanup_path = None
@@ -870,13 +880,20 @@ class OpenAIClient(QObject):
             headers = self._build_headers()
             self._ensure_ollama_model_capabilities()
             self._ensure_lmstudio_model_capabilities()
-            data, cleanup_path = self._build_request_data(prompt, content)
+            reasoning_options = (
+                {"reasoning_mode": reasoning_mode} if reasoning_mode != "default" else {}
+            )
+            data, cleanup_path = self._build_request_data(
+                prompt, content, **reasoning_options
+            )
 
             # Envoyer la requête avec retry logic
             timeout = (
                 LMSTUDIO_API_TIMEOUT if self.use_lmstudio_api else DEFAULT_API_TIMEOUT
             )
-            response = self._perform_request(headers, data, timeout=timeout)
+            response = self._perform_request(
+                headers, data, timeout=timeout, **reasoning_options
+            )
 
             # Vérifier si la requête a réussi
             if response.status_code == 200:
@@ -983,7 +1000,7 @@ class OpenAIClient(QObject):
                 logging.WARNING,
             )
 
-    def _build_request_data(self, prompt, content):
+    def _build_request_data(self, prompt, content, reasoning_mode="default"):
         """Build a provider payload and return its owned cleanup path."""
         image_path = None
         image_base64 = None
@@ -1016,7 +1033,7 @@ class OpenAIClient(QObject):
                 "messages": [message],
                 "stream": False,
             }
-            think_value = self._build_ollama_think_value()
+            think_value = self._build_ollama_think_value(reasoning_mode)
             if think_value is not None:
                 data["think"] = think_value
             return data, image_path
@@ -1034,7 +1051,7 @@ class OpenAIClient(QObject):
                 "stream": False,
                 "store": False,
             }
-            reasoning = self._build_lmstudio_reasoning_value()
+            reasoning = self._build_lmstudio_reasoning_value(reasoning_mode)
             if reasoning:
                 data["reasoning"] = reasoning
                 log(
@@ -1074,7 +1091,7 @@ class OpenAIClient(QObject):
             data[capabilities.max_tokens_parameter] = DEFAULT_MAX_TOKENS
             effort = normalize_reasoning_effort(
                 self.model,
-                self._get_provider_reasoning_effort(),
+                self._get_provider_reasoning_effort(reasoning_mode),
             )
             data["reasoning_effort"] = effort
         else:

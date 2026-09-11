@@ -293,6 +293,7 @@ def test_direct_voice_prompt_uses_tracked_request_lifecycle(monkeypatch):
             {
                 "target": target,
                 "include_reasoning": False,
+                "reasoning_mode": "default",
                 "direct_status": "✅ Envoyé à l'IA — Correction en cours",
             },
         )

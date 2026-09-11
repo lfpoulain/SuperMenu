@@ -537,6 +537,7 @@ class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettings
         insert_directly=False,
         position=None,
         hotkey="",
+        reasoning_mode=None,
     ):
         """Update a specific prompt"""
         prompts = self.get_prompts()
@@ -559,6 +560,7 @@ class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettings
                 )
 
         prompts[prompt_id] = {
+            "reasoning_mode": reasoning_mode if reasoning_mode is not None else prompts.get(prompt_id, {}).get("reasoning_mode", "default"),
             "name": name,
             "prompt": prompt,
             "status": status,
@@ -577,6 +579,7 @@ class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettings
         insert_directly=False,
         position=999,
         hotkey="",
+        reasoning_mode=None,
     ):
         """Ajouter un nouveau prompt"""
         prompts = self.get_prompts()
@@ -604,6 +607,7 @@ class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettings
                 )
 
         prompts[prompt_id] = {
+            "reasoning_mode": reasoning_mode if reasoning_mode is not None else prompts.get(prompt_id, {}).get("reasoning_mode", "default"),
             "name": name,
             "prompt": prompt,
             "status": status,

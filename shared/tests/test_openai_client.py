@@ -130,3 +130,51 @@ def test_close_blocks_already_queued_signal_forwarding():
     client._emit_finished("request", "late result", False, None)
 
     assert emitted == []
+
+
+def test_reasoning_is_scoped_to_each_prompt_for_all_text_providers():
+    for provider, model, field, off, on in (
+        ("openai", "gpt-5.6-sol", "reasoning_effort", "none", "medium"),
+        ("ollama", "qwen3.5", "think", False, True),
+        ("lmstudio", "qwen3.5", "reasoning", "off", "medium"),
+    ):
+        client = OpenAIClient(FakeSettings(provider, model), api_key="test", allow_images=False)
+        assert client._build_request_data("Corrige", "Texte", reasoning_mode="off")[0][field] == off
+        assert client._build_request_data("Analyse", "Texte", reasoning_mode="on")[0][field] == on
+        assert client._build_request_data("Corrige", "Texte")[0][field] == off
+        client.close()
+
+
+def test_concurrent_prompts_keep_independent_reasoning(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from types import SimpleNamespace
+    barrier = Barrier(2)
+    payloads = {}
+    client = OpenAIClient(FakeSettings(), api_key="test", allow_images=False)
+    def send(headers, data, **options):
+        payloads[data["messages"][0]["content"]] = data["reasoning_effort"]
+        barrier.wait(timeout=5)
+        return SimpleNamespace(status_code=200, json=lambda: {"choices": [{"message": {"content": "Réponse"}}]})
+    monkeypatch.setattr(client, "_perform_request", send)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        tasks = [pool.submit(client._process_request_thread, mode, mode, "", reasoning_mode=mode) for mode in ("off", "on")]
+        for task in tasks:
+            task.result(timeout=10)
+    assert payloads == {"off": "none", "on": "medium"}
+    assert client._get_provider_reasoning_effort() == "none"
+    client.close()
+
+
+def test_lmstudio_fallback_keeps_prompt_reasoning(monkeypatch):
+    from types import SimpleNamespace
+    client = OpenAIClient(FakeSettings("lmstudio", "qwen3.5"), allow_images=False)
+    calls = []
+    def request(headers, data, **options):
+        calls.append(data)
+        return SimpleNamespace(status_code=404 if len(calls) == 1 else 200)
+    monkeypatch.setattr(client, "_make_request_with_retry", request)
+    data, _ = client._build_request_data("Analyse", "Texte", reasoning_mode="on")
+    client._perform_request({}, data, 60, reasoning_mode="on")
+    assert calls[-1]["reasoning"] == {"effort": "medium"}
+    client.close()

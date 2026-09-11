@@ -74,6 +74,7 @@ class BaseResponseWindow(QWidget):
         self.trigger_position = None
 
         # Variables pour stocker la dernière requête (pour retry)
+        self.last_reasoning_mode = "default"
         self.last_prompt = None
         self.last_content = None
 
@@ -187,6 +188,7 @@ class BaseResponseWindow(QWidget):
     def set_standalone_response(self, response, title="SuperMenu - Résultat"):
         """Display reusable plain text that did not come from an AI request."""
         text = str(response or "")
+        self.last_reasoning_mode = "default"
         self.last_prompt = None
         self.last_content = None
         self.raw_response = text

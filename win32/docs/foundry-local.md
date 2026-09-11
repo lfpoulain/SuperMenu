@@ -60,7 +60,8 @@ client : une modification des réglages préserve les requêtes déjà envoyées
 
 Le SDK 1.2.4 n'expose ni les variables du template Jinja, ni la taille de contexte
 au chargement. Avant chargement, SuperMenu adapte uniquement son cache privé :
-activation de la branche Qwen `enable_thinking = false`, remplacement du test
+choix de la branche Qwen `enable_thinking` à partir d’un message de contrôle privé
+supprimé par le template avant tokenisation, remplacement du test
 Jinja `is false` non pris en charge par ORT GenAI 0.14.1 et limite de
 `search.max_length` à 32 768. Les poids restent inchangés. L'adaptation est
 atomique et idempotente. Les variantes sans template compatible sont refusées.
@@ -96,3 +97,19 @@ Références : [SDK Microsoft](https://learn.microsoft.com/en-us/windows/ai/foun
 [SDK 1.2.4](https://pypi.org/project/foundry-local-sdk-winml/1.2.4/),
 [Qwen3.5 4B](https://huggingface.co/Qwen/Qwen3.5-4B),
 [Qwen3.5 9B](https://huggingface.co/Qwen/Qwen3.5-9B).
+
+
+### Raisonnement et rechargement (nouveau cycle bêta)
+
+Le mode du prompt sélectionne le raisonnement sans modifier le template à chaque
+requête ni recharger le modèle. Le template est adapté une seule fois au chargement.
+Avec raisonnement, la sortie est plafonnée à 8 192 tokens, raisonnement inclus,
+contre 2 048 sans raisonnement ; une sortie tronquée reste refusée.
+Les paramètres d’échantillonnage du mode raisonnement suivent les
+[recommandations Qwen](https://huggingface.co/Qwen/Qwen3.5-4B#best-practices).
+
+Le déchargement utilise `model.unload()` dans le processus résident ; il conserve
+le gestionnaire Foundry, le catalogue et les fournisseurs GPU initialisés.
+L’annulation d’une requête active, une erreur critique ou la fermeture arrêtent
+encore le processus. Les durées `runtime`, `hardware`, `load`, `generate` et
+`unload` permettent de distinguer le chargement des poids du reste de la préparation.

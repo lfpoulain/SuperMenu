@@ -2,6 +2,7 @@
 
 from collections import deque
 import json
+import logging
 from pathlib import Path
 import sys
 import time
@@ -78,7 +79,7 @@ class FoundryService(QObject):
             raise ValueError("Délai de déchargement inconnu")
         self.idle_seconds = value
         self._idle_timer.stop()
-        if self.busy or self._idle_since is None or value < 0:
+        if self.busy or not self.loaded or self._idle_since is None or value < 0:
             return
         remaining = value - (time.monotonic() - self._idle_since)
         if remaining <= 0:
@@ -89,7 +90,10 @@ class FoundryService(QObject):
     def unload_idle(self):
         if self.busy:
             return False
-        self._stop()
+        self._idle_timer.stop()
+        self._idle_since = None
+        if self.loaded and self._process.state() != QProcess.NotRunning:
+            self.submit("unload")
         return True
 
     def submit(self, operation, *, request_id=None, **payload):
@@ -142,16 +146,22 @@ class FoundryService(QObject):
                 continue
             request_id = self._active["id"]
             if "progress" in message:
-                self.progress.emit(request_id, message["progress"])
+                details = message["progress"]
+                if isinstance(details, dict) and "elapsed_seconds" in details:
+                    logging.getLogger(__name__).info("Foundry phase=%s duration=%.3fs", details.get("phase"), details["elapsed_seconds"])
+                self.progress.emit(request_id, details)
                 continue
             operation = self._active["operation"]
             self.loaded = bool(message.get("loaded_model", self.loaded or (operation == "generate" and "result" in message)))
             self._active = None
             self._timer.stop()
             if "error" in message:
+                if operation == "unload":
+                    self._stop()
                 self.failed.emit(request_id, str(message["error"]))
             elif isinstance(message.get("result"), dict):
-                self.completed.emit(request_id, message["result"])
+                if operation != "unload":
+                    self.completed.emit(request_id, message["result"])
             else:
                 self.failed.emit(request_id, "Réponse locale invalide.")
             self._idle_since = time.monotonic()
@@ -187,6 +197,12 @@ class FoundryService(QObject):
             self._abort(
                 "Le moteur local s'est arrêté. Vérifiez la mémoire et les pilotes, puis réessayez."
             )
+        else:
+            self.loaded = False
+            self._idle_since = None
+            self._idle_timer.stop()
+            self._buffer = b""
+            self.state_changed.emit()
 
     def _process_error(self, error):
         if error == QProcess.FailedToStart:
@@ -224,6 +240,7 @@ def get_foundry_service():
 
 
 class FoundryClient(QObject):
+    request_progress_scoped = Signal(str, object)
     request_started_scoped = Signal(str, bool)
     request_finished_scoped = Signal(str, str, bool, object)
     request_error_scoped = Signal(str, str)
@@ -239,6 +256,7 @@ class FoundryClient(QObject):
         self._closed = False
         self._service.completed.connect(self._completed)
         self._service.failed.connect(self._failed)
+        self._service.progress.connect(self._progress)
 
     def send_request(
         self,
@@ -248,6 +266,7 @@ class FoundryClient(QObject):
         include_reasoning=None,
         request_id=None,
         target=None,
+        reasoning_mode="default",
     ):
         request_id = request_id or uuid.uuid4().hex
         if self._closed:
@@ -271,8 +290,13 @@ class FoundryClient(QObject):
                 device=self.device,
                 prompt=prompt,
                 content=content,
+                reasoning_mode=reasoning_mode,
             )
         return request_id
+
+    def _progress(self, request_id, details):
+        if request_id in self._pending and not self._closed:
+            self.request_progress_scoped.emit(request_id, details)
 
     def _completed(self, request_id, result):
         if request_id not in self._pending or self._closed:
@@ -291,6 +315,7 @@ class FoundryClient(QObject):
         self._closed = True
         self._service.completed.disconnect(self._completed)
         self._service.failed.disconnect(self._failed)
+        self._service.progress.disconnect(self._progress)
         for request_id in list(self._pending):
             self._service.cancel(request_id)
         self._pending.clear()

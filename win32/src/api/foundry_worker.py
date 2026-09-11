@@ -10,8 +10,10 @@ from pathlib import Path
 import re
 import shutil
 import sys
+import time
 
 from src.config.foundry_models import FOUNDRY_MODELS, MAX_INPUT_CHARS
+from supermenu_core.config.prompt_reasoning import normalize_reasoning_mode
 
 
 class LocalError(Exception):
@@ -66,7 +68,7 @@ def configure_text_model(root, model_id):
     """Configure only SuperMenu's private cache before the native model loads.
 
     SDK 1.2.4 does not expose Jinja template variables or load context options.
-    Use Qwen's own non-thinking template branch and cap ORT's KV allocation.
+    Select Qwen's thinking branch per request and cap ORT's KV allocation.
     The weights and the user's other Foundry/Ollama caches are never modified.
     """
     root = Path(root).resolve()
@@ -84,12 +86,18 @@ def configure_text_model(root, model_id):
         ):
             break
         template = template_path.read_text(encoding="utf-8")
-        prefix = "{%- set enable_thinking = false %}\n"
+        legacy_prefix = "{%- set enable_thinking = false %}\n"
+        prefix = (
+            "{%- set enable_thinking = messages[0]['content'] == 'supermenu:reasoning:on' %}\n"
+            "{%- set messages = messages[1:] %}\n"
+        )
         if "enable_thinking" not in template:
             raise LocalError(
                 "Cette variante Qwen ne permet pas encore le mode texte direct de SuperMenu."
             )
         original = template
+        if template.startswith(legacy_prefix):
+            template = template[len(legacy_prefix):]
         # ORT GenAI 0.14.1's Jinja subset lacks the `is false` test.
         template = template.replace("enable_thinking is false", "not enable_thinking")
         if not template.startswith(prefix):
@@ -120,6 +128,23 @@ class FoundryRuntime:
         self.loaded_model = None
         self.hardware_prepared = False
         self.hardware_warning = ""
+        self.timings = {}
+
+    def _timed(self, phase, label, operation, progress):
+        progress({"phase": phase, "stage": label})
+        started = time.monotonic()
+        try:
+            return operation()
+        finally:
+            elapsed = round(time.monotonic() - started, 3)
+            self.timings[phase] = elapsed
+            progress({"phase": phase, "stage": label, "elapsed_seconds": elapsed})
+
+    def unload(self, progress):
+        if self.loaded_model is not None:
+            self._timed("unload", "Libération de la mémoire du modèle…", self.loaded_model.unload, progress)
+            self.loaded_model = None
+        return {"unloaded": True}
 
     def prepare_hardware(self, device, progress, *, retry=False):
         self.initialize()
@@ -235,9 +260,15 @@ class FoundryRuntime:
         }
 
     def execute(self, request, progress):
+        self.timings = {}
         operation = request.get("operation")
+        if operation == "unload":
+            return self.unload(progress)
         device = "cpu" if request.get("device") == "cpu" else "auto"
-        self.prepare_hardware(device, progress, retry=operation == "probe")
+        if self.manager is None:
+            self._timed("runtime", "Initialisation du moteur Foundry…", self.initialize, progress)
+        if not self.hardware_prepared or operation == "probe":
+            self._timed("hardware", "Préparation du matériel local…", lambda: self.prepare_hardware(device, progress, retry=operation == "probe"), progress)
         if operation == "probe":
             return {
                 "models": [
@@ -281,19 +312,25 @@ class FoundryRuntime:
                 "Téléchargez d'abord ce Qwen dans Réglages > Moteur IA > IA locale Microsoft."
             )
         if self.loaded_model is not None and self.loaded_model.id != model.id:
-            self.loaded_model.unload()
-            self.loaded_model = None
+            self.unload(progress)
         if self.loaded_model is None:
             progress({"phase": "load", "stage": "Chargement du modèle installé en mémoire… Aucun téléchargement du modèle."})
             configure_text_model(self.root, model.id)
-            model.load()
+            self._timed("load", "Chargement du modèle installé en mémoire…", model.load, progress)
             self.loaded_model = model
-        client = model.get_chat_client()
-        client.settings.max_tokens = 2048
-        client.settings.temperature = 0.2
-        progress({"stage": "Traitement local du texte…"})
+        reasoning = normalize_reasoning_mode(request.get("reasoning_mode", "default")) == "on"
+        client = self.loaded_model.get_chat_client()
+        client.settings.max_tokens = 8192 if reasoning else 2048
+        # Qwen's published sampling settings avoid repetitive thinking loops.
+        client.settings.temperature = 1.0 if reasoning else 0.2
+        client.settings.top_p = 0.95 if reasoning else None
+        client.settings.top_k = 20 if reasoning else None
+        client.settings.presence_penalty = 1.5 if reasoning else None
+        progress({"phase": "generate", "stage": "Raisonnement local en cours…" if reasoning else "Traitement local du texte…"})
+        started = time.monotonic()
         result = client.complete_chat(
             [
+                {"role": "system", "content": "supermenu:reasoning:on" if reasoning else "supermenu:reasoning:off"},
                 {
                     "role": "system",
                     "content": (
@@ -307,6 +344,8 @@ class FoundryRuntime:
                 },
             ]
         )
+        self.timings["generate"] = round(time.monotonic() - started, 3)
+        progress({"phase": "generate", "stage": "Traitement local du texte…", "elapsed_seconds": self.timings["generate"]})
         if not result.choices or result.choices[0].finish_reason == "length":
             raise LocalError(
                 "La réponse locale est trop longue et a été interrompue. Réduisez le texte."

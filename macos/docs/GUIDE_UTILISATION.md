@@ -470,3 +470,25 @@ fichier `supermenu.log` trace notamment :
 
 Retour au [README macOS](../README.md) ou au
 [README principal](../../README.md).
+
+
+## Nouveau cycle bêta : raisonnement par prompt
+
+Dans **Prompts** ou **Voix**, choisissez **Raisonnement (si disponible)** :
+**Réglage du moteur** conserve le comportement habituel ; **Sans raisonnement**
+convient par exemple à « Corriger » ; **Avec raisonnement** convient à une analyse
+ou une extraction de chiffres. Ce choix s’enregistre avec le prompt, s’exporte
+et reste identique avec **Réessayer**. Il ne modifie pas le réglage des autres prompts.
+Les anciens prompts conservent leur comportement jusqu’à modification.
+
+Le choix agit sur OpenAI et les moteurs compatibles Ollama / LM Studio, selon
+les capacités du modèle. Foundry Local le prend en charge avec les deux Qwen3.5.
+Apple Foundation Models ne propose pas de commutateur de raisonnement ; il reste
+automatique. Certains modèles, notamment GPT-OSS, imposent un effort minimal.
+Le raisonnement peut allonger le traitement ; l’insertion conserve la réponse finale.
+
+Avec Foundry, le délai d’inactivité et **Décharger maintenant** libèrent les poids
+du modèle tout en conservant le moteur initialisé. Fermer SuperMenu libère aussi
+le moteur. L’interface distingue la préparation du GPU, le chargement des poids
+et le traitement ou raisonnement. Les durées par phase sont consignées dans les
+journaux, sans enregistrer le texte traité.

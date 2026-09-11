@@ -22,6 +22,7 @@ from supermenu_core.config.voice_prompts import VOICE_ORDER_CHOICES
 from .controls import ChoiceBox
 from .settings_panel import form_layout, scrollable_form
 from .page_actions import PromptActions
+from .prompt_reasoning import PromptReasoningChoice
 
 
 class VoicePromptEditor(QWidget):
@@ -97,6 +98,8 @@ class VoicePromptEditor(QWidget):
         self.instruction_input = QTextEdit()
         self.instruction_input.setMinimumHeight(100)
         form.addRow("Instructions", self.instruction_input)
+        self.reasoning = PromptReasoningChoice()
+        form.addRow("Raisonnement (si disponible)", self.reasoning)
         self.status_input = QLineEdit()
         form.addRow("Message pendant le traitement", self.status_input)
         self.insert_directly = QCheckBox(
@@ -163,6 +166,7 @@ class VoicePromptEditor(QWidget):
         self.instruction_input.setPlainText(prompt.get("prompt", ""))
         self.status_input.setText(prompt.get("status", ""))
         self.insert_directly.setChecked(prompt.get("insert_directly", False))
+        self.reasoning.set_mode(prompt.get("reasoning_mode", "default"))
         self.include_selected.setChecked(prompt.get("include_selected_text", False))
         self.order_combo.setEnabled(self.include_selected.isChecked())
         self.order_combo.setCurrentIndex(
@@ -200,6 +204,7 @@ class VoicePromptEditor(QWidget):
             self.insert_directly.isChecked(),
             include_selected_text=self.include_selected.isChecked(),
             prompt_order=self.order_combo.currentData(),
+            reasoning_mode=self.reasoning.currentData(),
         )
         self.prompt_list.currentItem().setText(name)
         self.prompt_list.currentItem().setToolTip(name)

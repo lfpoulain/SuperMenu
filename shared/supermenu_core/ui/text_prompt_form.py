@@ -4,6 +4,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QGroupBox, QLineEdit, QTextEdit, QCheckBox, QHBoxLayout, QPushButton, QMessageBox
 
 from .settings_panel import form_layout
+from .prompt_reasoning import PromptReasoningChoice
 
 
 def reset_text_prompt(settings, prompt_id, parent):
@@ -23,6 +24,7 @@ def reset_text_prompt(settings, prompt_id, parent):
         prompt_id, default["name"], default["prompt"], default["status"],
         default.get("insert_directly", False), position=current.get("position", 999),
         hotkey=default.get("hotkey", ""),
+        reasoning_mode=default.get("reasoning_mode", "default"),
     )
     settings.sync()
     return True
@@ -43,6 +45,8 @@ class TextPromptForm(QGroupBox):
         self.instruction.setMinimumHeight(100)
         self.instruction.setPlaceholderText("Ex. : Corrige l’orthographe et la grammaire du texte suivant.")
         form.addRow("Instructions", self.instruction)
+        self.reasoning = PromptReasoningChoice()
+        form.addRow("Raisonnement (si disponible)", self.reasoning)
         self.status = QLineEdit()
         self.status.setPlaceholderText("Ex. : Correction en cours…")
         form.addRow("Message pendant le traitement", self.status)

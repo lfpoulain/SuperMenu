@@ -352,6 +352,7 @@ class ContextMenuManager(QObject):
                 request, "", insert_directly=direct, target=target,
                 include_reasoning=False if direct else None,
                 direct_status=f"Envoyé — {status}",
+                reasoning_mode=prompt.get("reasoning_mode", "default"),
             )
 
         self._start_voice_session(process_transcription)
@@ -394,6 +395,7 @@ class ContextMenuManager(QObject):
             insert_directly=insert_directly,
             target=target,
             direct_status=f"Envoyé — {prompt['status']}",
+            reasoning_mode=prompt.get("reasoning_mode", "default"),
         )
 
     def _handle_custom(self, selected_text: str, target, *, voice=False) -> None:
@@ -468,6 +470,7 @@ class ContextMenuManager(QObject):
         target=None,
         include_reasoning=None,
         direct_status=None,
+        reasoning_mode="default",
     ) -> str:
         request_id = uuid.uuid4().hex
         if self._closed:
@@ -486,6 +489,7 @@ class ContextMenuManager(QObject):
         }
         if not insert_directly:
             self._active_response_request_id = request_id
+            self.response_window.last_reasoning_mode = reasoning_mode
         try:
             client.send_request(
                 prompt,
@@ -494,6 +498,7 @@ class ContextMenuManager(QObject):
                 include_reasoning=include_reasoning,
                 request_id=request_id,
                 target=target,
+                **({"reasoning_mode": reasoning_mode} if reasoning_mode != "default" else {}),
             )
         except Exception as exc:
             self.on_request_error_scoped(request_id, str(exc))
@@ -589,7 +594,7 @@ class ContextMenuManager(QObject):
             return
         prompt, content = self.response_window.get_last_request()
         if prompt is not None:
-            self._send_request(prompt, content or "")
+            self._send_request(prompt, content or "", reasoning_mode=getattr(self.response_window, "last_reasoning_mode", "default"))
 
     def _release_retired_client_if_idle(self, client) -> None:
         if client is self.api_client:

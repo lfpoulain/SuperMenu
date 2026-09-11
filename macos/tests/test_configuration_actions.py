@@ -101,3 +101,16 @@ def test_custom_text_prompt_has_no_reset_to_defaults(window):
     prompt_id = window.settings.add_prompt(None, "Personnel", "Mon instruction", "Travail")
     window._reload_prompts(prompt_id)
     assert not window.prompt_actions.reset_button.isEnabled()
+
+
+def test_prompt_editor_saves_reasoning_independently(window):
+    window._reload_prompts("corriger")
+    window.text_prompt_form.reasoning.set_mode("off")
+    assert window.save_current_prompt()
+    assert window.settings.get_prompt("corriger")["reasoning_mode"] == "off"
+    window.voice_prompt_editor.reload("resumer_vocal")
+    window.voice_prompt_editor.reasoning.set_mode("on")
+    assert window.voice_prompt_editor.save()
+    assert window.settings.get_voice_prompt("resumer_vocal")["reasoning_mode"] == "on"
+    window._reload_prompts("corriger")
+    assert window.text_prompt_form.reasoning.currentData() == "off"

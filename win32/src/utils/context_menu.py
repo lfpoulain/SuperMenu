@@ -90,14 +90,31 @@ class ContextMenuManager(QObject):
         client.request_started_scoped.connect(self.on_request_started_scoped)
         client.request_finished_scoped.connect(self.on_request_finished_scoped)
         client.request_error_scoped.connect(self.on_request_error_scoped)
+        if hasattr(client, "request_progress_scoped"):
+            client.request_progress_scoped.connect(self.on_request_progress_scoped)
 
     def _disconnect_api_client(self, client):
         try:
             client.request_started_scoped.disconnect(self.on_request_started_scoped)
             client.request_finished_scoped.disconnect(self.on_request_finished_scoped)
             client.request_error_scoped.disconnect(self.on_request_error_scoped)
+            if hasattr(client, "request_progress_scoped"):
+                client.request_progress_scoped.disconnect(self.on_request_progress_scoped)
         except (TypeError, RuntimeError):
             pass
+
+    def on_request_progress_scoped(self, request_id, details):
+        request = self._pending_requests.get(request_id)
+        if self._closed or request is None or not isinstance(details, dict):
+            return
+        stage = details.get("stage")
+        if not stage or "elapsed_seconds" in details:
+            return
+        indicator = request.get("indicator")
+        if indicator is not None:
+            indicator.set_message(stage)
+        elif request_id == self._active_response_request_id:
+            self.response_window.set_status(stage)
 
     def _send_request(
         self,
@@ -108,6 +125,7 @@ class ContextMenuManager(QObject):
         target=None,
         include_reasoning=None,
         direct_status=None,
+        reasoning_mode="default",
     ):
         """Register request state before the client can emit synchronously."""
         if self._closed:
@@ -129,7 +147,7 @@ class ContextMenuManager(QObject):
         }
         if not insert_directly:
             self._active_response_request_id = request_id
-
+            self.response_window.last_reasoning_mode = reasoning_mode
         try:
             client.send_request(
                 prompt,
@@ -138,6 +156,7 @@ class ContextMenuManager(QObject):
                 include_reasoning=include_reasoning,
                 request_id=request_id,
                 target=target,
+                **({"reasoning_mode": reasoning_mode} if reasoning_mode != "default" else {}),
             )
         except Exception as e:
             self.on_request_error_scoped(request_id, f"Erreur: {e}")
@@ -681,6 +700,7 @@ class ContextMenuManager(QObject):
             selected_text,
             insert_directly,
             target=target,
+            reasoning_mode=prompt_data.get("reasoning_mode", "default"),
             direct_status=(
                 f"✅ Envoyé à l'IA — {prompt_data['status']}"
                 if insert_directly
@@ -891,6 +911,7 @@ class ContextMenuManager(QObject):
                             True,
                             target=target,
                             include_reasoning=False,
+                            reasoning_mode=prompt_data.get("reasoning_mode", "default"),
                             direct_status=f"✅ Envoyé à l'IA — {status}",
                         )
                     else:
@@ -905,7 +926,7 @@ class ContextMenuManager(QObject):
                         self.response_window.store_request(full_prompt, "")
                         
                         # Lancer la requête API en arrière-plan
-                        self._send_request(full_prompt, "")
+                        self._send_request(full_prompt, "", reasoning_mode=prompt_data.get("reasoning_mode", "default"))
             
             # Arrêter toute reconnaissance vocale en cours
             self.stop_voice_recognition()
@@ -1100,7 +1121,7 @@ class ContextMenuManager(QObject):
         prompt, content = self.response_window.get_last_request()
         if prompt is not None:
             log("Retry de la dernière requête...", logging.INFO)
-            self._send_request(prompt, content if content else "")
+            self._send_request(prompt, content if content else "", reasoning_mode=getattr(self.response_window, "last_reasoning_mode", "default"))
 
     def update_client_config(self):
         """Met à jour la configuration du client API avec les paramètres actuels."""
