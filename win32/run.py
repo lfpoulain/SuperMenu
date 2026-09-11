@@ -83,8 +83,13 @@ def run_foundry_smoke_test():
             response = json.loads(line)
         except ValueError:
             continue
-        if response.get("id") != "smoke":
+        if not isinstance(response, dict) or response.get("id") != "smoke":
             continue
+        if "progress" in response:
+            continue
+        if "error" in response:
+            print(json.dumps({"foundry_ok": False, "error": response["error"]}))
+            return 1
         models = response.get("result", {}).get("models", [])
         ok = child.returncode == 0 and {m["alias"] for m in models} == set(FOUNDRY_MODELS)
         print(json.dumps({"foundry_ok": ok, "models": models}))

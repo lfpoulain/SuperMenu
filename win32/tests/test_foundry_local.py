@@ -630,3 +630,35 @@ def test_prompt_reasoning_survives_update_and_export(settings, tmp_path):
     settings.import_prompts(str(path))
     assert settings.get_prompt("corriger")["reasoning_mode"] == "off"
     assert settings.get_voice_prompt("resumer_vocal")["reasoning_mode"] == "on"
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_packaged_smoke_waits_for_result_after_progress(monkeypatch, capsys, fails):
+    import importlib.util
+    import subprocess
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "supermenu_test_launcher", Path(__file__).resolve().parents[1] / "run.py"
+    )
+    launcher = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(launcher)
+    messages = [
+        [],
+        {"id": "other", "result": {}},
+        {"id": "smoke", "progress": {"phase": "runtime"}},
+        {"id": "smoke", "progress": {"phase": "runtime", "elapsed_seconds": 1.0}},
+        {"id": "smoke", **(
+            {"error": "Native initialization failed"} if fails else
+            {"result": {"models": [{"alias": alias} for alias in foundry_worker.FOUNDRY_MODELS]}}
+        )},
+    ]
+    monkeypatch.setattr(foundry_worker, "pipe_stream", lambda *_a: sys.stdout)
+    monkeypatch.setattr(subprocess, "run", lambda *_a, **_kw: SimpleNamespace(
+        returncode=0, stdout="diagnostic\n" + "\n".join(json.dumps(m) for m in messages)
+    ))
+    assert launcher.run_foundry_smoke_test() == int(fails)
+    result = json.loads(capsys.readouterr().out)
+    assert result["foundry_ok"] is not fails
+    if fails:
+        assert result["error"] == "Native initialization failed"
