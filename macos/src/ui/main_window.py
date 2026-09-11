@@ -238,7 +238,7 @@ class MainWindow(QMainWindow):
         self.provider_combo = ChoiceBox()
         self.provider_combo.addItem("OpenAI", "openai")
         self.provider_combo.addItem("Ollama / LM Studio", "custom")
-        self.provider_combo.addItem("Apple Intelligence — local (bêta)", "apple")
+        self.provider_combo.addItem("Apple Intelligence — local", "apple")
         self.provider_combo.setCurrentIndex(
             self.provider_combo.findData(self.settings.get_ai_provider())
         )
@@ -332,7 +332,7 @@ class MainWindow(QMainWindow):
             "Le modèle Apple traite votre texte sur ce Mac, sans clé API ni serveur "
             "à configurer. Nécessite macOS 26+, un Mac Apple Silicon et Apple "
             "Intelligence activé avec son modèle téléchargé.\n\n"
-            "Pour cette bêta, privilégiez les passages courts : correction, "
+            "Privilégiez les passages courts : correction, "
             "reformulation et résumé. Les textes longs peuvent dépasser la "
             "capacité du modèle."
         )

@@ -1,12 +1,12 @@
-# Foundry Local — bêta Windows
+# Foundry Local — Windows
 
 SuperMenu embarque le SDK Microsoft Foundry Local WinML 1.2.4. Aucun serveur,
 outil en ligne de commande, compte Microsoft ou abonnement IA n'est nécessaire.
 
 ## Utilisation
 
-1. Installer la [bêta PC](https://github.com/lfpoulain/SuperMenu/releases/tag/beta),
-   ou choisir le canal Beta dans **Réglages > Application** puis rechercher une mise à jour.
+1. Installer la [version stable PC](https://github.com/lfpoulain/SuperMenu/releases/latest),
+   ou choisir le canal Stable dans **Réglages > Application** puis rechercher une mise à jour.
 2. Dans **Réglages > Texte**, choisir **IA locale Microsoft — Foundry Local**.
 3. Cliquer sur **Vérifier**. Le GPU est utilisé en priorité ; ce choix peut se modifier
    dans **Matériel et détails du modèle**.
@@ -37,7 +37,7 @@ silencieusement sur le CPU.
 - Internet est nécessaire pour télécharger les modèles et les composants
   matériels. L'inférence utilise ensuite les fichiers locaux ; le SDK peut
   rafraîchir son catalogue au démarrage ou reprendre le catalogue en cache hors ligne.
-- Cette bêta traite le texte : correction, reformulation, résumé et traduction.
+- Le moteur Qwen traite le texte : correction, reformulation, résumé et traduction.
   Les captures d'écran affichent un message de fonctionnalité non disponible.
   La transcription vocale se choisit dans **Réglages > Dictée** : OpenAI ou
   Foundry Local avec Nemotron 3.5 (modèle séparé d’environ 756 Mo).
@@ -45,7 +45,7 @@ silencieusement sur le CPU.
   24 000 octets UTF-8 pour préserver le contexte multilingue. La sortie est
   limitée à 2 048 tokens. Une réponse interrompue n'est jamais insérée dans le document.
 - Le chargement initial prend plus de temps. Un seul modèle reste chargé ;
-  le moteur est arrêté après cinq minutes d'inactivité pour libérer la mémoire.
+  le délai de déchargement est configurable dans les réglages (cinq minutes par défaut).
 - Les modèles sont stockés dans `%LOCALAPPDATA%\SuperMenu\Foundry\cache\models`.
   Ils ne sont pas inclus dans l'installateur. Le bouton Annuler arrête l'opération ;
   un téléchargement incomplet peut être repris depuis les réglages.
@@ -86,7 +86,7 @@ prend environ 0,17 s / 0,20 s une fois le modèle chargé (mesures ponctuelles).
 Les régressions testent aussi l'enregistrement CUDA, la priorité sur un cache CPU,
 le choix CPU sans téléchargement GPU et la libération de l'ancienne variante.
 
-La publication bêta exige également `SuperMenu.exe --foundry-smoke-test` :
+Les publications stable et bêta exigent également `SuperMenu.exe --foundry-smoke-test` :
 initialisation des DLL natives embarquées et lecture des deux modèles du catalogue
 depuis un processus enfant de l'exécutable final, en mode CPU sans télécharger
 de composants GPU ni de poids en CI. L'inférence CUDA est vérifiée séparément

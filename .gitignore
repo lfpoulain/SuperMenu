@@ -47,6 +47,7 @@ win32/SHA256SUMS*.txt
 # IDE and operating-system metadata
 .idea/
 .vscode/
+.claude/
 .DS_Store
 Thumbs.db
 Desktop.ini

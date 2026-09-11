@@ -12,7 +12,7 @@ package `../shared/supermenu_core`. Le client IA, les modèles, le schéma des
 prompts et les widgets Qt génériques sont ainsi maintenus une seule fois pour
 Windows et macOS.
 
-La bêta propose une **dictée en direct** indépendante du moteur de texte :
+SuperMenu propose une **dictée en direct** indépendante du moteur de texte :
 OpenAI GPT Live Transcribe (clé API et facturation OpenAI) ou Foundry Local avec
 Nemotron 3.5 multilingue. Dans **Réglages > Dictée**, choisissez
 le moteur et le microphone, vérifiez la disponibilité puis téléchargez le modèle
@@ -72,7 +72,7 @@ ciblée depuis le menu contextuel. Durée maximale : cinq minutes par dictée.
 - **Modes de Capture** : Plein écran, Zone sélective ou "Demander à chaque fois".
 
 ### ⚙️ Flexibilité & Sécurité
-- **IA locale Microsoft (bêta)** : Foundry Local embarqué avec **Qwen3.5 4B** et **9B**, téléchargeables depuis les réglages, pour corriger, reformuler et traduire sans clé API. [Configuration et limites](docs/foundry-local.md).
+- **IA locale Microsoft** : Foundry Local embarqué avec **Qwen3.5 4B** et **9B**, téléchargeables depuis les réglages, pour corriger, reformuler et traduire sans clé API. [Configuration et limites](docs/foundry-local.md).
 - **Multi-Modèles** : Sélecteur OpenAI limité à `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` et `gpt-5.4`, plus les **Endpoints Locaux** (Ollama, LM Studio).
 - **Thinking / Raisonnement** : GPT‑OSS utilise ses niveaux `low/medium/high`, Qwen et DeepSeek utilisent l’interrupteur `think`, et LM Studio suit les capacités natives du modèle (`off/on` ou niveaux).
 - **Sélecteur d'Endpoint** : Choisis explicitement Ollama ou LM Studio dans les paramètres au lieu de dépendre d'une détection automatique.

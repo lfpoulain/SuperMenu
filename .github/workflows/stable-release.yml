@@ -92,6 +92,12 @@ jobs:
             throw "Packaged smoke test failed with exit code $($smoke.ExitCode)"
           }
 
+          $foundry = Start-Process -FilePath "dist/SuperMenu.exe" -ArgumentList "--foundry-smoke-test" -RedirectStandardOutput "build/foundry-smoke.json" -WindowStyle Hidden -Wait -PassThru
+          Get-Content -LiteralPath "build/foundry-smoke.json"
+          if ($foundry.ExitCode -ne 0) {
+            throw "Bundled Foundry runtime/catalog smoke test failed with exit code $($foundry.ExitCode)"
+          }
+
           Copy-Item -LiteralPath "dist/SuperMenu.exe" -Destination "SuperMenu.exe"
 
       - name: Install Inno Setup
@@ -118,6 +124,7 @@ jobs:
 
   build-macos-stable:
     runs-on: macos-15
+    timeout-minutes: 45
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
     defaults:
@@ -326,5 +333,22 @@ jobs:
 
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
+
+            IA locale : Qwen3.5 4B et 9B avec Foundry Local sur Windows,
+            Apple Foundation Models sur Mac compatible avec macOS 26+.
+            Accélération CUDA prioritaire sur les GPU NVIDIA compatibles.
+
+            Dictée en direct avec OpenAI, Nemotron via Foundry Local sur Windows,
+            ou Apple Speech sur Mac. Raccourci de dictée instantanée, appui maintenu
+            ou simple, copie et insertion dans la fenêtre de transcription,
+            collage automatique et correction préalable facultative.
+
+            Prompts vocaux partagés entre Mac et Windows. Modèles locaux conservés
+            en mémoire avec délai d’inactivité configurable et déchargement manuel.
+
+            Interface Mac et PC harmonisée : réglages par rubrique, retours visuels
+            de préparation des modèles, actions cohérentes et fenêtre plus haute.
+            Correction de l’ouverture du microphone et du redémarrage Foundry.
+            Les prompts, réglages et modèles déjà téléchargés sont conservés.
 
             Cette version est recommandée pour une utilisation quotidienne.

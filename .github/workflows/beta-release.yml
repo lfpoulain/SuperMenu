@@ -1,9 +1,6 @@
 name: Beta Release
 
 on:
-  push:
-    branches:
-      - codex/foundry-local-windows
   workflow_run:
     workflows:
       - CI
@@ -24,8 +21,7 @@ jobs:
   build-windows-beta:
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/codex/foundry-local-windows')
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: windows-latest
     defaults:
       run:
@@ -135,9 +131,9 @@ jobs:
   build-macos-beta:
     if: >-
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/codex/foundry-local-windows')
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: macos-15
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: macos

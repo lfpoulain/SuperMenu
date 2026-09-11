@@ -192,6 +192,14 @@ workflows `Beta Release` et `Stable Release` exigent les cinq secrets et
 échouent avant le packaging si l'un d'eux manque : une release publique ne peut
 donc jamais contenir le DMG de développement.
 
+L’envoi à Apple utilise `--no-s3-acceleration`, le point d’accès S3 direct
+[documenté par Apple](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow),
+pour éviter les blocages observés pendant l’envoi du DMG depuis GitHub Actions.
+L’attente du verdict est limitée à vingt minutes ; le job complet à quarante-cinq
+minutes, y compris un éventuel blocage pendant l’envoi. La création du DMG est
+retentée jusqu’à trois fois si `hdiutil` échoue. Une erreur de signature ou de
+notarisation empêche toujours la publication.
+
 ## 4. Première migration signée
 
 La première version Developer ID constitue une nouvelle identité par rapport

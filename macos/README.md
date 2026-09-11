@@ -8,7 +8,7 @@
 SuperMenu pour macOS est une application de barre des menus dédiée au travail
 sur du texte. Elle lit la sélection de l’application active, propose les
 prompts configurés, interroge OpenAI ou un endpoint local et peut réinsérer la
-réponse dans la cible d’origine. Sur macOS 26+, la bêta propose aussi le modèle
+réponse dans la cible d’origine. Sur macOS 26+, elle propose aussi le modèle
 local Apple Intelligence via Foundation Models.
 
 Cette composition est indépendante de Windows : elle possède ses intégrations
@@ -22,14 +22,14 @@ métier et les composants Qt génériques proviennent de `../shared`.
 - raccourcis globaux attribuables à des prompts individuels ;
 - lecture du texte sélectionné et restauration prudente du presse-papiers ;
 - réponse affichée, copiée ou réinsérée dans l’application d’origine ;
-- OpenAI, Ollama, LM Studio et Apple Intelligence local (bêta, macOS 26+) ;
+- OpenAI, Ollama, LM Studio et Apple Intelligence local (macOS 26+) ;
 - prompts modifiables, réordonnables, importables et exportables ;
 - thèmes clair, sombre et automatique ;
 - mises à jour Stable/Beta dirigées vers le DMG Apple Silicon exact.
 
-La bêta inclut la dictée en direct via OpenAI ou Apple Speech sur macOS 26+.
+La version macOS inclut la dictée en direct via OpenAI ou Apple Speech sur macOS 26+.
 Le moteur vocal se choisit indépendamment du moteur de texte, dans
-**Paramètres > Dictée** : sélectionnez le moteur, vérifiez sa
+**Réglages > Dictée** : sélectionnez le moteur, vérifiez sa
 disponibilité, téléchargez le modèle de langue Apple si nécessaire puis enregistrez.
 Apple Speech est le framework de reconnaissance vocale ; Foundation Models reste
 le moteur de génération de texte. La dictée Apple fonctionne sur l’appareil.
@@ -77,7 +77,7 @@ les paramètres, les prompts, les mises à jour et le dépannage.
 
 ## Autorisation macOS
 
-SuperMenu utilise uniquement **Accessibilité** pour :
+SuperMenu utilise **Accessibilité** pour :
 
 - observer les raccourcis clavier globaux ;
 - lire la sélection via l’API d’accessibilité lorsqu’elle est disponible ;
@@ -103,10 +103,11 @@ curseur et réinsère la réponse sans ouvrir la fenêtre de résultat.
 
 ## Configuration et diagnostic
 
-La fenêtre de configuration contient trois onglets :
+La fenêtre de configuration contient quatre onglets :
 
 - **Prompts** : catalogue, ordre, instructions, insertion directe et raccourcis ;
-- **Paramètres** : fournisseur IA, modèles, raccourcis, permission, thème et
+- **Voix** : prompts vocaux, instruction et assemblage avec la sélection ;
+- **Réglages** : fournisseurs texte et voix, modèles, raccourcis, permission, thème et
   canal de mise à jour ;
 - **À propos** : version, mise à jour, dossier de configuration, journaux et
   releases.

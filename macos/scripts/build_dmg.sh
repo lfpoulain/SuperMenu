@@ -46,12 +46,23 @@ trap 'rm -rf "${staging_dir}"' EXIT
 ditto "${app_path}" "${staging_dir}/SuperMenu.app"
 ln -s /Applications "${staging_dir}/Applications"
 rm -f "${dmg_path}"
-hdiutil create \
-    -volname "SuperMenu" \
-    -srcfolder "${staging_dir}" \
-    -ov \
-    -format UDZO \
-    "${dmg_path}"
+# Hosted macOS runners can briefly report "Resource busy" when creating a DMG.
+# Retry the packaging command, but always fail before signing if none succeeds.
+for attempt in 1 2 3; do
+    if hdiutil create \
+        -volname "SuperMenu" \
+        -srcfolder "${staging_dir}" \
+        -ov \
+        -format UDZO \
+        "${dmg_path}"; then
+        break
+    fi
+    if [[ "${attempt}" -eq 3 ]]; then
+        echo "Impossible de créer le DMG après trois tentatives." >&2
+        exit 1
+    fi
+    sleep 5
+done
 
 if [[ -n "${MACOS_CODESIGN_IDENTITY:-}" ]]; then
     codesign \

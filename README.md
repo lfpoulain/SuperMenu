@@ -24,7 +24,7 @@ conserve ses intégrations natives, ses dépendances, ses tests et son packaging
 - mode personnalisé pour écrire une instruction libre ;
 - fenêtre de réponse avec **Réessayer**, **Copier**, **Écrire** et affichage
   optionnel du raisonnement ;
-- OpenAI ou endpoint local compatible Ollama / LM Studio ;
+- OpenAI, Ollama / LM Studio et moteurs natifs Apple / Microsoft ;
 - thèmes clair, sombre et automatique ;
 - canaux de mise à jour Stable et Beta via GitHub Releases.
 
@@ -35,16 +35,19 @@ conserve ses intégrations natives, ses dépendances, ses tests et son packaging
 | Texte sélectionné et prompts personnalisés | Oui | Oui |
 | Insertion directe dans l’application cible | Oui | Oui |
 | OpenAI, Ollama et LM Studio | Oui | Oui |
-| Apple Intelligence local (bêta) | Non | macOS 26+ |
+| Apple Intelligence local | Non | macOS 26+ |
+| Texte local avec Foundry / Qwen3.5 | Windows 11 24H2+ | Non |
+| Prompts vocaux et raccourci de dictée instantanée | Oui | Oui |
 | Raccourcis globaux et raccourcis par prompt | Win32 | AppKit |
-| Transcription audio en direct (bêta) | OpenAI ou Foundry Local / Nemotron 3.5 | OpenAI ou Apple Speech (macOS 26+) |
+| Transcription audio en direct | OpenAI ou Foundry Local / Nemotron 3.5 | OpenAI ou Apple Speech (macOS 26+) |
 | Capture et analyse d’écran | Oui | Non |
 | Distribution | EXE portable + installateur | DMG Apple Silicon |
 | Mise à jour intégrée | Installateur correspondant au canal | DMG correspondant au canal |
 
-La version macOS reste volontairement centrée sur le texte. Elle ne charge
-aucun module Windows et ne demande ni Microphone, ni Enregistrement de l’écran,
-ni Surveillance de l’entrée.
+La version macOS partage le texte et la dictée avec Windows, tout en gardant
+ses intégrations natives. Le microphone est demandé uniquement pour la dictée
+ou son test. La capture d’écran reste propre à Windows ; macOS ne demande
+ni Enregistrement de l’écran ni Surveillance de l’entrée.
 
 ## Installation
 

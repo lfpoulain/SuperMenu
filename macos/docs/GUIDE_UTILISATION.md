@@ -178,13 +178,13 @@ Vous pouvez également saisir un identifiant de modèle manuellement.
 La clé OpenAI et le jeton d’endpoint sont deux réglages séparés. Activer un
 endpoint local ne réutilise jamais implicitement la clé OpenAI.
 
-### Apple Intelligence — local (bêta)
+### Apple Intelligence — local
 
 Sur un Mac Apple Silicon avec macOS 26 ou supérieur :
 
 1. activez Apple Intelligence dans **Réglages Système > Apple Intelligence et Siri**
    et attendez la fin du téléchargement du modèle ;
-2. choisissez **Apple Intelligence — local (bêta)** dans **Fournisseur IA** ;
+2. choisissez **Apple Intelligence — local** dans **Fournisseur IA** ;
 3. cliquez sur **Vérifier la disponibilité** : l’état doit indiquer **Prêt** ;
 4. cliquez sur **Enregistrer**, puis testez une correction, une reformulation
    ou un résumé sur un court passage.
@@ -199,9 +199,8 @@ Si le texte est trop long, sélectionnez un passage plus court. Cette intégrati
 ne propose pas de niveau de raisonnement. **Réessayer**, **Copier**, **Écrire**,
 les prompts personnalisés sans sélection et l’insertion directe restent disponibles.
 
-Cette intégration est distribuée dans le canal **Bêta** existant. Choisissez
-**Bêta** dans **Canal de mise à jour**, ou téléchargez le DMG macOS de la release
-**SuperMenu Beta** sur GitHub.
+Cette intégration est disponible dans la version stable. Le canal **Bêta**
+reste disponible pour tester les prochaines évolutions.
 
 ## Configurer les raccourcis
 

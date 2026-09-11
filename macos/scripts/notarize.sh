@@ -42,8 +42,9 @@ xcrun notarytool submit "${upload_path}" \
     --apple-id "${MACOS_APPLE_ID}" \
     --password "${MACOS_APP_PASSWORD}" \
     --team-id "${MACOS_TEAM_ID}" \
+    --no-s3-acceleration \
     --wait \
-    --timeout 60m
+    --timeout 20m
 
 xcrun stapler staple "${artifact_path}"
 xcrun stapler validate "${artifact_path}"
