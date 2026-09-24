@@ -233,3 +233,28 @@ def test_prompt_hotkey_window_setting_presents_response_window(monkeypatch):
     assert presented == ["present"]
     assert stored_requests == [("Explique :", "texte sélectionné")]
     assert requests[0][0][:3] == ("Explique :", "texte sélectionné", False)
+
+
+def test_prompt_hotkey_waits_for_modifier_release_and_aborts_if_focus_changes(monkeypatch):
+    _app()
+    manager = ContextMenuManager(FakeSettings())
+    target, other = object(), object()
+    state = {"held": True, "target": target}
+    queued, calls = [], []
+    monkeypatch.setattr("src.utils.context_menu.PasteTarget.capture", lambda: state["target"])
+    monkeypatch.setattr("src.utils.context_menu.win32api.GetAsyncKeyState", lambda _: 0x8000 if state["held"] else 0)
+    monkeypatch.setattr("src.utils.context_menu.QTimer.singleShot", lambda _delay, callback: queued.append(callback))
+    monkeypatch.setattr(manager, "_try_get_selected_text", lambda: calls.append("copy") or "texte")
+    monkeypatch.setattr(manager, "_handle_menu_action", lambda *a, **kw: calls.append("run"))
+    manager.run_prompt_hotkey("corriger")
+    assert not calls and len(queued) == 1
+    state["held"] = False
+    queued.pop()()
+    assert calls == ["copy", "run"]
+    calls.clear()
+    state["held"] = True
+    manager.run_prompt_hotkey("corriger")
+    state.update(held=False, target=other)
+    queued.pop()()
+    assert not calls
+    manager.close()

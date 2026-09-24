@@ -359,14 +359,14 @@ jobs:
             Windows : exécutable portable et installateur.
             macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
 
-            Nouveau cycle : raisonnement réglable par prompt texte ou vocal,
-            avec héritage du moteur, désactivation ou activation selon ses capacités.
-            Le choix est conservé à l’import/export et lors d’un nouvel essai.
+            Correctifs de compatibilité macOS 27 : barre des menus AppKit native,
+            confirmations de prompts non bloquantes et enregistrement sans dialogue modal.
+            Ajout de « Tout restaurer… » pour retrouver les prompts d’origine.
 
-            Foundry : déchargement des poids sans fermer le moteur ni réinitialiser
-            le GPU. Le raisonnement Qwen change par requête sans recharger les poids.
-            Étapes d’initialisation, chargement et raisonnement affichées séparément ;
-            durées techniques dans les journaux, sans contenu des requêtes.
+            Windows : correction de Shift ajouté aux lettres des raccourcis,
+            capture après relâchement des touches et indication des conflits.
+            Foundry : réutilisation des révisions déjà installées pour Qwen et Nemotron,
+            sans perte de l’accélération CUDA lors des redémarrages.
 
             Fenêtre de configuration plus haute par défaut sur Mac et Windows
             pour afficher les réglages de dictée sans défilement sur grand écran.

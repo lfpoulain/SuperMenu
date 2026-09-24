@@ -12,6 +12,7 @@ import shutil
 import sys
 import time
 
+from src.api.foundry_model_selection import select_variant
 from src.config.foundry_models import FOUNDRY_MODELS, MAX_INPUT_CHARS
 from supermenu_core.config.prompt_reasoning import normalize_reasoning_mode
 
@@ -205,6 +206,8 @@ class FoundryRuntime:
             Configuration(
                 app_name="SuperMenu",
                 app_data_dir=str(self.root),
+                model_cache_dir=str(self.root / "cache" / "models"),
+                logs_dir=str(self.root / "logs"),
                 log_level=LogLevel.ERROR,
             )
         )
@@ -219,27 +222,10 @@ class FoundryRuntime:
             raise LocalError(
                 "Ce Qwen n'est pas disponible pour ce PC dans le catalogue Microsoft."
             )
-        variants = model.variants
-        if device == "cpu":
-            variants = [v for v in variants if str(v.info.runtime.device_type) == "CPU"]
-        if not variants:
-            raise LocalError(
-                "Aucune variante de ce modèle n'est disponible pour le matériel choisi."
-            )
-
-        def priority(variant):
-            runtime = variant.info.runtime
-            if runtime.execution_provider == "CUDAExecutionProvider":
-                return 0
-            if str(runtime.device_type) == "GPU":
-                return 1
-            if str(runtime.device_type) == "NPU":
-                return 2
-            return 3
-
-        # Do not accept the SDK's cached-CPU preference. Return an immutable
-        # variant, so later catalog queries cannot retarget a loaded model.
-        return min(variants, key=priority)
+        selected = select_variant(self.manager.catalog, model, device)
+        if selected is None:
+            raise LocalError("Aucune variante de ce modèle n'est disponible pour le matériel choisi.")
+        return selected
 
     @staticmethod
     def describe(model):

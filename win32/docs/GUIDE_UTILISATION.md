@@ -311,3 +311,21 @@ du modèle tout en conservant le moteur initialisé. Fermer SuperMenu libère au
 le moteur. L’interface distingue la préparation du GPU, le chargement des poids
 et le traitement ou raisonnement. Les durées par phase sont consignées dans les
 journaux, sans enregistrer le texte traité.
+
+
+### Restauration des prompts et raccourcis directs
+
+« Tout restaurer… », dans Prompts ou Voix, remet la liste de cet onglet dans son
+état d’origine après confirmation. Les prompts personnels sont retirés et une copie
+JSON de la liste précédente est conservée dans `prompts_before_restore` ou
+`voice_prompts_before_restore` de la configuration. Les réglages des moteurs IA restent inchangés.
+
+La majuscule d’une lettre dans un raccourci n’ajoute pas Shift : `Ctrl+Alt+C`
+fonctionne avec Ctrl, Alt et C seulement. SuperMenu attend le relâchement des touches
+avant de copier le texte sélectionné ; un changement de fenêtre pendant cette attente
+annule la capture. Un conflit de raccourci est signalé dans la fenêtre de configuration.
+
+Foundry conserve les poids déjà installés lorsqu’une nouvelle révision du même
+modèle apparaît au catalogue, en conservant le matériel choisi (notamment CUDA).
+La réactivation des composants GPU au démarrage n’est pas un nouveau téléchargement
+des poids. Une autre variante matérielle peut nécessiter ses propres fichiers.

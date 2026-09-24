@@ -1,33 +1,33 @@
 """Shared text prompt fields; persistence and hotkeys stay in each adapter."""
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QGroupBox, QLineEdit, QTextEdit, QCheckBox, QHBoxLayout, QPushButton, QMessageBox
+from PySide6.QtWidgets import QGroupBox, QLineEdit, QTextEdit, QCheckBox, QHBoxLayout, QPushButton
 
 from .settings_panel import form_layout
+from .confirmations import confirm_action
 from .prompt_reasoning import PromptReasoningChoice
 
 
-def reset_text_prompt(settings, prompt_id, parent):
-    """Restore one built-in prompt without changing the user's list order."""
+def reset_text_prompt(settings, prompt_id, parent, refreshed):
     default = settings.default_prompts.get(prompt_id)
-    current = settings.get_prompt(prompt_id)
-    if default is None or current is None:
-        return False
-    reply = QMessageBox.question(
-        parent, "Réinitialiser le prompt", "Rétablir les instructions et options d’origine ?",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        QMessageBox.StandardButton.No,
-    )
-    if reply != QMessageBox.StandardButton.Yes:
-        return False
-    settings.update_prompt(
-        prompt_id, default["name"], default["prompt"], default["status"],
-        default.get("insert_directly", False), position=current.get("position", 999),
-        hotkey=default.get("hotkey", ""),
-        reasoning_mode=default.get("reasoning_mode", "default"),
-    )
-    settings.sync()
-    return True
+    if default is None:
+        return
+
+    def restore():
+        current = settings.get_prompt(prompt_id)
+        if current is None:
+            return
+        settings.update_prompt(
+            prompt_id, default["name"], default["prompt"], default["status"],
+            default.get("insert_directly", False), position=current.get("position", 999),
+            hotkey=default.get("hotkey", ""),
+            reasoning_mode=default.get("reasoning_mode", "default"),
+        )
+        settings.sync()
+        refreshed()
+
+    return confirm_action(parent, "Réinitialiser le prompt",
+                          "Rétablir les instructions et options d’origine ?", restore)
 
 
 class TextPromptForm(QGroupBox):

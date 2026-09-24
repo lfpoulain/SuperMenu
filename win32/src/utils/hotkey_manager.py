@@ -223,7 +223,9 @@ def _parse_hotkey_to_win32(hotkey):
         if _USER32 is None:
             return None, None, "Windows hotkeys are not available on this platform"
 
-        vk_and_shift = int(_USER32.VkKeyScanW(key_token))
+        # Uppercase recorder labels must not silently add Shift to a letter.
+        character = key_token.lower() if key_token.isalpha() else key_token
+        vk_and_shift = int(_USER32.VkKeyScanW(character))
         if vk_and_shift == -1:
             return None, None, f"Touche non supportée: {key_token}"
 

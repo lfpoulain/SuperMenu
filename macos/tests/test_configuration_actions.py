@@ -80,11 +80,13 @@ def test_text_reset_requires_confirmation_and_preserves_other_prompts(window, mo
     prompts[prompt_id].update(prompt="Instructions modifiées", position=1234, hotkey="Cmd+Shift+K")
     window.settings.set_prompts(prompts)
     window._reload_prompts(prompt_id)
-    monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.StandardButton.No)
     window.prompt_actions.reset_button.click()
+    window._confirmation_dialog.done(QMessageBox.StandardButton.No)
+    QApplication.processEvents()
     assert window.settings.get_prompts() == prompts
-    monkeypatch.setattr(QMessageBox, "question", lambda *_: QMessageBox.StandardButton.Yes)
     window.prompt_actions.reset_button.click()
+    window._confirmation_dialog.done(QMessageBox.StandardButton.Yes)
+    QApplication.processEvents()
     expected = {**window.settings.default_prompts[prompt_id], "position": 1234}
     actual = window.settings.get_prompt(prompt_id)
     assert actual["prompt"] == expected["prompt"]
@@ -114,3 +116,25 @@ def test_prompt_editor_saves_reasoning_independently(window):
     assert window.settings.get_voice_prompt("resumer_vocal")["reasoning_mode"] == "on"
     window._reload_prompts("corriger")
     assert window.text_prompt_form.reasoning.currentData() == "off"
+
+
+def test_mac_delete_is_async_and_uses_captured_prompt_id(window):
+    window._reload_prompts("corriger")
+    window.delete_prompt()
+    assert window.settings.get_prompt("corriger") is not None
+    window._confirmation_dialog.done(QMessageBox.StandardButton.Yes)
+    QApplication.processEvents()
+    assert window.settings.get_prompt("corriger") is None
+    window.restore_prompt_library()
+    window._confirmation_dialog.done(QMessageBox.StandardButton.Yes)
+    QApplication.processEvents()
+    assert window.settings.get_prompt("corriger") is not None
+
+
+def test_mac_save_has_inline_feedback_without_a_modal_dialog(window, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "information", lambda *_: pytest.fail("modal save feedback"))
+    window._reload_prompts("corriger")
+    window.prompt_instruction.setPlainText("Correction modifiée")
+    assert window.save_current_prompt()
+    assert window.settings.get_prompt("corriger")["prompt"] == "Correction modifiée"
+    assert "enregistré" in window.statusBar().currentMessage()

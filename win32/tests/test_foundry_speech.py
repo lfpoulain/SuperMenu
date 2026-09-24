@@ -28,6 +28,7 @@ class Session:
 
 def model(provider, cached):
     return SimpleNamespace(
+        id="nemotron-" + provider + ":3",
         info=SimpleNamespace(
             runtime=SimpleNamespace(
                 execution_provider=provider,

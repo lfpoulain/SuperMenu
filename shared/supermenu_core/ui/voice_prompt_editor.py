@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QPushButton,
     QSplitter,
     QTextEdit,
@@ -22,6 +21,8 @@ from supermenu_core.config.voice_prompts import VOICE_ORDER_CHOICES
 from .controls import ChoiceBox
 from .settings_panel import form_layout, scrollable_form
 from .page_actions import PromptActions
+from .confirmations import confirm_action
+from .prompt_restore import restore_library
 from .prompt_reasoning import PromptReasoningChoice
 
 
@@ -120,6 +121,7 @@ class VoicePromptEditor(QWidget):
         self.feedback.setWordWrap(True)
         right_layout.addWidget(self.feedback)
         self.actions = PromptActions(self.reset_prompt, self.save, run=self.run)
+        self.actions.restore_requested.connect(self.restore_library)
         self.reset_button = self.actions.reset_button
         self.save_button = self.actions.save_button
         self.run_button = self.actions.run_button
@@ -225,39 +227,36 @@ class VoicePromptEditor(QWidget):
         self.name_input.selectAll()
 
     def delete_prompt(self):
-        if self._current_id is None:
+        identifier = self._current_id
+        if identifier is None:
             return
-        reply = QMessageBox.question(
-            self,
-            "Supprimer le prompt vocal",
-            "Supprimer ce prompt vocal ?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self.settings.delete_voice_prompt(self._current_id)
+
+        def remove():
+            self.settings.delete_voice_prompt(identifier)
             self._current_id = None
             self.reload()
 
+        confirm_action(self, "Supprimer le prompt vocal", "Supprimer ce prompt vocal ?", remove)
+
     def reset_prompt(self):
-        default = self.settings.default_voice_prompts.get(self._current_id)
+        identifier = self._current_id
+        default = self.settings.default_voice_prompts.get(identifier)
         if default is None:
             return
-        reply = QMessageBox.question(
-            self,
-            "Réinitialiser le prompt vocal",
-            "Rétablir les instructions et options d’origine ?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
+
+        def restore():
             prompts = self.settings.get_voice_prompts()
-            prompts[self._current_id] = {
-                **default,
-                "position": prompts[self._current_id]["position"],
-            }
+            if identifier not in prompts:
+                return
+            prompts[identifier] = {**default, "position": prompts[identifier]["position"]}
             self.settings.set_voice_prompts(prompts)
-            self.reload()
+            self.reload(identifier)
+
+        confirm_action(self, "Réinitialiser le prompt vocal",
+                       "Rétablir les instructions et options d’origine ?", restore)
+
+    def restore_library(self):
+        restore_library(self, self.settings, self.reload, voice=True)
 
     def run(self):
         if self._current_id is not None and self.save():

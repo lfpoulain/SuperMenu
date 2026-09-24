@@ -642,19 +642,31 @@ class ContextMenuManager(QObject):
         if self._closed:
             return
         target = PasteTarget.capture()
-        selected_text = self._try_get_selected_text()
-        if not selected_text:
-            SimpleLoadingIndicator.show_near_cursor(
-                "⚠️ Aucun texte sélectionné",
-                duration_ms=1800,
-            )
-            return
+        serial = getattr(self, "_prompt_hotkey_serial", 0) + 1
+        self._prompt_hotkey_serial = serial
+        deadline = time.monotonic() + 2.0
 
-        self._handle_menu_action(
-            prompt_id,
-            selected_text=selected_text,
-            target=target,
-        )
+        def capture_after_release():
+            if self._closed or self._prompt_hotkey_serial != serial:
+                return
+            # Copying while Alt/Shift is still held sends a different shortcut
+            # to the foreground application. Wait without blocking the Qt loop.
+            held = any(win32api.GetAsyncKeyState(key) & 0x8000 for key in (0x10, 0x11, 0x12, 0x5B, 0x5C))
+            if held:
+                if time.monotonic() < deadline:
+                    QTimer.singleShot(20, capture_after_release)
+                else:
+                    SimpleLoadingIndicator.show_near_cursor("Relâchez les touches puis réessayez", duration_ms=1800)
+                return
+            if PasteTarget.capture() != target:
+                return  # Never read from an application focused during the wait.
+            selected_text = self._try_get_selected_text()
+            if not selected_text:
+                SimpleLoadingIndicator.show_near_cursor("⚠️ Aucun texte sélectionné", duration_ms=1800)
+                return
+            self._handle_menu_action(prompt_id, selected_text=selected_text, target=target)
+
+        capture_after_release()
 
     def _handle_menu_action(
         self,

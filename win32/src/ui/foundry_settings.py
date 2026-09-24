@@ -150,6 +150,7 @@ class FoundrySettingsWidget(QGroupBox):
                 "WebGpuExecutionProvider": "GPU — WebGPU",
             }.get(provider, info["device"])
             self.model_info.setText(f"Exécution : {device} · {size_text}")
+            self.model_info.setToolTip("Variante : " + info.get("variant", ""))
         else:
             self.model_info.setText(
                 "Le téléchargement et le matériel d'exécution seront précisés après vérification."

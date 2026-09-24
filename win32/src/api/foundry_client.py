@@ -148,7 +148,7 @@ class FoundryService(QObject):
             if "progress" in message:
                 details = message["progress"]
                 if isinstance(details, dict) and "elapsed_seconds" in details:
-                    logging.getLogger(__name__).info("Foundry phase=%s duration=%.3fs", details.get("phase"), details["elapsed_seconds"])
+                    logging.getLogger("SuperMenu.Foundry").info("Foundry phase=%s duration=%.3fs", details.get("phase"), details["elapsed_seconds"])
                 self.progress.emit(request_id, details)
                 continue
             operation = self._active["operation"]

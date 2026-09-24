@@ -492,3 +492,22 @@ du modèle tout en conservant le moteur initialisé. Fermer SuperMenu libère au
 le moteur. L’interface distingue la préparation du GPU, le chargement des poids
 et le traitement ou raisonnement. Les durées par phase sont consignées dans les
 journaux, sans enregistrer le texte traité.
+
+
+### Compatibilité macOS 27 et prompts d’origine
+
+La barre des menus utilise AppKit directement. Cela évite le chemin Qt Cocoa
+qui lit `NSEvent.clickCount` sur un événement non souris sous macOS 27.
+Le correctif correspondant est visible dans le [code officiel Qt](https://github.com/qt/qtbase/blob/dev/src/plugins/platforms/cocoa/qcocoasystemtrayicon.mm).
+Les confirmations de suppression et de restauration des prompts sont des fenêtres
+Qt non bloquantes ; l’enregistrement d’un prompt affiche un message dans la fenêtre.
+
+« Réinitialiser » restaure le prompt sélectionné. « Tout restaurer… » remplace
+la liste de l’onglet courant par les prompts d’origine, y compris ceux supprimés.
+La confirmation indique que les prompts personnels et leurs raccourcis seront retirés.
+Une copie JSON de la liste précédente reste dans `prompts_before_restore` ou
+`voice_prompts_before_restore` de la configuration. Les modèles et autres réglages
+ne sont pas modifiés.
+
+La validation automatique native utilise macOS 15 ; la confirmation du correctif
+sur macOS 27 nécessite aussi un essai sur le Mac concerné.

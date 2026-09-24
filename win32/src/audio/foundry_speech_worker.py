@@ -7,6 +7,7 @@ import sys
 import threading
 
 from supermenu_core.audio.settings import NEMOTRON_MODEL, MAX_DICTATION_SECONDS
+from src.api.foundry_model_selection import select_variant
 from src.api.foundry_worker import FoundryRuntime, LocalError, pipe_stream
 
 
@@ -28,19 +29,10 @@ def select_speech_model(runtime, device, emit):
         raise LocalError(
             "Nemotron 3.5 n’est pas disponible dans le catalogue pour ce PC."
         )
-    variants = model.variants
-    if device == "cpu":
-        variants = [v for v in variants if str(v.info.runtime.device_type) == "CPU"]
-    if not variants:
+    selected = select_variant(runtime.manager.catalog, model, device)
+    if selected is None:
         raise LocalError("Aucune variante compatible de Nemotron n’est disponible.")
-    return min(
-        variants,
-        key=lambda v: (
-            0
-            if v.info.runtime.execution_provider == "CUDAExecutionProvider"
-            else 1 if str(v.info.runtime.device_type) == "GPU" else 2
-        ),
-    )
+    return selected
 
 
 def describe(model):

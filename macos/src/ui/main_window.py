@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import sys
 
-from PySide6.QtCore import QThread, QTimer, QUrl, Qt, Signal
+from PySide6.QtCore import QSignalBlocker, QThread, QTimer, QUrl, Qt, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -23,6 +24,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from supermenu_core.ui.confirmations import confirm_action
+from supermenu_core.ui.prompt_restore import restore_library
 from supermenu_core.ui.controls import ChoiceBox, Menu, SidebarList, SIDEBAR_WIDTH
 
 from src.config.build_info import APP_VERSION
@@ -216,6 +219,7 @@ class MainWindow(QMainWindow):
         self.text_prompt_form.clear_requested.connect(self.prompt_hotkey.clear)
         right_layout.addWidget(scrollable_form(self.text_prompt_form), 1)
         self.prompt_actions = PromptActions(self.reset_prompt, lambda: self.save_current_prompt())
+        self.prompt_actions.restore_requested.connect(self.restore_prompt_library)
         right_layout.addWidget(self.prompt_actions)
 
         splitter.addWidget(left)
@@ -464,6 +468,7 @@ class MainWindow(QMainWindow):
         current = selected_id
         if current is None and self.prompt_list.currentItem() is not None:
             current = self.prompt_list.currentItem().data(Qt.ItemDataRole.UserRole)
+        blocker = QSignalBlocker(self.prompt_list)
         self.prompt_list.clear()
         selected_item = None
         for prompt_id, prompt in self._ordered_prompts():
@@ -477,6 +482,8 @@ class MainWindow(QMainWindow):
             self.prompt_list.setCurrentItem(selected_item)
         elif self.prompt_list.count():
             self.prompt_list.setCurrentRow(0)
+        blocker.unblock()
+        self._load_selected_prompt(self.prompt_list.currentItem())
 
     def _filter_prompts(self, text):
         query = str(text or "").strip().casefold()
@@ -529,16 +536,14 @@ class MainWindow(QMainWindow):
         item = self.prompt_list.currentItem()
         if item is None:
             return
-        if QMessageBox.question(
-            self,
-            "Supprimer le prompt",
-            f"Supprimer « {item.text()} » ?",
-        ) != QMessageBox.StandardButton.Yes:
-            return
-        self.settings.delete_prompt(item.data(Qt.ItemDataRole.UserRole))
-        self.settings.sync()
-        self._reload_prompts()
-        self._refresh_prompt_hotkeys()
+        prompt_id, name = item.data(Qt.ItemDataRole.UserRole), item.text()
+
+        def remove():
+            self.settings.delete_prompt(prompt_id)
+            self.settings.sync()
+            self._prompts_restored()
+
+        confirm_action(self, "Supprimer le prompt", f"Supprimer « {name} » ?", remove)
 
     def import_prompts(self):
         from PySide6.QtWidgets import QFileDialog
@@ -650,17 +655,21 @@ class MainWindow(QMainWindow):
         self._reload_prompts(prompt_id)
         self._refresh_prompt_hotkeys()
         if show_confirmation:
-            QMessageBox.information(self, "Prompt enregistré", "Le prompt a été enregistré.")
+            self.statusBar().showMessage("Prompt enregistré.", 5000)
         return True
 
     def reset_prompt(self):
         from supermenu_core.ui.text_prompt_form import reset_text_prompt
-
         item = self.prompt_list.currentItem()
         prompt_id = item.data(Qt.ItemDataRole.UserRole) if item else None
-        if reset_text_prompt(self.settings, prompt_id, self):
-            self._reload_prompts(prompt_id)
-            self._refresh_prompt_hotkeys()
+        reset_text_prompt(self.settings, prompt_id, self, self._prompts_restored)
+
+    def _prompts_restored(self):
+        self._reload_prompts()
+        self._refresh_prompt_hotkeys()
+
+    def restore_prompt_library(self):
+        restore_library(self, self.settings, self._prompts_restored)
 
     def record_prompt_hotkey(self):
         self._open_hotkey_recorder(self.prompt_hotkey.setText)
@@ -1158,6 +1167,28 @@ class MainWindow(QMainWindow):
     def setup_tray_icon(self):
         if self.tray_icon is not None:
             return True
+        if sys.platform == "darwin":
+            from src.ui.status_item import NativeStatusItem
+            try:
+                self.tray_icon = NativeStatusItem(
+                    resource_path("resources", "icons", "icon.png"),
+                    [
+                        ("Ouvrir SuperMenu", self.show_main_window),
+                        ("Afficher le menu des prompts", self.show_prompt_menu),
+                        ("Dicter du texte…", self.start_dictation),
+                        ("Afficher la dernière réponse", lambda: self.context_menu_manager
+                         and self.context_menu_manager.show_response_window()),
+                        ("Vérifier les mises à jour", lambda: self.check_for_updates(False)),
+                        ("Autorisations macOS…", self.show_permission_setup),
+                        None,
+                        ("Quitter", self.quit_application),
+                    ], self,
+                )
+                QApplication.instance().aboutToQuit.connect(self.tray_icon.hide)
+                return True
+            except Exception as exc:
+                log(f"Barre des menus native indisponible : {exc}")
+                return False
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return False
         icon = QIcon(resource_path("resources", "icons", "icon.png"))

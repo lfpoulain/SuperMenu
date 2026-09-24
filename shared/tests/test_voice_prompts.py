@@ -183,12 +183,12 @@ def test_shared_editor_saves_runs_reorders_and_preserves_an_empty_library(
     editor.prompt_list.setCurrentItem(item)
     editor._reorder()
     assert settings.get_voice_prompt(identifier)["position"] == 10
-    monkeypatch.setattr(
-        QMessageBox, "question", lambda *_args: QMessageBox.StandardButton.Yes
-    )
     settings.set_voice_prompts({identifier: settings.get_voice_prompt(identifier)})
     editor.reload(identifier)
     editor.delete_button.click()
+    assert settings.get_voice_prompts()
+    editor._confirmation_dialog.done(QMessageBox.StandardButton.Yes)
+    QApplication.processEvents()
     assert settings.get_voice_prompts() == {}
     assert not editor.save_button.isEnabled() and not editor.run_button.isEnabled()
     editor.add_button.click()

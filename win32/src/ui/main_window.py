@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QTimer, QThread
 from PySide6.QtGui import QIcon, QAction
+from supermenu_core.ui.prompt_restore import restore_library
 from supermenu_core.ui.controls import ChoiceBox, Menu, SidebarList, SIDEBAR_WIDTH
 
 from src.config.build_info import APP_VERSION
@@ -255,6 +256,7 @@ class MainWindow(QMainWindow):
         self.text_prompt_form.clear_requested.connect(self.clear_prompt_hotkey)
         right_layout.addWidget(scrollable_form(self.text_prompt_form), 1)
         self.prompt_actions = PromptActions(self.reset_prompt, self.save_prompt)
+        self.prompt_actions.restore_requested.connect(self.restore_prompt_library)
         right_layout.addWidget(self.prompt_actions)
 
         # Connect prompt selection change
@@ -1091,16 +1093,16 @@ class MainWindow(QMainWindow):
 
     def reset_prompt(self):
         from supermenu_core.ui.text_prompt_form import reset_text_prompt
+        reset_text_prompt(self.settings, self.prompt_combo.currentData(), self, self._prompts_restored)
 
-        prompt_id = self.prompt_combo.currentData()
-        if reset_text_prompt(self.settings, prompt_id, self):
-            if self.prompt_hotkey_manager is not None:
-                self.prompt_hotkey_manager.refresh_hotkeys()
-            self.prompt_combo.setItemText(
-                self.prompt_combo.currentIndex(), self.settings.get_prompt(prompt_id)["name"]
-            )
-            self.populate_prompt_order_list()
-            self.load_prompt(self.prompt_combo.currentIndex())
+    def _prompts_restored(self):
+        self.populate_prompt_combo()
+        self.populate_prompt_order_list()
+        if self.prompt_hotkey_manager is not None:
+            self.prompt_hotkey_manager.refresh_hotkeys()
+
+    def restore_prompt_library(self):
+        restore_library(self, self.settings, self._prompts_restored)
 
     def reset_all_settings(self):
         """Reset all settings to defaults"""
@@ -1317,6 +1319,13 @@ class MainWindow(QMainWindow):
             self.show()
         self.raise_()
         self.activateWindow()
+        if self.prompt_hotkey_manager is not None and self.prompt_hotkey_manager.errors:
+            errors = self.prompt_hotkey_manager.errors
+            prompt_id, detail = next(iter(errors.items()))
+            prompt = self.settings.get_prompt(prompt_id) or {}
+            self.statusBar().showMessage(
+                f"Raccourci inactif — {prompt.get('name', prompt_id)} : {detail}"
+            )
 
     def quit_application(self):
         """Quit the application"""
