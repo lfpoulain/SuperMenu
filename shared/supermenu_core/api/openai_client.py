@@ -1247,6 +1247,14 @@ class OpenAIClient(QObject):
                                 )
 
                 if model_details:
+                    if endpoint_type == "lmstudio":
+                        from .lmstudio_provenance import (
+                            enrich_provenance, fetch_provenance,
+                        )
+                        available, loaded = fetch_provenance(
+                            base_url, endpoint_api_key or None, timeout=timeout,
+                        )
+                        enrich_provenance(model_details, available, loaded)
                     model_ids = [model["id"] for model in model_details]
                     log(f"Modèles récupérés avec succès: {model_ids}", logging.INFO)
                     return True, model_details

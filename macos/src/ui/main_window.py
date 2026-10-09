@@ -38,6 +38,10 @@ from supermenu_core.api.model_capabilities import (
     choose_reasoning_option,
     normalize_reasoning_option,
 )
+from supermenu_core.ui.model_catalog import (
+    selected_model_id, populate_model_catalog, model_summary, clear_model_provenance,
+    configure_model_combo,
+)
 from supermenu_core.config.provider_settings import CUSTOM_REASONING_EFFORTS
 from supermenu_core.ui.theme_manager import ThemeManager
 from supermenu_core.ui.settings_panel import scrollable_form
@@ -292,7 +296,7 @@ class MainWindow(QMainWindow):
         endpoint_options.addWidget(QLabel("Type d’endpoint :"))
         self.endpoint_type = ChoiceBox()
         self.endpoint_type.addItem("Ollama", "ollama")
-        self.endpoint_type.addItem("LM Studio", "lmstudio")
+        self.endpoint_type.addItem("LM Studio / Bionic", "lmstudio")
         type_index = self.endpoint_type.findData(
             self.settings.get_custom_endpoint_type()
         )
@@ -301,7 +305,7 @@ class MainWindow(QMainWindow):
         endpoint_layout.addWidget(QLabel("Modèle :"))
         custom_model_row = QHBoxLayout()
         self.custom_model = ChoiceBox()
-        self.custom_model.setEditable(True)
+        configure_model_combo(self.custom_model)
         self.custom_model.setPlaceholderText("Sélectionnez ou entrez un modèle")
         saved_custom_model = self.settings.get_custom_model()
         if saved_custom_model:
@@ -313,6 +317,10 @@ class MainWindow(QMainWindow):
         refresh_models.clicked.connect(self.refresh_custom_models)
         custom_model_row.addWidget(refresh_models)
         endpoint_layout.addLayout(custom_model_row)
+        self.custom_model_provenance = QLabel()
+        self.custom_model_provenance.setTextFormat(Qt.TextFormat.PlainText)
+        self.custom_model_provenance.setWordWrap(True)
+        endpoint_layout.addWidget(self.custom_model_provenance)
         self.custom_reasoning_label = QLabel("Raisonnement / think :")
         endpoint_options.addWidget(self.custom_reasoning_label)
         self.custom_reasoning = ChoiceBox()
@@ -775,28 +783,20 @@ class MainWindow(QMainWindow):
             or worker.endpoint_type != self.endpoint_type.currentData()
         ):
             return
-        self._custom_model_details = {
-            str(details["id"]): details
-            for details in model_details
-            if isinstance(details, dict) and details.get("id")
-        }
-        models = list(self._custom_model_details)
-        current = self.custom_model.currentText().strip()
-        self.custom_model.clear()
-        self.custom_model.addItems(models)
-        if current:
-            self.custom_model.setCurrentText(current)
-        elif models:
-            self.custom_model.setCurrentIndex(0)
+        self._custom_model_details = populate_model_catalog(
+            self.custom_model, model_details,
+            lmstudio=self.endpoint_type.currentData() == "lmstudio",
+        )
         self._update_custom_reasoning_options()
         QMessageBox.information(
             self,
             "Modèles récupérés",
-            f"{len(models)} modèle(s) trouvé(s) sur le serveur.",
+            f"{len(self._custom_model_details)} modèle(s) trouvé(s) sur le serveur.",
         )
 
     def _invalidate_custom_model_details(self, *_args):
         self._custom_model_details = {}
+        clear_model_provenance(self.custom_model)
         self._update_custom_reasoning_options()
 
     def _get_custom_model_details(self, model):
@@ -818,8 +818,12 @@ class MainWindow(QMainWindow):
             previous = normalize_reasoning_option(combo.currentText())
         preferred = previous or self.settings.get_custom_reasoning_effort()
         endpoint_type = self.endpoint_type.currentData()
-        model = self.custom_model.currentText().strip()
+        model = selected_model_id(self.custom_model)
         details = self._get_custom_model_details(model)
+        self.custom_model_provenance.setText(
+            model_summary(details, lmstudio=endpoint_type == "lmstudio")
+        )
+        self.custom_model_provenance.setVisible(endpoint_type == "lmstudio")
 
         combo.blockSignals(True)
         try:
@@ -1101,7 +1105,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Endpoint invalide", message)
             return False
         valid, message = Validators.validate_model_name(
-            self.custom_model.currentText()
+            selected_model_id(self.custom_model)
         )
         if not valid:
             QMessageBox.warning(self, "Modèle invalide", message)
@@ -1136,7 +1140,7 @@ class MainWindow(QMainWindow):
             self.custom_endpoint_api_key.text()
         )
         self.settings.set_custom_endpoint_type(self.endpoint_type.currentData())
-        self.settings.set_custom_model(self.custom_model.currentText())
+        self.settings.set_custom_model(selected_model_id(self.custom_model))
         self.settings.set_custom_reasoning_effort(
             self.custom_reasoning.currentData()
             or self.custom_reasoning.currentText()

@@ -73,7 +73,7 @@ def parse_lmstudio_model_catalog(payload):
             continue
 
         identifiers = []
-        for key in ("key", "id", "name", "display_name"):
+        for key in ("key", "id", "name"):
             identifier = model_info.get(key)
             if identifier and identifier not in identifiers:
                 identifiers.append(identifier)
@@ -106,10 +106,26 @@ def parse_lmstudio_model_catalog(payload):
         parsed.append(
             {
                 "id": identifiers[0],
+                "model_key": identifiers[0],
+                "display_name": model_info.get("display_name") or identifiers[0],
                 "identifiers": identifiers,
                 "reasoning_supported": reasoning_supported,
                 "reasoning_options": options,
                 "reasoning_default": reasoning_default,
             }
         )
+        # Keep addressable loaded instances separate, including custom IDs.
+        # A human display name is never a routing alias.
+        for instance in model_info.get("loaded_instances", []) or []:
+            if not isinstance(instance, dict):
+                continue
+            instance_id = instance.get("id")
+            if (
+                isinstance(instance_id, str)
+                and instance_id
+                and instance_id != identifiers[0]
+            ):
+                parsed.append(
+                    {**parsed[-1], "id": instance_id, "identifiers": [instance_id]}
+                )
     return parsed

@@ -29,6 +29,10 @@ from supermenu_core.api.model_capabilities import (
     choose_reasoning_option,
     normalize_reasoning_option,
 )
+from supermenu_core.ui.model_catalog import (
+    selected_model_id, populate_model_catalog, model_summary, clear_model_provenance,
+    configure_model_combo,
+)
 from supermenu_core.utils.validators import Validators
 from src.utils import updater as app_updater
 from supermenu_core.ui.loading_indicator import SimpleLoadingIndicator
@@ -361,7 +365,7 @@ class MainWindow(QMainWindow):
         custom_endpoint_type_label = QLabel("Type d'endpoint :")
         self.custom_endpoint_type_combo = ChoiceBox()
         self.custom_endpoint_type_combo.addItem("Ollama", "ollama")
-        self.custom_endpoint_type_combo.addItem("LM Studio", "lmstudio")
+        self.custom_endpoint_type_combo.addItem("LM Studio / Bionic", "lmstudio")
         current_custom_endpoint_type = self.settings.get_custom_endpoint_type()
         for i in range(self.custom_endpoint_type_combo.count()):
             if self.custom_endpoint_type_combo.itemData(i) == current_custom_endpoint_type:
@@ -371,9 +375,9 @@ class MainWindow(QMainWindow):
         custom_model_label = QLabel("Modèle:")
         custom_model_layout = QHBoxLayout()
         self.custom_model_combo = ChoiceBox()
-        self.custom_model_combo.setEditable(True)
+        configure_model_combo(self.custom_model_combo)
         self.custom_model_combo.setPlaceholderText("Sélectionnez ou entrez un modèle")
-        custom_model_layout.addWidget(self.custom_model_combo)
+        custom_model_layout.addWidget(self.custom_model_combo, 1)
 
         refresh_models_button = QPushButton("Actualiser")
         refresh_models_button.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
@@ -390,6 +394,10 @@ class MainWindow(QMainWindow):
         endpoint_options.addWidget(self.custom_endpoint_type_combo)
         custom_layout.addWidget(custom_model_label)
         custom_layout.addLayout(custom_model_layout)
+        self.custom_model_provenance = QLabel()
+        self.custom_model_provenance.setTextFormat(Qt.TextFormat.PlainText)
+        self.custom_model_provenance.setWordWrap(True)
+        custom_layout.addWidget(self.custom_model_provenance)
 
         self.custom_reasoning_label = QLabel("Raisonnement / think :")
         self.custom_reasoning_effort_combo = ChoiceBox()
@@ -1743,33 +1751,17 @@ class MainWindow(QMainWindow):
             self._custom_models_refresh_timer.start()
             return
 
-        self._custom_model_details = {}
-        for details in model_details:
-            if not isinstance(details, dict) or not details.get("id"):
-                continue
-            for identifier in details.get("identifiers", []) or [details["id"]]:
-                self._custom_model_details[identifier] = details
-
-        models = [
-            details["id"]
-            for details in model_details
-            if isinstance(details, dict) and details.get("id")
-        ]
-        current_model = self.custom_model_combo.currentText()
-        self.custom_model_combo.clear()
-        self.custom_model_combo.addItems(models)
-
-        if current_model and self._get_custom_model_details(current_model):
-            self.custom_model_combo.setCurrentText(current_model)
-        elif models:
-            self.custom_model_combo.setCurrentIndex(0)
+        self._custom_model_details = populate_model_catalog(
+            self.custom_model_combo, model_details,
+            lmstudio=current_type == "lmstudio",
+        )
         self.update_custom_reasoning_effort_ui()
 
         if not silent:
             QMessageBox.information(
                 self,
                 "Modèles récupérés",
-                f"{len(models)} modèle(s) trouvé(s) sur le serveur.",
+                f"{len(self._custom_model_details)} modèle(s) trouvé(s) sur le serveur.",
             )
 
     def _on_custom_models_failed(self, error: str):
@@ -1795,7 +1787,7 @@ class MainWindow(QMainWindow):
         custom_endpoint = self.custom_endpoint_input.text().strip()
         custom_endpoint_api_key = self.custom_endpoint_api_key_input.text().strip()
         custom_endpoint_type = self.custom_endpoint_type_combo.currentData() if self.custom_endpoint_type_combo else "ollama"
-        custom_model = self.custom_model_combo.currentText().strip()
+        custom_model = selected_model_id(self.custom_model_combo)
         openai_reasoning_effort = self.reasoning_effort_combo.currentText().strip()
         custom_reasoning_effort = normalize_reasoning_option(
             self.custom_reasoning_effort_combo.currentData(), "none"
@@ -1883,6 +1875,7 @@ class MainWindow(QMainWindow):
     def _on_custom_endpoint_configuration_changed(self, *_args):
         """Invalidate stale capabilities and refresh them without blocking the UI."""
         self._custom_model_details = {}
+        clear_model_provenance(self.custom_model_combo)
         self.update_custom_reasoning_effort_ui()
         if (
             self.ai_provider_combo.currentData() == "custom"
@@ -1925,9 +1918,13 @@ class MainWindow(QMainWindow):
         if not previous:
             previous = normalize_reasoning_option(combo.currentText())
         preferred = previous or self.settings.get_custom_reasoning_effort()
-        model = self.custom_model_combo.currentText().strip()
+        model = selected_model_id(self.custom_model_combo)
         endpoint_type = self.custom_endpoint_type_combo.currentData()
         details = self._get_custom_model_details(model)
+        self.custom_model_provenance.setText(
+            model_summary(details, lmstudio=endpoint_type == "lmstudio")
+        )
+        self.custom_model_provenance.setVisible(endpoint_type == "lmstudio")
 
         combo.blockSignals(True)
         combo.clear()

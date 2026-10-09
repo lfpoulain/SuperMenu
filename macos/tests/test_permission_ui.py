@@ -141,6 +141,7 @@ def test_custom_endpoint_switch_uses_windows_style_on_off_display(window):
 
 
 def test_lmstudio_catalog_updates_native_reasoning_options(window, monkeypatch):
+    window.provider_combo.setCurrentIndex(window.provider_combo.findData("custom"))
     endpoint_index = window.endpoint_type.findData("lmstudio")
     window.endpoint_type.setCurrentIndex(endpoint_index)
     window.custom_model.setCurrentText("reasoning-model")
@@ -160,6 +161,8 @@ def test_lmstudio_catalog_updates_native_reasoning_options(window, monkeypatch):
                 "reasoning_supported": True,
                 "reasoning_options": ["off", "on", "future_tier"],
                 "reasoning_default": "on",
+                "sources": ["mac-studio"],
+                "loaded_sources": ["mac-studio"],
             }
         ]
     )
@@ -168,6 +171,19 @@ def test_lmstudio_catalog_updates_native_reasoning_options(window, monkeypatch):
         window.custom_reasoning.itemData(index)
         for index in range(window.custom_reasoning.count())
     ] == ["off", "on", "future_tier"]
+    assert "LM Link : mac-studio" in window.custom_model.currentText()
+    assert "Chargé lors" in window.custom_model_provenance.text()
+    window.custom_endpoint.setText("http://localhost:1234")
+    # Changing the endpoint invalidates the old origin, preserving the raw ID.
+    assert window.custom_model.currentText() == "reasoning-model"
+    window._custom_models_worker = WorkerStub()
+    window._custom_models_worker.endpoint = "http://localhost:1234"
+    window._on_custom_models_loaded([{
+        "id": "reasoning-model", "sources": ["mac-studio"],
+    }])
+    assert "LM Link" in window.custom_model.currentText()
+    window.save_text_settings(show_confirmation=False)
+    assert window.settings.get_custom_model() == "reasoning-model"
 
 
 def test_recheck_attempts_hotkeys_even_when_permission_api_reports_false(
