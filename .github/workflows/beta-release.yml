@@ -333,6 +333,15 @@ jobs:
             update-macos-beta.json \
             > SHA256SUMS-beta.txt
 
+      # Replace BETA_NOTES.md with each beta's highlights; do not append history.
+      - name: Prepare concise beta notes
+        run: |
+          {
+            cat .github/BETA_NOTES.md
+            printf '\n\nWindows : `%s` · macOS Apple Silicon : `%s`\n' "${WINDOWS_VERSION}" "${MACOS_VERSION}"
+            printf '\n<details>\n<summary>Informations de build</summary>\n\nCommit : `%s`\n\n</details>\n' "${BUILD_COMMIT}"
+          } > beta-release-notes.md
+
       - name: Publish rolling beta prerelease
         uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
         with:
@@ -348,125 +357,7 @@ jobs:
           artifactErrorsFailBuild: true
           artifacts: release-assets/*
           token: ${{ secrets.GITHUB_TOKEN }}
-          body: |
-            Build beta depuis le commit indiqué ci-dessous.
-
-            Channel: beta
-            Windows version: ${{ env.WINDOWS_VERSION }}
-            macOS version: ${{ env.MACOS_VERSION }}
-            Commit: ${{ env.BUILD_COMMIT }}
-
-            Windows : exécutable portable et installateur.
-            macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
-
-            Correctifs de compatibilité macOS 27 : barre des menus AppKit native,
-            confirmations de prompts non bloquantes et enregistrement sans dialogue modal.
-            Ajout de « Tout restaurer… » pour retrouver les prompts d’origine.
-
-            Windows : correction de Shift ajouté aux lettres des raccourcis,
-            capture après relâchement des touches et indication des conflits.
-            Foundry : réutilisation des révisions déjà installées pour Qwen et Nemotron,
-            sans perte de l’accélération CUDA lors des redémarrages.
-
-            Fenêtre de configuration plus haute par défaut sur Mac et Windows
-            pour afficher les réglages de dictée sans défilement sur grand écran.
-            La hauteur s’adapte à l’espace disponible sur les écrans plus petits.
-
-            Boutons des éditeurs Prompts et Voix unifiés : Réinitialiser à gauche,
-            Enregistrer à droite et Dicter avant Enregistrer pour les prompts vocaux.
-            Réinitialisation également disponible pour les prompts texte d’origine
-            sur Mac, avec confirmation et conservation de l’ordre des prompts.
-
-            Interface Mac et Windows harmonisée : fenêtre, navigation, formulaires
-            de prompts, raccourcis, apparence et page À propos partagés.
-            Actions Enregistrer et Dicter au même emplacement dans les rubriques.
-            Sur Mac, enregistrer une rubrique ne modifie plus les autres réglages
-            ni les brouillons de prompts. Le thème s’applique sans redémarrage.
-
-            Correctif Windows : le redémarrage intégré crée désormais son propre
-            dossier temporaire pour conserver les bibliothèques Foundry. Cela
-            corrige le moteur local indisponible après un redémarrage interne.
-            Les modèles téléchargés sont conservés ; un message explicite indique
-            comment relancer SuperMenu si les composants temporaires ont disparu.
-
-            Dictée simple dans une seule fenêtre : transcription, édition, Copier
-            et Insérer. Options de collage automatique et de correction avant
-            insertion avec le moteur texte choisi. Les prompts vocaux gardent leur
-            fenêtre de réponse. Raccourci de dictée instantanée configurable :
-            appuyer une fois ou maintenir pour parler puis relâcher pour terminer.
-            Relâcher pendant le chargement annule le démarrage du microphone.
-            Foundry texte : délai de déchargement réglable et déchargement manuel
-            sans interrompre les requêtes ni supprimer les modèles téléchargés.
-            Titre de chargement sur une ligne et emoji devant « Votre réponse ».
-
-            Interface affinée sur Windows et Mac : fenêtres plus compactes,
-            espacements réduits, listes latérales harmonisées, boutons plus lisibles
-            en clair et en sombre, et logo de l’application dans l’en-tête.
-            Les champs de prompts restent accessibles par défilement à petite taille.
-
-            Prompts vocaux sur Mac : nouvel onglet Voix et sous-menu vocal avec
-            dictée simple, prompts enregistrés et prompt vocal personnalisé.
-            La transcription utilise OpenAI ou Apple Speech, puis le moteur de
-            texte choisi applique l’instruction. Sélection facultative, six ordres
-            d’assemblage et insertion directe ou fenêtre de résultat.
-            Éditeur, bibliothèque, menu et import/export partagés avec Windows.
-            Les prompts existants et les anciens fichiers JSON Mac sont conservés.
-
-            Nouvelle interface Windows et Mac : thèmes clair et sombre harmonisés,
-            réglages organisés par usage, formulaires de prompts défilants et
-            actions principales mieux identifiées. Menus, listes déroulantes,
-            fenêtre de réponse et dictée en direct partagent les mêmes composants.
-            Les sous-menus restent ouverts lorsqu’on interagit avec eux et le
-            défilement des réglages ne change plus les choix des listes déroulantes.
-
-            Nettoyage Windows : suppression de l’ancienne capture PyAudio et de
-            la transcription par fichier WAV. La dictée utilise directement le
-            contrôleur et la capture Qt partagés avec Mac. Les réglages actuels
-            de microphone, de moteur vocal et de maintien en mémoire sont conservés.
-
-            Les modèles vocaux locaux restent désormais en mémoire entre les dictées.
-            Déchargement après 5 minutes d’inactivité par défaut, configurable dans
-            Dictée > Options avancées : immédiat, 1/5/15/30 minutes, ou fermeture de
-            SuperMenu. Bouton « Décharger maintenant » et état de la mémoire visible.
-            Chaque dictée conserve sa propre session ; le microphone reste arrêté
-            entre les dictées. Les fichiers téléchargés ne sont pas supprimés.
-
-            Correctif microphone : correction d’un contrôle Qt 6.11 qui signalait
-            à tort « Impossible d’ouvrir le microphone » pour toutes les entrées.
-            Réglages simplifiés en quatre rubriques : Texte, Dictée, Raccourcis,
-            Application. Options avancées repliées et actions principales toujours visibles.
-            Nouveau bouton « Tester le micro » : cinq secondes, niveau audio visible,
-            aucun enregistrement ni envoi. Le test s’arrête en quittant la rubrique.
-            Messages distincts pour la vérification, l’activation du GPU, le téléchargement
-            et le chargement en mémoire. Les fichiers installés sont réutilisés.
-
-            Dictée en direct : moteur vocal indépendant du moteur de texte.
-            Windows : OpenAI GPT Live Transcribe ou Foundry Local avec Nemotron 3.5
-            multilingue (français, CUDA prioritaire, modèle vocal d’environ 756 Mo).
-            Mac : OpenAI GPT Live Transcribe ou Apple Speech local (macOS 26+).
-            Dans Réglages (Paramètres sur Mac) > Dictée, vérifier le moteur, télécharger
-            le modèle local si nécessaire, enregistrer puis Dicter.
-            Nouvelle fenêtre avec transcription en direct, niveau du microphone,
-            copie du texte, finalisation et annulation. Aucun audio sauvegardé sur disque.
-
-            Amélioration Mac et Windows : vérification des modèles locaux avec progression
-            visible, confirmation verte « Prêt à utiliser » et heure de vérification.
-            Les modèles à télécharger, avertissements et erreurs ont chacun un état
-            explicite, avec possibilité de réessayer ou d’annuler l’opération.
-
-            Nouveauté Windows : Foundry Local embarqué avec Qwen3.5 4B et Qwen3.5 9B.
-            Correctif GPU : activation automatique de CUDA sur NVIDIA, priorité au GPU
-            même si un modèle CPU est déjà téléchargé, et choix CPU explicite.
-            Dans Réglages > Texte, choisir IA locale Microsoft, vérifier, télécharger
-            le modèle puis Enregistrer le moteur de texte. Aucune clé API ni installation
-            de Foundry/Ollama nécessaire pour le texte. Windows 11 24H2 minimum.
-            Correction, reformulation et traduction locales ; dictée locale avec Nemotron 3.5.
-
-            Nouveauté macOS : Apple Foundation Models. Dans Paramètres > Texte,
-            choisir Apple Intelligence — local (bêta), vérifier la disponibilité puis Enregistrer.
-            Nécessite macOS 26+ et Apple Intelligence activé avec son modèle téléchargé.
-
-            Cette version est une prérelease destinée aux tests. Pour la version recommandée, utilisez la dernière release stable.
+          bodyFile: beta-release-notes.md
 
       - name: Align rolling beta tag with published commit
         run: |
