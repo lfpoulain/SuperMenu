@@ -315,6 +315,7 @@ def test_main_window_constructs_without_duplicate_prompts(monkeypatch, tmp_path)
                 "identifiers": ["qwen3.5-4b"],
                 "sources": ["mac-studio"],
                 "loaded_sources": ["mac-studio"],
+                "device_names": {"mac-studio": "Serveur Apple"},
                 "reasoning_supported": True,
                 "reasoning_options": ["off", "on"],
                 "reasoning_default": "on",
@@ -368,7 +369,7 @@ def test_main_window_constructs_without_duplicate_prompts(monkeypatch, tmp_path)
     # setCurrentIndex can be a no-op after manual editing of the same item.
     window.custom_model_combo.setCurrentText(window.custom_model_combo.itemText(0))
     assert "LM Link" in window.custom_model_combo.currentText()
-    assert "mac-studio" in window.custom_model_provenance.text()
+    assert "Serveur Apple" in window.custom_model_provenance.text()
     window.custom_endpoint_input.setText("http://localhost:1234")
     monkeypatch.setattr(settings, "set_api_key", lambda _value: None)
     monkeypatch.setattr(settings, "set_custom_endpoint_api_key", lambda _value: None)

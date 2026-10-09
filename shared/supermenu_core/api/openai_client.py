@@ -116,6 +116,8 @@ class OpenAIClient(QObject):
             endpoint_api_key = getter() if getter is not None else None
         self.endpoint_api_key = str(endpoint_api_key or "").strip()
         self.settings = settings
+        target_getter = getattr(settings, "get_custom_model_target", None)
+        self.model_target = dict(target_getter() or {}) if target_getter else {}
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.allow_images = bool(allow_images)
@@ -798,6 +800,17 @@ class OpenAIClient(QObject):
 
     def _perform_request(self, headers, data, timeout, reasoning_mode="default"):
         """Send a request, retry unsupported reasoning, then fall back if needed."""
+        if self.use_lmstudio_api and "device" in self.model_target:
+            from .lmstudio_transport import targeted_completion
+            result = targeted_completion(
+                _models_base_url(self.custom_endpoint, False), self.endpoint_api_key,
+                data, self.model_target["device"], cancelled=self._closing,
+                include_reasoning=True, timeout=timeout,
+            )
+            response = requests.Response()
+            response.status_code = 200
+            response._content = json.dumps(result).encode("utf-8")
+            return response
         response = self._make_request_with_retry(
             headers,
             data,

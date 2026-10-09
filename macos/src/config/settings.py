@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 
 from PySide6.QtCore import QSettings
+from supermenu_core.config.model_target import ModelTargetSettingsMixin
 from supermenu_core.audio.settings import SpeechSettingsMixin
 from supermenu_core.config.model_memory import TextMemorySettingsMixin
 from supermenu_core.config.voice_prompts import VoicePromptSettingsMixin
@@ -49,7 +50,7 @@ def _normalize_prompts(value) -> dict[str, dict]:
         return {}
 
 
-class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettingsMixin):
+class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettingsMixin):
     def __init__(self, config_path: str | None = None):
         self.config_path = str(config_path or settings_file())
         Path(self.config_path).parent.mkdir(parents=True, exist_ok=True)
@@ -273,11 +274,13 @@ class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettings
         position: int | None = None,
         hotkey: str = "",
         reasoning_mode: str | None = None,
+        model_target=None,
     ) -> None:
         prompts = self.get_prompts()
         if prompt_id not in prompts:
             raise KeyError(prompt_id)
         prompts[prompt_id] = {
+            "model_target": model_target if model_target is not None else prompts.get(prompt_id, {}).get("model_target", {}),
             "reasoning_mode": reasoning_mode if reasoning_mode is not None else prompts.get(prompt_id, {}).get("reasoning_mode", "default"),
             "name": str(name or prompt_id),
             "prompt": str(prompt or ""),
@@ -302,12 +305,14 @@ class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettings
         position: int = 999,
         hotkey: str = "",
         reasoning_mode: str | None = None,
+        model_target=None,
     ) -> str:
         prompts = self.get_prompts()
         identifier = str(prompt_id or uuid.uuid4().hex).strip()
         if identifier in prompts:
             raise ValueError("Cet identifiant de prompt existe déjà.")
         prompts[identifier] = {
+            "model_target": model_target if model_target is not None else prompts.get(prompt_id, {}).get("model_target", {}),
             "reasoning_mode": reasoning_mode if reasoning_mode is not None else prompts.get(prompt_id, {}).get("reasoning_mode", "default"),
             "name": str(name or "Nouveau prompt"),
             "prompt": str(prompt or ""),

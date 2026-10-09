@@ -30,8 +30,8 @@ from supermenu_core.api.model_capabilities import (
     normalize_reasoning_option,
 )
 from supermenu_core.ui.model_catalog import (
-    selected_model_id, populate_model_catalog, model_summary, clear_model_provenance,
-    configure_model_combo,
+    selected_model_id, populate_model_catalog, selection_summary, clear_model_provenance,
+    configure_model_combo, selected_model_target, selected_model_details, restore_model_target, DeviceNameButton,
 )
 from supermenu_core.utils.validators import Validators
 from src.utils import updater as app_updater
@@ -250,7 +250,7 @@ class MainWindow(QMainWindow):
         from supermenu_core.ui.text_prompt_form import TextPromptForm
         from supermenu_core.ui.page_actions import PromptActions
 
-        self.text_prompt_form = TextPromptForm()
+        self.text_prompt_form = TextPromptForm(settings=self.settings)
         self.prompt_name_input = self.text_prompt_form.name
         self.prompt_text_input = self.text_prompt_form.instruction
         self.prompt_status_input = self.text_prompt_form.status
@@ -398,6 +398,8 @@ class MainWindow(QMainWindow):
         self.custom_model_provenance.setTextFormat(Qt.TextFormat.PlainText)
         self.custom_model_provenance.setWordWrap(True)
         custom_layout.addWidget(self.custom_model_provenance)
+        self.device_name_button = DeviceNameButton(self.custom_model_combo, self.settings, lambda: self.custom_endpoint_input.text().strip())
+        custom_layout.addWidget(self.device_name_button)
 
         self.custom_reasoning_label = QLabel("Raisonnement / think :")
         self.custom_reasoning_effort_combo = ChoiceBox()
@@ -411,6 +413,7 @@ class MainWindow(QMainWindow):
         if current_custom_model:
             self.custom_model_combo.addItem(current_custom_model)
             self.custom_model_combo.setCurrentText(current_custom_model)
+            restore_model_target(self.custom_model_combo, self.settings.get_custom_model_target())
 
         self.custom_model_combo.currentTextChanged.connect(
             self.update_custom_reasoning_effort_ui
@@ -804,6 +807,7 @@ class MainWindow(QMainWindow):
             self.prompt_status_input.setText(prompt_data["status"])
             self.prompt_insert_directly.setChecked(prompt_data.get("insert_directly", False))
             self.text_prompt_form.reasoning.set_mode(prompt_data.get("reasoning_mode", "default"))
+            self.text_prompt_form.model_choice.set_target(prompt_data.get("model_target", {}))
             self.prompt_hotkey_input.setText(prompt_data.get("hotkey", ""))
 
 
@@ -1035,6 +1039,8 @@ class MainWindow(QMainWindow):
 
     def save_prompt(self):
         """Save the prompt"""
+        if not self.text_prompt_form.model_choice.is_valid():
+            return False
         if self.prompt_combo.count() == 0:
             return
             
@@ -1069,6 +1075,7 @@ class MainWindow(QMainWindow):
                 position,
                 hotkey=prompt_hotkey,
                 reasoning_mode=self.text_prompt_form.reasoning.currentData(),
+                model_target=self.text_prompt_form.model_choice.target(),
             )
         except ValueError as e:
             QMessageBox.warning(self, "Raccourci invalide", str(e))
@@ -1653,6 +1660,7 @@ class MainWindow(QMainWindow):
         self.prompt_status_input.clear()
         self.prompt_insert_directly.setChecked(False)
         self.text_prompt_form.reasoning.set_mode("default")
+        self.text_prompt_form.model_choice.set_target({})
         self.prompt_hotkey_input.clear()
 
 
@@ -1754,6 +1762,7 @@ class MainWindow(QMainWindow):
         self._custom_model_details = populate_model_catalog(
             self.custom_model_combo, model_details,
             lmstudio=current_type == "lmstudio",
+            endpoint=self.custom_endpoint_input.text().strip(), settings=self.settings,
         )
         self.update_custom_reasoning_effort_ui()
 
@@ -1848,6 +1857,7 @@ class MainWindow(QMainWindow):
         self.settings.set_custom_endpoint_api_key(custom_endpoint_api_key)
         self.settings.set_custom_endpoint_type(custom_endpoint_type)
         self.settings.set_custom_model(custom_model)
+        self.settings.set_custom_model_target(selected_model_target(self.custom_model_combo))
         self.settings.sync()
 
         self.reasoning_effort_combo.blockSignals(True)
@@ -1884,6 +1894,9 @@ class MainWindow(QMainWindow):
             self._custom_models_refresh_timer.start()
 
     def _get_custom_model_details(self, model):
+        selected = selected_model_details(self.custom_model_combo, self._custom_model_details)
+        if selected and selected["id"] == model:
+            return selected
         details = self._custom_model_details.get(model)
         if details:
             return details
@@ -1922,9 +1935,10 @@ class MainWindow(QMainWindow):
         endpoint_type = self.custom_endpoint_type_combo.currentData()
         details = self._get_custom_model_details(model)
         self.custom_model_provenance.setText(
-            model_summary(details, lmstudio=endpoint_type == "lmstudio")
+            selection_summary(self.custom_model_combo, self._custom_model_details, lmstudio=endpoint_type == "lmstudio")
         )
         self.custom_model_provenance.setVisible(endpoint_type == "lmstudio")
+        self.device_name_button.refresh()
 
         combo.blockSignals(True)
         combo.clear()

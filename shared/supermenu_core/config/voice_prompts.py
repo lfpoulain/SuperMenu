@@ -72,10 +72,12 @@ class VoicePromptSettingsMixin:
         include_selected_text=False,
         prompt_order="prompt_transcription_selected",
         reasoning_mode=None,
+        model_target=None,
     ):
         prompts = self.get_voice_prompts()
         prompts[prompt_id] = {
             **prompts.get(prompt_id, {}),
+            "model_target": model_target if model_target is not None else prompts.get(prompt_id, {}).get("model_target", {}),
             "reasoning_mode": reasoning_mode if reasoning_mode is not None else prompts.get(prompt_id, {}).get("reasoning_mode", "default"),
             "name": name,
             "prompt": prompt,
@@ -102,6 +104,7 @@ class VoicePromptSettingsMixin:
         include_selected_text=False,
         prompt_order="prompt_transcription_selected",
         reasoning_mode=None,
+        model_target=None,
     ):
         prompts = self.get_voice_prompts()
         identifier = str(prompt_id or uuid.uuid4().hex)
@@ -119,6 +122,7 @@ class VoicePromptSettingsMixin:
             include_selected_text,
             prompt_order,
             reasoning_mode=reasoning_mode,
+            model_target=model_target,
         )
         return identifier
 

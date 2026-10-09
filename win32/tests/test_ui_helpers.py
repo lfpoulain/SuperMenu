@@ -258,6 +258,7 @@ def test_direct_voice_prompt_uses_tracked_request_lifecycle(monkeypatch):
     settings = FakeMenuSettings()
     settings.get_voice_prompt = lambda _prompt_id: {
         "name": "Corriger la dictée",
+        "model_target": {"provider": "custom", "model": "tiny", "device": None},
         "prompt": "Corrige :",
         "status": "Correction en cours",
         "insert_directly": True,
@@ -295,6 +296,7 @@ def test_direct_voice_prompt_uses_tracked_request_lifecycle(monkeypatch):
                 "include_reasoning": False,
                 "reasoning_mode": "default",
                 "direct_status": "✅ Envoyé à l'IA — Correction en cours",
+                "model_target": {"provider": "custom", "model": "tiny", "device": None},
             },
         )
     ]

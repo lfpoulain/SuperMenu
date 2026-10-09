@@ -24,6 +24,7 @@ from .page_actions import PromptActions
 from .confirmations import confirm_action
 from .prompt_restore import restore_library
 from .prompt_reasoning import PromptReasoningChoice
+from .prompt_model import PromptModelChoice
 
 
 class VoicePromptEditor(QWidget):
@@ -99,6 +100,8 @@ class VoicePromptEditor(QWidget):
         self.instruction_input = QTextEdit()
         self.instruction_input.setMinimumHeight(100)
         form.addRow("Instructions", self.instruction_input)
+        self.model_choice = PromptModelChoice(settings)
+        form.addRow("Modèle de texte après transcription", self.model_choice)
         self.reasoning = PromptReasoningChoice()
         form.addRow("Raisonnement (si disponible)", self.reasoning)
         self.status_input = QLineEdit()
@@ -169,6 +172,7 @@ class VoicePromptEditor(QWidget):
         self.status_input.setText(prompt.get("status", ""))
         self.insert_directly.setChecked(prompt.get("insert_directly", False))
         self.reasoning.set_mode(prompt.get("reasoning_mode", "default"))
+        self.model_choice.set_target(prompt.get("model_target", {}))
         self.include_selected.setChecked(prompt.get("include_selected_text", False))
         self.order_combo.setEnabled(self.include_selected.isChecked())
         self.order_combo.setCurrentIndex(
@@ -191,6 +195,8 @@ class VoicePromptEditor(QWidget):
         self.settings.set_voice_prompts(prompts)
 
     def save(self, _checked=False):
+        if not self.model_choice.is_valid():
+            return False
         if self._current_id is None:
             return True
         name = self.name_input.text().strip()
@@ -207,6 +213,7 @@ class VoicePromptEditor(QWidget):
             include_selected_text=self.include_selected.isChecked(),
             prompt_order=self.order_combo.currentData(),
             reasoning_mode=self.reasoning.currentData(),
+            model_target=self.model_choice.target(),
         )
         self.prompt_list.currentItem().setText(name)
         self.prompt_list.currentItem().setToolTip(name)

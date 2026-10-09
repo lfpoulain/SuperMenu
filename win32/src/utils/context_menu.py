@@ -16,6 +16,7 @@ import win32api
 import win32con
 from pynput.keyboard import Controller, Key
 
+from supermenu_core.config.model_target import ModelTargetSettings, settings_for_prompt
 from supermenu_core.ui.controls import Menu as QMenu, populate_prompt_menu, menu_contains_global_point
 from src.api.openai_client import OpenAIClient
 from supermenu_core.ui.safe_dialogs import SafeDialogs
@@ -80,11 +81,14 @@ class ContextMenuManager(QObject):
         # Connecter le signal de retry
         self.response_window.retry_requested.connect(self.on_retry_requested)
 
-    def _create_api_client(self):
-        if self.settings.get_ai_provider() == "foundry":
+    def _create_api_client(self, settings=None):
+        settings = settings or self.settings
+        if settings.get_ai_provider() not in {"openai", "custom", "foundry"}:
+            raise ValueError("Le moteur choisi pour ce prompt est indisponible sur cet ordinateur.")
+        if settings.get_ai_provider() == "foundry":
             from src.api.foundry_client import FoundryClient
-            return FoundryClient(self.settings)
-        return OpenAIClient(settings=self.settings, api_key=self.settings.get_api_key())
+            return FoundryClient(settings)
+        return OpenAIClient(settings=settings, api_key=settings.get_api_key())
 
     def _connect_api_client(self, client):
         client.request_started_scoped.connect(self.on_request_started_scoped)
@@ -126,6 +130,7 @@ class ContextMenuManager(QObject):
         include_reasoning=None,
         direct_status=None,
         reasoning_mode="default",
+        model_target=None,
     ):
         """Register request state before the client can emit synchronously."""
         if self._closed:
@@ -148,7 +153,13 @@ class ContextMenuManager(QObject):
         if not insert_directly:
             self._active_response_request_id = request_id
             self.response_window.last_reasoning_mode = reasoning_mode
+            self.response_window.last_model_target = dict(model_target or {})
         try:
+            if model_target:
+                client = self._create_api_client(ModelTargetSettings(self.settings, model_target))
+                self._retired_clients.append(client)
+                self._connect_api_client(client)
+                self._pending_requests[request_id]["client"] = client
             client.send_request(
                 prompt,
                 content,
@@ -713,6 +724,7 @@ class ContextMenuManager(QObject):
             insert_directly,
             target=target,
             reasoning_mode=prompt_data.get("reasoning_mode", "default"),
+            model_target=prompt_data.get("model_target"),
             direct_status=(
                 f"✅ Envoyé à l'IA — {prompt_data['status']}"
                 if insert_directly
@@ -860,7 +872,7 @@ class ContextMenuManager(QObject):
             self.voice_recognition = PlainDictationSession(
                 lambda options: create_speech_backend(self.settings, options),
                 speech_options(self.settings), insert_text=insert,
-                correction_factory=self._create_api_client,
+                correction_factory=lambda: self._create_api_client(settings_for_prompt(self.settings, "corriger")),
                 auto_insert=self.settings.get_dictation_auto_insert(),
                 correct_before_insert=self.settings.get_dictation_correct_before_insert(),
                 parent=self,
@@ -924,6 +936,7 @@ class ContextMenuManager(QObject):
                             target=target,
                             include_reasoning=False,
                             reasoning_mode=prompt_data.get("reasoning_mode", "default"),
+                            model_target=prompt_data.get("model_target"),
                             direct_status=f"✅ Envoyé à l'IA — {status}",
                         )
                     else:
@@ -938,7 +951,7 @@ class ContextMenuManager(QObject):
                         self.response_window.store_request(full_prompt, "")
                         
                         # Lancer la requête API en arrière-plan
-                        self._send_request(full_prompt, "", reasoning_mode=prompt_data.get("reasoning_mode", "default"))
+                        self._send_request(full_prompt, "", reasoning_mode=prompt_data.get("reasoning_mode", "default"), model_target=prompt_data.get("model_target"))
             
             # Arrêter toute reconnaissance vocale en cours
             self.stop_voice_recognition()
@@ -1133,7 +1146,7 @@ class ContextMenuManager(QObject):
         prompt, content = self.response_window.get_last_request()
         if prompt is not None:
             log("Retry de la dernière requête...", logging.INFO)
-            self._send_request(prompt, content if content else "", reasoning_mode=getattr(self.response_window, "last_reasoning_mode", "default"))
+            self._send_request(prompt, content if content else "", reasoning_mode=getattr(self.response_window, "last_reasoning_mode", "default"), model_target=getattr(self.response_window, "last_model_target", None))
 
     def update_client_config(self):
         """Met à jour la configuration du client API avec les paramètres actuels."""

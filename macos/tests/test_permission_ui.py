@@ -163,6 +163,7 @@ def test_lmstudio_catalog_updates_native_reasoning_options(window, monkeypatch):
                 "reasoning_default": "on",
                 "sources": ["mac-studio"],
                 "loaded_sources": ["mac-studio"],
+                "device_names": {"mac-studio": "Serveur Apple"},
             }
         ]
     )
@@ -171,8 +172,9 @@ def test_lmstudio_catalog_updates_native_reasoning_options(window, monkeypatch):
         window.custom_reasoning.itemData(index)
         for index in range(window.custom_reasoning.count())
     ] == ["off", "on", "future_tier"]
-    assert "LM Link : mac-studio" in window.custom_model.currentText()
-    assert "Chargé lors" in window.custom_model_provenance.text()
+    window.custom_model.setCurrentIndex(0)
+    assert "Serveur Apple" in window.custom_model.currentText()
+    assert "Déjà chargé" in window.custom_model_provenance.text()
     window.custom_endpoint.setText("http://localhost:1234")
     # Changing the endpoint invalidates the old origin, preserving the raw ID.
     assert window.custom_model.currentText() == "reasoning-model"
@@ -181,9 +183,11 @@ def test_lmstudio_catalog_updates_native_reasoning_options(window, monkeypatch):
     window._on_custom_models_loaded([{
         "id": "reasoning-model", "sources": ["mac-studio"],
     }])
+    window.custom_model.setCurrentIndex(0)
     assert "LM Link" in window.custom_model.currentText()
     window.save_text_settings(show_confirmation=False)
     assert window.settings.get_custom_model() == "reasoning-model"
+    assert window.settings.get_custom_model_target()["device"] == "mac-studio"
 
 
 def test_recheck_attempts_hotkeys_even_when_permission_api_reports_false(

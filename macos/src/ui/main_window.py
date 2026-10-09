@@ -39,8 +39,8 @@ from supermenu_core.api.model_capabilities import (
     normalize_reasoning_option,
 )
 from supermenu_core.ui.model_catalog import (
-    selected_model_id, populate_model_catalog, model_summary, clear_model_provenance,
-    configure_model_combo,
+    selected_model_id, populate_model_catalog, selection_summary, clear_model_provenance,
+    configure_model_combo, selected_model_target, selected_model_details, restore_model_target, DeviceNameButton,
 )
 from supermenu_core.config.provider_settings import CUSTOM_REASONING_EFFORTS
 from supermenu_core.ui.theme_manager import ThemeManager
@@ -213,7 +213,7 @@ class MainWindow(QMainWindow):
         from supermenu_core.ui.text_prompt_form import TextPromptForm
         from supermenu_core.ui.page_actions import PromptActions
 
-        self.text_prompt_form = TextPromptForm()
+        self.text_prompt_form = TextPromptForm(settings=self.settings)
         self.prompt_name = self.text_prompt_form.name
         self.prompt_instruction = self.text_prompt_form.instruction
         self.prompt_status = self.text_prompt_form.status
@@ -311,6 +311,7 @@ class MainWindow(QMainWindow):
         if saved_custom_model:
             self.custom_model.addItem(saved_custom_model)
             self.custom_model.setCurrentText(saved_custom_model)
+            restore_model_target(self.custom_model, self.settings.get_custom_model_target())
         custom_model_row.addWidget(self.custom_model, 1)
         refresh_models = QPushButton("Actualiser")
         refresh_models.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
@@ -321,6 +322,8 @@ class MainWindow(QMainWindow):
         self.custom_model_provenance.setTextFormat(Qt.TextFormat.PlainText)
         self.custom_model_provenance.setWordWrap(True)
         endpoint_layout.addWidget(self.custom_model_provenance)
+        self.device_name_button = DeviceNameButton(self.custom_model, self.settings, lambda: self.custom_endpoint.text().strip())
+        endpoint_layout.addWidget(self.device_name_button)
         self.custom_reasoning_label = QLabel("Raisonnement / think :")
         endpoint_options.addWidget(self.custom_reasoning_label)
         self.custom_reasoning = ChoiceBox()
@@ -515,6 +518,7 @@ class MainWindow(QMainWindow):
         self.prompt_status.setText(prompt.get("status", ""))
         self.prompt_direct.setChecked(bool(prompt.get("insert_directly", False)))
         self.text_prompt_form.reasoning.set_mode(prompt.get("reasoning_mode", "default"))
+        self.text_prompt_form.model_choice.set_target(prompt.get("model_target", {}))
         self.prompt_hotkey.setText(prompt.get("hotkey", ""))
         self._loading_prompt = False
 
@@ -612,6 +616,8 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Export terminé", "Les prompts ont été exportés.")
 
     def save_current_prompt(self, show_confirmation=True):
+        if not self.text_prompt_form.model_choice.is_valid():
+            return False
         item = self.prompt_list.currentItem()
         if item is None:
             return False
@@ -634,6 +640,7 @@ class MainWindow(QMainWindow):
             or "Traitement en cours…",
             "insert_directly": self.prompt_direct.isChecked(),
             "reasoning_mode": self.text_prompt_form.reasoning.currentData(),
+            "model_target": self.text_prompt_form.model_choice.target(),
             "position": prompt.get("position", 999),
             "hotkey": self.prompt_hotkey.text().strip(),
         }
@@ -655,6 +662,7 @@ class MainWindow(QMainWindow):
                 position=prompt.get("position", 999),
                 hotkey=self.prompt_hotkey.text().strip(),
                 reasoning_mode=self.text_prompt_form.reasoning.currentData(),
+                model_target=self.text_prompt_form.model_choice.target(),
             )
         except ValueError as exc:
             QMessageBox.warning(self, "Raccourci invalide", str(exc))
@@ -786,6 +794,7 @@ class MainWindow(QMainWindow):
         self._custom_model_details = populate_model_catalog(
             self.custom_model, model_details,
             lmstudio=self.endpoint_type.currentData() == "lmstudio",
+            endpoint=self.custom_endpoint.text().strip(), settings=self.settings,
         )
         self._update_custom_reasoning_options()
         QMessageBox.information(
@@ -800,6 +809,9 @@ class MainWindow(QMainWindow):
         self._update_custom_reasoning_options()
 
     def _get_custom_model_details(self, model):
+        selected = selected_model_details(self.custom_model, self._custom_model_details)
+        if selected and selected["id"] == model:
+            return selected
         details = self._custom_model_details.get(model)
         if details:
             return details
@@ -821,9 +833,10 @@ class MainWindow(QMainWindow):
         model = selected_model_id(self.custom_model)
         details = self._get_custom_model_details(model)
         self.custom_model_provenance.setText(
-            model_summary(details, lmstudio=endpoint_type == "lmstudio")
+            selection_summary(self.custom_model, self._custom_model_details, lmstudio=endpoint_type == "lmstudio")
         )
         self.custom_model_provenance.setVisible(endpoint_type == "lmstudio")
+        self.device_name_button.refresh()
 
         combo.blockSignals(True)
         try:
@@ -1141,6 +1154,7 @@ class MainWindow(QMainWindow):
         )
         self.settings.set_custom_endpoint_type(self.endpoint_type.currentData())
         self.settings.set_custom_model(selected_model_id(self.custom_model))
+        self.settings.set_custom_model_target(selected_model_target(self.custom_model))
         self.settings.set_custom_reasoning_effort(
             self.custom_reasoning.currentData()
             or self.custom_reasoning.currentText()

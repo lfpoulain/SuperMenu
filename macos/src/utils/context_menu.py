@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, QTimer
 from PySide6.QtGui import QCursor
 
 
+from supermenu_core.config.model_target import ModelTargetSettings, settings_for_prompt
 from supermenu_core.ui.controls import Menu as QMenu, populate_prompt_menu
 from supermenu_core.ui.voice_menu import populate_voice_menu
 from supermenu_core.config.voice_prompts import compose_voice_prompt
@@ -55,14 +56,17 @@ class ContextMenuManager(QObject):
         self._dictation = None
         self._connect_api_client(self.api_client)
 
-    def _create_api_client(self):
-        if self.settings.get_ai_provider() == "apple":
+    def _create_api_client(self, settings=None):
+        settings = settings or self.settings
+        if settings.get_ai_provider() not in {"openai", "custom", "apple"}:
+            raise ValueError("Le moteur choisi pour ce prompt est indisponible sur cet ordinateur.")
+        if settings.get_ai_provider() == "apple":
             from src.api.apple_foundation_client import AppleFoundationClient
 
             return AppleFoundationClient()
         return OpenAIClient(
-            settings=self.settings,
-            api_key=self.settings.get_api_key(),
+            settings=settings,
+            api_key=settings.get_api_key(),
         )
 
     def _connect_api_client(self, client) -> None:
@@ -277,7 +281,7 @@ class ContextMenuManager(QObject):
             self._dictation = PlainDictationSession(
                 lambda options: create_speech_backend(self.settings, options),
                 speech_options(self.settings), insert_text=insert,
-                correction_factory=self._create_api_client,
+                correction_factory=lambda: self._create_api_client(settings_for_prompt(self.settings, "corriger")),
                 auto_insert=self.settings.get_dictation_auto_insert(),
                 correct_before_insert=self.settings.get_dictation_correct_before_insert(),
                 parent=self,
@@ -353,6 +357,7 @@ class ContextMenuManager(QObject):
                 include_reasoning=False if direct else None,
                 direct_status=f"Envoyé — {status}",
                 reasoning_mode=prompt.get("reasoning_mode", "default"),
+                model_target=prompt.get("model_target"),
             )
 
         self._start_voice_session(process_transcription)
@@ -396,6 +401,7 @@ class ContextMenuManager(QObject):
             target=target,
             direct_status=f"Envoyé — {prompt['status']}",
             reasoning_mode=prompt.get("reasoning_mode", "default"),
+            model_target=prompt.get("model_target"),
         )
 
     def _handle_custom(self, selected_text: str, target, *, voice=False) -> None:
@@ -471,6 +477,7 @@ class ContextMenuManager(QObject):
         include_reasoning=None,
         direct_status=None,
         reasoning_mode="default",
+        model_target=None,
     ) -> str:
         request_id = uuid.uuid4().hex
         if self._closed:
@@ -490,7 +497,13 @@ class ContextMenuManager(QObject):
         if not insert_directly:
             self._active_response_request_id = request_id
             self.response_window.last_reasoning_mode = reasoning_mode
+            self.response_window.last_model_target = dict(model_target or {})
         try:
+            if model_target:
+                client = self._create_api_client(ModelTargetSettings(self.settings, model_target))
+                self._retired_clients.append(client)
+                self._connect_api_client(client)
+                self._pending_requests[request_id]["client"] = client
             client.send_request(
                 prompt,
                 content,
@@ -594,7 +607,7 @@ class ContextMenuManager(QObject):
             return
         prompt, content = self.response_window.get_last_request()
         if prompt is not None:
-            self._send_request(prompt, content or "", reasoning_mode=getattr(self.response_window, "last_reasoning_mode", "default"))
+            self._send_request(prompt, content or "", reasoning_mode=getattr(self.response_window, "last_reasoning_mode", "default"), model_target=getattr(self.response_window, "last_model_target", None))
 
     def _release_retired_client_if_idle(self, client) -> None:
         if client is self.api_client:

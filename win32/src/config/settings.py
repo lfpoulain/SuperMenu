@@ -7,6 +7,7 @@ import logging
 
 import keyring
 from PySide6.QtCore import QSettings
+from supermenu_core.config.model_target import ModelTargetSettingsMixin
 from supermenu_core.audio.settings import SpeechSettingsMixin
 from supermenu_core.config.model_memory import TextMemorySettingsMixin
 from supermenu_core.config.voice_prompts import VoicePromptSettingsMixin
@@ -36,7 +37,7 @@ _normalize_update_channel = normalize_update_channel
 _normalize_prompt_collection = normalize_prompt_collection
 
 
-class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettingsMixin):
+class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettingsMixin):
     """Manage application settings"""
     
     def __init__(self):
@@ -538,6 +539,7 @@ class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettings
         position=None,
         hotkey="",
         reasoning_mode=None,
+        model_target=None,
     ):
         """Update a specific prompt"""
         prompts = self.get_prompts()
@@ -560,6 +562,7 @@ class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettings
                 )
 
         prompts[prompt_id] = {
+            "model_target": model_target if model_target is not None else prompts.get(prompt_id, {}).get("model_target", {}),
             "reasoning_mode": reasoning_mode if reasoning_mode is not None else prompts.get(prompt_id, {}).get("reasoning_mode", "default"),
             "name": name,
             "prompt": prompt,
@@ -580,6 +583,7 @@ class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettings
         position=999,
         hotkey="",
         reasoning_mode=None,
+        model_target=None,
     ):
         """Ajouter un nouveau prompt"""
         prompts = self.get_prompts()
@@ -607,6 +611,7 @@ class Settings(SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettings
                 )
 
         prompts[prompt_id] = {
+            "model_target": model_target if model_target is not None else prompts.get(prompt_id, {}).get("model_target", {}),
             "reasoning_mode": reasoning_mode if reasoning_mode is not None else prompts.get(prompt_id, {}).get("reasoning_mode", "default"),
             "name": name,
             "prompt": prompt,

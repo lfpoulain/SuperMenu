@@ -12,6 +12,9 @@ from supermenu_core.ui.model_catalog import (
     model_summary,
     populate_model_catalog,
     selected_model_id,
+    selected_model_target,
+    restore_model_target,
+    target_key,
 )
 
 
@@ -51,7 +54,7 @@ def test_same_model_on_two_devices_keeps_both_origins_and_loaded_snapshot():
     assert models[1]["loaded_sources"] == ["mac-studio"]
     assert models[2]["loaded_sources"] == [None]
     assert "Qwen" not in models[0]["identifiers"]
-    assert "poste préféré" in model_summary(models[0], lmstudio=True)
+    assert "LM Studio choisit" in model_summary(models[0], lmstudio=True)
 
 
 @pytest.mark.parametrize(
@@ -96,7 +99,10 @@ def test_picker_preserves_exact_api_id_across_refresh_manual_entry_and_disconnec
         {"id": "remote-qwen", "sources": ["mac"]},
     ]
     populate_model_catalog(combo, models, lmstudio=True)
-    assert "LM Link : mac" in combo.currentText()
+    assert "Choix automatique" in combo.currentText()
+    combo.setCurrentIndex(1)
+    assert selected_model_target(combo)["device"] == "mac"
+    assert "LM Link" in combo.currentText()
     assert selected_model_id(combo) == "remote-qwen"
     populate_model_catalog(combo, models[:1], lmstudio=True)
     assert selected_model_id(combo) == "remote-qwen"  # Never switch to local silently.
@@ -108,7 +114,7 @@ def test_picker_preserves_exact_api_id_across_refresh_manual_entry_and_disconnec
     assert selected_model_id(combo) == "manual-model"
 
 
-def test_duplicate_route_ids_are_aggregated_without_losing_a_device(app):
+def test_duplicate_route_ids_offer_independent_devices(app):
     combo = ChoiceBox()
     combo.setEditable(True)
     result = populate_model_catalog(
@@ -119,17 +125,21 @@ def test_duplicate_route_ids_are_aggregated_without_losing_a_device(app):
         ],
         lmstudio=True,
     )
-    assert combo.count() == 1
-    assert "Local au serveur + LM Link : mac" in combo.currentText()
-    assert result["qwen"]["sources"] == [None, "mac"]
+    assert combo.count() == 2
+    assert "LM Link" not in combo.itemText(0)
+    assert "LM Link" in combo.itemText(1)
+    assert selected_model_target(combo)["device"] is None
+    combo.setCurrentIndex(1)
+    assert selected_model_target(combo)["device"] == "mac"
+    assert len(result) == 2
 
 
 def test_older_server_does_not_claim_models_are_local(app):
     combo = ChoiceBox()
     combo.setEditable(True)
     populate_model_catalog(combo, [{"id": "qwen"}], lmstudio=True)
-    assert "Provenance inconnue" in combo.currentText()
-    assert "ne communique pas" in model_summary({"id": "qwen"}, lmstudio=True)
+    assert "Choix automatique" in combo.currentText()
+    assert "LM Studio choisit" in model_summary({"id": "qwen"}, lmstudio=True)
     assert model_summary({"id": "qwen"}, lmstudio=False) == ""
 
 
@@ -198,6 +208,9 @@ def test_metadata_failure_preserves_rest_and_partial_results(monkeypatch):
         raise TimeoutError()
 
     monkeypatch.setattr(provenance, "_read_catalog", read)
+    monkeypatch.setattr(
+        "supermenu_core.api.lmstudio_transport.device_names", lambda *_a: {}
+    )
     available, loaded = provenance.fetch_provenance("http://localhost:1234")
     assert available[0]["deviceIdentifier"] == "pc"
     assert loaded == []
@@ -231,3 +244,26 @@ def test_catalog_discovery_enriches_without_changing_routing_id(monkeypatch):
     assert ok
     assert models[0]["id"] == "qwen"
     assert models[0]["sources"] == ["mac"]
+
+
+def test_named_remote_selection_survives_refresh_and_offline(app):
+    combo = ChoiceBox()
+    combo.setEditable(True)
+    combo.addItem("gemma", "gemma")
+    target = {"provider": "custom", "model": "gemma", "device": "opaque-device-id"}
+    restore_model_target(combo, target)
+    models = [
+        {
+            "id": "gemma",
+            "sources": [None, "opaque-device-id"],
+            "device_names": {"opaque-device-id": "Serveur Apple"},
+        }
+    ]
+    catalog = populate_model_catalog(combo, models, lmstudio=True)
+    assert "Serveur Apple" in combo.currentText()
+    assert "opaque-device-id" not in combo.currentText()
+    assert target_key(selected_model_target(combo)) == target_key(target)
+    assert catalog[target_key(target)]["device"] == "opaque-device-id"
+    populate_model_catalog(combo, [{"id": "gemma", "sources": [None]}], lmstudio=True)
+    assert "indisponible" in combo.currentText()
+    assert selected_model_target(combo)["device"] == "opaque-device-id"

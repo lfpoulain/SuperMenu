@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QGroupBox, QLineEdit, QTextEdit, QCheckBox, QHBoxL
 from .settings_panel import form_layout
 from .confirmations import confirm_action
 from .prompt_reasoning import PromptReasoningChoice
+from .prompt_model import PromptModelChoice
 
 
 def reset_text_prompt(settings, prompt_id, parent, refreshed):
@@ -22,6 +23,7 @@ def reset_text_prompt(settings, prompt_id, parent, refreshed):
             default.get("insert_directly", False), position=current.get("position", 999),
             hotkey=default.get("hotkey", ""),
             reasoning_mode=default.get("reasoning_mode", "default"),
+            model_target=default.get("model_target", {}),
         )
         settings.sync()
         refreshed()
@@ -34,7 +36,7 @@ class TextPromptForm(QGroupBox):
     record_requested = Signal()
     clear_requested = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, settings=None):
         super().__init__("Votre prompt", parent)
         form = form_layout(self, stacked=True)
         self.name = QLineEdit()
@@ -45,6 +47,8 @@ class TextPromptForm(QGroupBox):
         self.instruction.setMinimumHeight(100)
         self.instruction.setPlaceholderText("Ex. : Corrige l’orthographe et la grammaire du texte suivant.")
         form.addRow("Instructions", self.instruction)
+        self.model_choice = PromptModelChoice(settings)
+        form.addRow("Modèle de texte pour ce prompt", self.model_choice)
         self.reasoning = PromptReasoningChoice()
         form.addRow("Raisonnement (si disponible)", self.reasoning)
         self.status = QLineEdit()

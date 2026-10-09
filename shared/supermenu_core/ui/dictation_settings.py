@@ -32,7 +32,7 @@ class DictationBehaviorSettings(QGroupBox):
         )
         layout.addWidget(self.correct_before_insert)
         hint = QLabel(
-            "Sinon, Copier et Insérer restent disponibles dans la fenêtre de dictée. La correction utilise le moteur choisi dans Texte et peut donc envoyer la dictée à ce service. Ces options ne modifient pas les prompts vocaux."
+            "Sinon, Copier et Insérer restent disponibles dans la fenêtre de dictée. La correction utilise le modèle du prompt « Corriger », ou le réglage général si aucun modèle n’est choisi pour ce prompt. La dictée est envoyée au service sélectionné. Ces options ne modifient pas les prompts vocaux."
         )
         hint.setWordWrap(True)
         hint.setObjectName("mutedText")

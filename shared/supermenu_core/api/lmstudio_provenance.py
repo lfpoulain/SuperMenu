@@ -77,10 +77,10 @@ def _read_catalog(base_url, namespace, method, auth, deadline):
         socket.shutdown()
 
 
-def fetch_provenance(base_url, api_key=None, timeout=3):
+def fetch_provenance(base_url, api_key=None, timeout=8):
     """Return independent availability/loaded snapshots; never break REST use."""
     available, loaded = [], []
-    deadline = time.monotonic() + min(timeout, 3)
+    deadline = time.monotonic() + min(timeout, 8)
     try:
         auth = _auth_message(api_key)
         available = _read_catalog(
@@ -94,6 +94,18 @@ def fetch_provenance(base_url, api_key=None, timeout=3):
     except Exception:
         # No token, host, server error payload or private machine names in logs.
         # Incompatible/older servers remain usable through their REST catalog.
+        pass
+    try:
+        from .lmstudio_transport import device_names
+
+        names = device_names(base_url, api_key, deadline)
+        for row in available + loaded:
+            if "deviceIdentifier" in row and (
+                row["deviceIdentifier"] is None
+                or isinstance(row["deviceIdentifier"], str)
+            ):
+                row["deviceName"] = names.get(row["deviceIdentifier"], "")
+    except Exception:
         pass
     return available, loaded
 
@@ -130,9 +142,22 @@ def enrich_provenance(details, available, loaded):
             [
                 row
                 for row in available
-                if isinstance(row.get("modelKey"), str) and row["modelKey"] in keys
+                if model["id"] == key
+                and isinstance(row.get("modelKey"), str)
+                and row["modelKey"] in keys
             ]
             + loaded_matches
         )
         model["loaded_sources"] = _sources(loaded_matches)
+        model["device_names"] = {
+            row["deviceIdentifier"]: row["deviceName"]
+            for row in available + loaded
+            if "deviceIdentifier" in row
+            and (
+                row["deviceIdentifier"] is None
+                or isinstance(row["deviceIdentifier"], str)
+            )
+            and isinstance(row.get("deviceName"), str)
+            and row["deviceName"].strip()
+        }
     return details

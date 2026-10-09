@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from .prompt_reasoning import normalize_reasoning_mode
+from .model_target import normalize_model_target
 
 LEGACY_INSTANT_HOTKEY = "Ctrl+Alt+I"
 VOICE_PROMPT_ORDERS = {
@@ -239,6 +240,8 @@ def normalize_prompt_collection(raw_prompts, *, voice=False, require_non_empty=F
                 "doit être booléen."
             )
         prompt["insert_directly"] = insert_directly
+        if "model_target" in prompt:
+            prompt["model_target"] = normalize_model_target(prompt["model_target"])
         if "reasoning_mode" in prompt:
             prompt["reasoning_mode"] = normalize_reasoning_mode(prompt["reasoning_mode"])
 
