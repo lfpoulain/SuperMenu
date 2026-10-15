@@ -1,4 +1,5 @@
 import plistlib
+import re
 from pathlib import Path
 
 
@@ -15,6 +16,12 @@ def _commands(script: str) -> str:
     return "\n".join(
         line for line in script.splitlines() if not line.lstrip().startswith("#")
     )
+
+
+def _job(workflow: str, name: str) -> str:
+    match = re.search(rf"^  {name}:\n(.*?)(?=^  \S|\Z)", workflow, re.M | re.S)
+    assert match, f"{name} job not found"
+    return match.group(1)
 
 
 def test_pyinstaller_uses_optional_developer_id_identity():
@@ -171,3 +178,34 @@ def test_beta_and_stable_releases_require_a_notarized_macos_dmg():
     assert stable.index("Validate source") < stable.index(
         "Inject macOS stable metadata"
     )
+
+
+def test_apple_secrets_reach_only_trusted_commits_without_a_write_token():
+    workflows_dir = REPOSITORY_ROOT / ".github" / "workflows"
+    beta = (workflows_dir / "beta-release.yml").read_text(encoding="utf-8")
+    stable = (workflows_dir / "stable-release.yml").read_text(encoding="utf-8")
+
+    for workflow, job_name in (
+        (beta, "build-macos-beta"),
+        (stable, "build-macos-stable"),
+    ):
+        job = _job(workflow, job_name)
+        # The signing job is the only one that sees the Apple secrets, and it
+        # neither holds a write token nor leaves one in .git/config.
+        assert "secrets.MACOS_CERTIFICATE_BASE64" in job
+        assert workflow.count("secrets.MACOS_") == job.count("secrets.MACOS_")
+        assert "permissions:\n  contents: read" in workflow.split("\njobs:")[0]
+        assert "contents: write" not in job
+        assert "persist-credentials: false" in job
+
+    # workflow_run also fires for pull requests, including one opened from a
+    # fork's main: only a CI run for a push to main here may build the beta.
+    beta_job = _job(beta, "build-macos-beta")
+    assert "push:" not in beta.split("\npermissions:")[0]
+    for guard in (
+        "github.event.workflow_run.conclusion == 'success'",
+        "github.event.workflow_run.event == 'push'",
+        "github.event.workflow_run.head_branch == 'main'",
+        "github.event.workflow_run.head_repository.full_name == github.repository",
+    ):
+        assert guard in beta_job

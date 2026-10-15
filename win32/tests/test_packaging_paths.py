@@ -65,6 +65,56 @@ def test_release_version_and_default_channel_are_valid():
     assert build_info.BUILD_CHANNEL == "stable"
 
 
+# workflow_run's branches filter matches head_branch, which a pull request from
+# a fork's main also sets: every beta job must require a push to main here.
+TRUSTED_BETA_CONDITION = (
+    "(github.event_name == 'workflow_run' && "
+    "github.event.workflow_run.conclusion == 'success' && "
+    "github.event.workflow_run.event == 'push' && "
+    "github.event.workflow_run.head_branch == 'main' && "
+    "github.event.workflow_run.head_repository.full_name == github.repository) || "
+    "(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')"
+)
+
+
+def _workflow(name):
+    workflows = Path(paths.application_base_dir()).parent / ".github" / "workflows"
+    return (workflows / name).read_text(encoding="utf-8")
+
+
+def _job(workflow, name):
+    match = re.search(rf"^  {name}:\n(.*?)(?=^  \S|\Z)", workflow, re.M | re.S)
+    assert match, f"{name} job not found"
+    return match.group(1)
+
+
+def _job_condition(job):
+    match = re.search(r"^    if: >-\n((?:      .*\n)+)", job, re.M)
+    assert match, "job has no folded if: condition"
+    return " ".join(match.group(1).split())
+
+
+def _run_scripts(workflow):
+    lines = workflow.splitlines()
+    scripts = []
+    for index, line in enumerate(lines):
+        stripped = line.lstrip()
+        if not stripped.startswith("run:"):
+            continue
+        value = stripped[len("run:") :].strip()
+        if value and value not in ("|", "|-", ">", ">-"):
+            scripts.append(value)
+            continue
+        indent = len(line) - len(stripped)
+        block = []
+        for following in lines[index + 1 :]:
+            if following.strip() and len(following) - len(following.lstrip()) <= indent:
+                break
+            block.append(following)
+        scripts.append("\n".join(block))
+    return scripts
+
+
 def test_release_workflows_keep_ci_beta_and_stable_separate():
     workflows = Path(paths.application_base_dir()).parent / ".github" / "workflows"
     ci = (workflows / "ci.yml").read_text(encoding="utf-8")
@@ -93,6 +143,54 @@ def test_release_workflows_keep_ci_beta_and_stable_separate():
     assert stable.index("Validate source") < stable.index(
         "Inject Windows stable metadata"
     )
+
+
+def test_beta_release_only_builds_commits_pushed_to_main():
+    beta = _workflow("beta-release.yml")
+    triggers = beta.split("\npermissions:")[0]
+
+    assert "workflow_run:" in triggers
+    assert "push:" not in triggers
+    assert "pull_request" not in triggers
+    assert "github.event_name == 'push'" not in beta
+    for job_name in ("build-windows-beta", "build-macos-beta", "publish-beta"):
+        assert _job_condition(_job(beta, job_name)) == TRUSTED_BETA_CONDITION
+
+
+def test_release_workflows_grant_write_access_only_to_publication():
+    for workflow_name, build_jobs, publish_job in (
+        (
+            "beta-release.yml",
+            ("build-windows-beta", "build-macos-beta"),
+            "publish-beta",
+        ),
+        (
+            "stable-release.yml",
+            ("build-windows-stable", "build-macos-stable"),
+            "publish-stable",
+        ),
+    ):
+        workflow = _workflow(workflow_name)
+
+        assert "permissions:\n  contents: read" in workflow.split("\njobs:")[0]
+        assert workflow.count("contents: write") == 1
+        assert "permissions:\n      contents: write" in _job(workflow, publish_job)
+        for job_name in build_jobs:
+            job = _job(workflow, job_name)
+            assert job.count("uses: actions/checkout@") == 1
+            assert "persist-credentials: false" in job
+
+
+def test_workflow_scripts_read_github_context_from_the_environment():
+    # ${{ }} is pasted into the script before the shell parses it, so a tag or
+    # branch name could inject commands; scripts read env variables instead.
+    for workflow_name in ("ci.yml", "beta-release.yml", "stable-release.yml"):
+        scripts = _run_scripts(_workflow(workflow_name))
+        assert scripts
+        for script in scripts:
+            assert "${{" not in script, f"{workflow_name}: {script}"
+
+    assert "$tag = $env:GITHUB_REF_NAME" in _workflow("stable-release.yml")
 
 
 def test_macos_pull_requests_build_a_test_dmg():

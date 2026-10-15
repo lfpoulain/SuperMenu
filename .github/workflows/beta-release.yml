@@ -1,9 +1,9 @@
 name: Beta Release
 
 on:
-  push:
-    branches:
-      - codex/prompt-reasoning-foundry-retention
+  # The branches filter matches head_branch, which a pull request also sets,
+  # including one opened from a fork's own main. Every job below therefore
+  # also requires a CI run started by a push to main in this repository.
   workflow_run:
     workflows:
       - CI
@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: beta-release
@@ -23,9 +23,12 @@ concurrency:
 jobs:
   build-windows-beta:
     if: >-
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/codex/prompt-reasoning-foundry-retention')
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: windows-latest
     defaults:
       run:
@@ -41,6 +44,7 @@ jobs:
         with:
           ref: ${{ env.BUILD_COMMIT }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Prepare Windows beta metadata
         id: metadata
@@ -51,7 +55,7 @@ jobs:
             throw "win32/VERSION must contain a SemVer version such as 1.2.0"
           }
 
-          $appVersion = "$baseVersion-beta.${{ github.run_number }}"
+          $appVersion = "$baseVersion-beta.$env:GITHUB_RUN_NUMBER"
           "APP_VERSION=$appVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "app_version=$appVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
@@ -134,9 +138,12 @@ jobs:
 
   build-macos-beta:
     if: >-
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/codex/prompt-reasoning-foundry-retention')
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: macos-15
     timeout-minutes: 45
     defaults:
@@ -154,6 +161,7 @@ jobs:
         with:
           ref: ${{ env.BUILD_COMMIT }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Prepare macOS beta metadata
         id: metadata
@@ -284,16 +292,27 @@ jobs:
           rm -f "${RUNNER_TEMP}/supermenu-developer-id.p12"
 
   publish-beta:
+    if: >-
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     needs:
       - build-windows-beta
       - build-macos-beta
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       BUILD_COMMIT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       WINDOWS_VERSION: ${{ needs.build-windows-beta.outputs.app_version }}
       MACOS_VERSION: ${{ needs.build-macos-beta.outputs.app_version }}
 
     steps:
+      # Credentials stay persisted here: the last step pushes the beta tag.
+      # This job runs no code from the checked-out commit.
       - name: Checkout tested commit
         uses: actions/checkout@v6
         with:
