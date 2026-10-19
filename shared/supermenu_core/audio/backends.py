@@ -7,6 +7,8 @@ from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QTimer, QUrl,
 from PySide6.QtNetwork import QNetworkRequest
 from PySide6.QtWebSockets import QWebSocket
 
+from supermenu_core.utils.jsonl import JsonLineBuffer, encode_json_line
+
 from .settings import OPENAI_SPEECH_MODEL
 
 START_TIMEOUT_MS = 120_000
@@ -27,6 +29,16 @@ def startup_timeout(phase, default=START_TIMEOUT_MS):
     return LONG_TIMEOUT_MS if phase in LONG_PHASES else default
 
 
+def configure_worker_process(process):
+    """Drop stderr, keep the JSON-lines pipes in UTF-8 and reuse the running
+    onefile extraction for a local voice worker."""
+    process.setStandardErrorFile(QProcess.nullDevice())
+    env = QProcessEnvironment.systemEnvironment()
+    env.insert("PYTHONIOENCODING", "utf-8")
+    env.remove("PYINSTALLER_RESET_ENVIRONMENT")
+    process.setProcessEnvironment(env)
+
+
 class SpeechBackend(QObject):
     phase = ""
     ready = Signal()
@@ -43,16 +55,12 @@ class ProcessSpeechBackend(SpeechBackend):
         super().__init__(parent)
         self.command, self.options = command, options
         self.process = QProcess(self)
-        self.process.setStandardErrorFile(QProcess.nullDevice())
-        env = QProcessEnvironment.systemEnvironment()
-        env.insert("PYTHONIOENCODING", "utf-8")
-        env.remove("PYINSTALLER_RESET_ENVIRONMENT")
-        self.process.setProcessEnvironment(env)
+        configure_worker_process(self.process)
         self.process.started.connect(lambda: self._send(self.options))
         self.process.readyReadStandardOutput.connect(self._read)
         self.process.errorOccurred.connect(self._process_error)
         self.process.finished.connect(self._exited)
-        self.buffer = b""
+        self.lines = JsonLineBuffer(max_bytes=2_000_000)
         self.closed = False
         self.preparing = False
         self.startup_ms = START_TIMEOUT_MS
@@ -78,7 +86,7 @@ class ProcessSpeechBackend(SpeechBackend):
                 "Le moteur vocal ne suit plus le microphone. Arrêtez les tâches lourdes et réessayez."
             )
             return
-        self.process.write((json.dumps(data) + "\n").encode("utf-8"))
+        self.process.write(encode_json_line(data))
 
     def append(self, pcm):
         self._send({"audio": base64.b64encode(pcm).decode("ascii")})
@@ -89,12 +97,12 @@ class ProcessSpeechBackend(SpeechBackend):
         self.timer.start(60_000)
 
     def _read(self):
-        self.buffer += bytes(self.process.readAllStandardOutput())
-        if len(self.buffer) > 2_000_000:
+        self.lines.feed(self.process.readAllStandardOutput())
+        if self.lines.overflowed:
             self._fail("Réponse invalide du moteur vocal.")
             return
-        while b"\n" in self.buffer and not self.closed:
-            line, self.buffer = self.buffer.split(b"\n", 1)
+        while self.lines.has_line() and not self.closed:
+            line = self.lines.pop_line()
             try:
                 event = json.loads(line)
                 kind = event["event"]

@@ -9,12 +9,18 @@ from PySide6.QtCore import (
     QCoreApplication,
     QObject,
     QProcess,
-    QProcessEnvironment,
     QTimer,
     Signal,
 )
 
-from .backends import START_TIMEOUT_MS, SpeechBackend, startup_timeout
+from supermenu_core.utils.jsonl import JsonLineBuffer, encode_json_line
+
+from .backends import (
+    START_TIMEOUT_MS,
+    SpeechBackend,
+    configure_worker_process,
+    startup_timeout,
+)
 
 
 class ResidentSpeechBackend(SpeechBackend):
@@ -52,7 +58,7 @@ class ResidentSpeechService(QObject):
         self.pending = None
         self.draining = None
         self.key = None
-        self.buffer = b""
+        self.lines = JsonLineBuffer(max_bytes=2_000_000)
         self.loaded = False
         self.starting = False
         self.idle_seconds = 300
@@ -109,12 +115,8 @@ class ResidentSpeechService(QObject):
 
     def _launch(self, command):
         process = self.process = QProcess(self)
-        self.buffer = b""
-        process.setStandardErrorFile(QProcess.nullDevice())
-        env = QProcessEnvironment.systemEnvironment()
-        env.insert("PYTHONIOENCODING", "utf-8")
-        env.remove("PYINSTALLER_RESET_ENVIRONMENT")
-        process.setProcessEnvironment(env)
+        self.lines.clear()
+        configure_worker_process(process)
         process.started.connect(
             lambda: self._start_request() if self.process is process else None
         )
@@ -142,7 +144,7 @@ class ResidentSpeechService(QObject):
                 "Le moteur vocal ne suit plus le microphone. Réessayez après avoir fermé les tâches lourdes."
             )
             return
-        self.process.write((json.dumps(message) + "\n").encode("utf-8"))
+        self.process.write(encode_json_line(message))
 
     def append(self, backend, pcm):
         if self.active is backend and not backend.closed:
@@ -176,12 +178,12 @@ class ResidentSpeechService(QObject):
     def _read(self, process):
         if self.process is not process:
             return
-        self.buffer += bytes(process.readAllStandardOutput())
-        if len(self.buffer) > 2_000_000:
+        self.lines.feed(process.readAllStandardOutput())
+        if self.lines.overflowed:
             self._fail("Réponse invalide du moteur vocal.")
             return
-        while b"\n" in self.buffer and self.process is process:
-            line, self.buffer = self.buffer.split(b"\n", 1)
+        while self.lines.has_line() and self.process is process:
+            line = self.lines.pop_line()
             try:
                 self._event(json.loads(line))
             except (ValueError, KeyError, TypeError):
@@ -270,7 +272,7 @@ class ResidentSpeechService(QObject):
         self.starting = False
         self.draining = None
         self.idle_since = None
-        self.buffer = b""
+        self.lines.clear()
         self.key = None
         if process is not None:
             if process.state() != QProcess.ProcessState.NotRunning:
