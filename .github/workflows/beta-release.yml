@@ -1,0 +1,528 @@
+name: Beta Release
+
+on:
+  # The branches filter matches head_branch, which a pull request also sets,
+  # including one opened from a fork's own main. Every job below therefore
+  # also requires a CI run started by a push to main in this repository, and
+  # runs in lfpoulain/SuperMenu only: a fork has the workflow but no secrets.
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Concurrency is declared per job, not per run: a newer build cancels an older
+# one, but a publication in progress is never interrupted, and a run whose
+# jobs are all skipped (failed CI, pull request) cancels nothing.
+jobs:
+  build-windows-beta:
+    if: >-
+      github.repository == 'lfpoulain/SuperMenu' &&
+      ((github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    concurrency:
+      group: beta-release-build-windows
+      cancel-in-progress: true
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: win32
+    env:
+      BUILD_COMMIT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      INNO_SETUP_VERSION: 6.7.1
+    outputs:
+      app_version: ${{ steps.metadata.outputs.app_version }}
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ env.BUILD_COMMIT }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare Windows beta metadata
+        id: metadata
+        shell: powershell
+        run: |
+          $baseVersion = (Get-Content -LiteralPath "VERSION" -Raw).Trim()
+          if ($baseVersion -notmatch '^\d+\.\d+\.\d+$') {
+            throw "win32/VERSION must contain a SemVer version such as 1.2.0"
+          }
+
+          # A tag vX.Y.Z means X.Y.Z is already stable, and the updaters rank
+          # X.Y.Z-beta.N below it: bump win32/VERSION after each stable.
+          if (git tag --list "v$baseVersion") {
+            throw "v$baseVersion is already released: bump win32/VERSION before publishing a new beta"
+          }
+
+          $appVersion = "$baseVersion-beta.$env:GITHUB_RUN_NUMBER"
+          "APP_VERSION=$appVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "app_version=$appVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            shared/pyproject.toml
+            win32/requirements.txt
+            win32/requirements-dev.txt
+
+      # Before the tests: a version the updaters would ignore fails in a minute.
+      - name: Check Windows beta version against the published beta
+        shell: powershell
+        run: |
+          $manifestUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases/download/beta/update-beta.json"
+          python ../tools/release_guard.py require-newer $env:APP_VERSION $manifestUrl
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows beta $env:APP_VERSION is not newer than the published beta"
+          }
+
+      - name: Install dependencies
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Validate source
+        shell: powershell
+        run: |
+          python -m compileall -q ../shared/supermenu_core src run.py
+          python -m pytest -q ../shared/tests
+          python -m pytest -q tests
+          python -m flake8 ../shared/supermenu_core src tests run.py --select=F,E9
+
+      - name: Inject Windows beta metadata
+        shell: powershell
+        run: |
+          @(
+            '"""Build metadata overwritten by GitHub Actions for packaged releases."""'
+            ''
+            "APP_VERSION = `"$env:APP_VERSION`""
+            'BUILD_CHANNEL = "beta"'
+          ) | Set-Content -LiteralPath "src/config/build_info.py" -Encoding utf8
+
+      - name: Build portable executable
+        shell: powershell
+        run: |
+          pyinstaller --noconfirm --clean SuperMenu.spec
+          if (!(Test-Path -LiteralPath "dist/SuperMenu.exe")) {
+            throw "dist/SuperMenu.exe not found"
+          }
+
+          $smoke = Start-Process -FilePath "dist/SuperMenu.exe" -ArgumentList "--smoke-test" -WindowStyle Hidden -Wait -PassThru
+          if ($smoke.ExitCode -ne 0) {
+            throw "Packaged smoke test failed with exit code $($smoke.ExitCode)"
+          }
+
+          $foundry = Start-Process -FilePath "dist/SuperMenu.exe" -ArgumentList "--foundry-smoke-test" -RedirectStandardOutput "build/foundry-smoke.json" -WindowStyle Hidden -Wait -PassThru
+          Get-Content -LiteralPath "build/foundry-smoke.json"
+          if ($foundry.ExitCode -ne 0) {
+            throw "Bundled Foundry runtime/catalog smoke test failed with exit code $($foundry.ExitCode)"
+          }
+
+          Copy-Item -LiteralPath "dist/SuperMenu.exe" -Destination "SuperMenu_Beta.exe"
+
+      # A fixed version: the installer must not change with the runner image
+      # or with a new Chocolatey package. Dependabot does not track it.
+      - name: Install Inno Setup
+        shell: powershell
+        run: |
+          choco install innosetup --version $env:INNO_SETUP_VERSION --allow-downgrade --no-progress -y
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup $env:INNO_SETUP_VERSION installation failed"
+          }
+          $installed = choco list innosetup --exact --limit-output
+          if ($installed -ne "innosetup|$env:INNO_SETUP_VERSION") {
+            throw "Expected Inno Setup $env:INNO_SETUP_VERSION, found: $installed"
+          }
+
+      - name: Build beta installer
+        shell: powershell
+        run: |
+          iscc "setup_supermenu.iss" "/DMyAppVersion=$env:APP_VERSION" "/DMyOutputBaseFilename=SuperMenu_Beta_Setup"
+          if (!(Test-Path -LiteralPath "SuperMenu_Beta_Setup.exe")) {
+            throw "SuperMenu_Beta_Setup.exe not found"
+          }
+
+      - name: Preserve Windows beta artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: beta-windows
+          path: |
+            win32/SuperMenu_Beta.exe
+            win32/SuperMenu_Beta_Setup.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  build-macos-beta:
+    if: >-
+      github.repository == 'lfpoulain/SuperMenu' &&
+      ((github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    concurrency:
+      group: beta-release-build-macos
+      cancel-in-progress: true
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: macos
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      BUILD_COMMIT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+    outputs:
+      app_version: ${{ steps.metadata.outputs.app_version }}
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ env.BUILD_COMMIT }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare macOS beta metadata
+        id: metadata
+        run: |
+          base_version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "${base_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "macos/VERSION must contain a SemVer version such as 1.2.0" >&2
+            exit 1
+          fi
+
+          app_version="${base_version}-beta.${GITHUB_RUN_NUMBER}"
+          echo "APP_VERSION=${app_version}" >> "${GITHUB_ENV}"
+          echo "MACOS_BASE_VERSION=${base_version}" >> "${GITHUB_ENV}"
+          echo "app_version=${app_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            shared/pyproject.toml
+            macos/requirements.txt
+            macos/requirements-dev.txt
+
+      # Before the tests and the notarization: the macOS number is independent,
+      # so the beta must also outrank the published stable.
+      - name: Check macOS beta version against published releases
+        run: |
+          set -euo pipefail
+          releases_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases"
+          python ../tools/release_guard.py require-newer "${APP_VERSION}" "${releases_url}/download/beta/update-macos-beta.json"
+          python ../tools/release_guard.py require-newer "${APP_VERSION}" "${releases_url}/latest/download/update-macos-stable.json"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Validate source
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m compileall -q ../shared/supermenu_core src run.py
+          python -m pytest -q ../shared/tests
+          python -m pytest -q tests
+          python -m flake8 ../shared/supermenu_core src tests run.py --select=F,E9
+          python run.py --smoke-test
+
+      - name: Inject macOS beta metadata
+        run: |
+          printf '%s\n' \
+            '"""Build metadata overwritten by GitHub Actions for packaged releases."""' \
+            '' \
+            "APP_VERSION = \"${APP_VERSION}\"" \
+            'BUILD_CHANNEL = "beta"' \
+            > src/config/build_info.py
+
+      - name: Configure required Developer ID signing
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_APPLE_ID: ${{ secrets.MACOS_APPLE_ID }}
+          MACOS_APP_PASSWORD: ${{ secrets.MACOS_APP_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: |
+          required=(
+            MACOS_CERTIFICATE_BASE64
+            MACOS_CERTIFICATE_PASSWORD
+            MACOS_APPLE_ID
+            MACOS_APP_PASSWORD
+            MACOS_TEAM_ID
+          )
+          missing=()
+          for variable_name in "${required[@]}"; do
+            if [[ -z "${!variable_name:-}" ]]; then
+              missing+=("${variable_name}")
+            fi
+          done
+          if [[ "${#missing[@]}" -ne 0 ]]; then
+            printf 'Configuration Apple incomplète. Secrets absents : %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          certificate_path="${RUNNER_TEMP}/supermenu-developer-id.p12"
+          keychain_path="${RUNNER_TEMP}/supermenu-signing.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          printf '%s' "${MACOS_CERTIFICATE_BASE64}" | base64 --decode -o "${certificate_path}"
+
+          security create-keychain -p "${keychain_password}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p "${keychain_password}" "${keychain_path}"
+          security import "${certificate_path}" \
+            -P "${MACOS_CERTIFICATE_PASSWORD}" \
+            -A -t cert -f pkcs12 -k "${keychain_path}"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -k "${keychain_password}" \
+            "${keychain_path}"
+          security list-keychains -d user -s "${keychain_path}"
+
+          identity="$(security find-identity -v -p codesigning "${keychain_path}" | awk -F '"' '/Developer ID Application/ {print $2; exit}')"
+          if [[ -z "${identity}" ]]; then
+            echo "Le fichier P12 ne contient aucune identité Developer ID Application valide." >&2
+            exit 1
+          fi
+
+          echo "MACOS_CODESIGN_IDENTITY=${identity}" >> "${GITHUB_ENV}"
+          echo "MACOS_KEYCHAIN_PATH=${keychain_path}" >> "${GITHUB_ENV}"
+
+      - name: Build, sign and notarize app and DMG
+        env:
+          MACOS_APPLE_ID: ${{ secrets.MACOS_APPLE_ID }}
+          MACOS_APP_PASSWORD: ${{ secrets.MACOS_APP_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: |
+          chmod +x scripts/*.sh
+          scripts/build_dmg.sh
+          scripts/notarize_dmg.sh
+          cp \
+            "dist/SuperMenu-${MACOS_BASE_VERSION}-macOS-arm64.dmg" \
+            "dist/SuperMenu_Beta-macOS-arm64.dmg"
+
+      - name: Preserve signed and notarized macOS beta artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: beta-macos
+          path: macos/dist/SuperMenu_Beta-macOS-arm64.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove temporary signing keychain
+        if: always()
+        run: |
+          keychain_path="${MACOS_KEYCHAIN_PATH:-${RUNNER_TEMP}/supermenu-signing.keychain-db}"
+          security delete-keychain "${keychain_path}" 2>/dev/null || true
+          rm -f "${RUNNER_TEMP}/supermenu-developer-id.p12"
+
+  publish-beta:
+    if: >-
+      github.repository == 'lfpoulain/SuperMenu' &&
+      ((github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    needs:
+      - build-windows-beta
+      - build-macos-beta
+    # A newer run waits for this one instead of cancelling it halfway through
+    # the asset swap.
+    concurrency:
+      group: beta-release-publish
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    # id-token and attestations only serve the provenance attestation.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      BUILD_COMMIT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      WINDOWS_VERSION: ${{ needs.build-windows-beta.outputs.app_version }}
+      MACOS_VERSION: ${{ needs.build-macos-beta.outputs.app_version }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      # Credentials stay persisted here: the last step pushes the beta tag.
+      # This job runs no code from the checked-out commit.
+      - name: Checkout tested commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ env.BUILD_COMMIT }}
+          fetch-depth: 0
+
+      - name: Download Windows beta artifacts
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: beta-windows
+          path: release-assets
+
+      - name: Download macOS beta artifact
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: beta-macos
+          path: release-assets
+
+      # The installer fingerprints let the apps refuse a corrupted or swapped
+      # download. Older apps ignore the extra asset and sha256 fields.
+      - name: Generate platform manifests and checksums
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          windows_sha256="$(sha256sum SuperMenu_Beta_Setup.exe | cut -d ' ' -f 1)"
+          macos_sha256="$(sha256sum SuperMenu_Beta-macOS-arm64.dmg | cut -d ' ' -f 1)"
+
+          jq -n \
+            --arg version "${WINDOWS_VERSION}" \
+            --arg sha256 "${windows_sha256}" \
+            '{schema_version: 1, channel: "beta", version: $version, prerelease: true, tag: "beta", asset: "SuperMenu_Beta_Setup.exe", sha256: $sha256}' \
+            > update-beta.json
+
+          jq -n \
+            --arg version "${MACOS_VERSION}" \
+            --arg sha256 "${macos_sha256}" \
+            '{schema_version: 1, platform: "macos", architecture: "arm64", channel: "beta", version: $version, prerelease: true, tag: "beta", asset: "SuperMenu_Beta-macOS-arm64.dmg", sha256: $sha256}' \
+            > update-macos-beta.json
+
+          sha256sum \
+            SuperMenu_Beta.exe \
+            SuperMenu_Beta_Setup.exe \
+            SuperMenu_Beta-macOS-arm64.dmg \
+            update-beta.json \
+            update-macos-beta.json \
+            > SHA256SUMS-beta.txt
+
+      # Signed statement that these files were built by this workflow from
+      # the tested commit; checked with `gh attestation verify`. Before the
+      # asset swap, so a failure leaves the published beta untouched.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release-assets/*
+
+      # Replace BETA_NOTES.md with each beta's highlights; do not append history.
+      # The "Windows version:" and "macOS version:" lines are read by the apps
+      # when the manifests are unreachable: keep them, without backticks.
+      - name: Prepare concise beta notes
+        run: |
+          {
+            cat .github/BETA_NOTES.md
+            printf '\n\nWindows : `%s` · macOS Apple Silicon : `%s`\n' "${WINDOWS_VERSION}" "${MACOS_VERSION}"
+            printf '\n<details>\n<summary>Informations de build</summary>\n\n'
+            printf -- '- Channel: beta\n- Windows version: %s\n- macOS version: %s\n- Commit: `%s`\n' "${WINDOWS_VERSION}" "${MACOS_VERSION}" "${BUILD_COMMIT}"
+            printf '\n</details>\n'
+          } > beta-release-notes.md
+
+      # The new files are uploaded next to the published ones under a staging
+      # name, then each one replaces its predecessor with a delete and a
+      # rename. The installers and the DMG go first and the manifests last, so
+      # a manifest never points to a missing or older installer, and the
+      # published beta stays complete if the upload fails.
+      - name: Publish rolling beta prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          final_assets=(
+            SuperMenu_Beta.exe
+            SuperMenu_Beta_Setup.exe
+            SuperMenu_Beta-macOS-arm64.dmg
+            SHA256SUMS-beta.txt
+            update-beta.json
+            update-macos-beta.json
+          )
+          for name in "${final_assets[@]}"; do
+            if [[ ! -f "release-assets/${name}" ]]; then
+              echo "Asset beta manquant : ${name}" >&2
+              exit 1
+            fi
+          done
+
+          if ! release_json="$(gh api "repos/${GH_REPO}/releases/tags/beta" 2>/dev/null)"; then
+            # First publication: gh uploads into a draft, then publishes it.
+            gh release create beta "${final_assets[@]/#/release-assets/}" \
+              --prerelease \
+              --latest=false \
+              --title "SuperMenu Beta" \
+              --target "${BUILD_COMMIT}" \
+              --notes-file beta-release-notes.md
+            exit 0
+          fi
+          if [[ "$(jq -r '.prerelease' <<< "${release_json}")" != "true" ]]; then
+            echo "La release beta existante n'est pas une préversion." >&2
+            exit 1
+          fi
+          release_id="$(jq -r '.id' <<< "${release_json}")"
+          staging_prefix="next-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-"
+
+          # Leftovers of an interrupted publication are never referenced.
+          assets_json="$(gh api "repos/${GH_REPO}/releases/${release_id}/assets?per_page=100")"
+          for asset_id in $(jq -r '.[] | select(.name | startswith("next-")) | .id' <<< "${assets_json}"); do
+            gh api -X DELETE "repos/${GH_REPO}/releases/assets/${asset_id}"
+          done
+
+          staging_dir="$(mktemp -d)"
+          for name in "${final_assets[@]}"; do
+            cp "release-assets/${name}" "${staging_dir}/${staging_prefix}${name}"
+          done
+          gh release upload beta "${staging_dir}"/*
+
+          assets_json="$(gh api "repos/${GH_REPO}/releases/${release_id}/assets?per_page=100")"
+          staged_ids=()
+          for name in "${final_assets[@]}"; do
+            staged_id="$(jq -r --arg name "${staging_prefix}${name}" \
+              '.[] | select(.name == $name and .state == "uploaded") | .id' <<< "${assets_json}")"
+            if [[ -z "${staged_id}" ]]; then
+              echo "Asset beta préparé introuvable : ${name}" >&2
+              exit 1
+            fi
+            staged_ids+=("${staged_id}")
+          done
+
+          for index in "${!final_assets[@]}"; do
+            name="${final_assets[${index}]}"
+            for old_id in $(jq -r --arg name "${name}" '.[] | select(.name == $name) | .id' <<< "${assets_json}"); do
+              gh api -X DELETE "repos/${GH_REPO}/releases/assets/${old_id}"
+            done
+            gh api -X PATCH "repos/${GH_REPO}/releases/assets/${staged_ids[${index}]}" \
+              -f name="${name}" > /dev/null
+          done
+
+          # As the former removeArtifacts option did, drop assets no build produces.
+          assets_json="$(gh api "repos/${GH_REPO}/releases/${release_id}/assets?per_page=100")"
+          for asset_id in $(jq -r '.[] | select(.name | IN($ARGS.positional[]) | not) | .id' --args "${final_assets[@]}" <<< "${assets_json}"); do
+            gh api -X DELETE "repos/${GH_REPO}/releases/assets/${asset_id}"
+          done
+
+          gh api -X PATCH "repos/${GH_REPO}/releases/${release_id}" \
+            -f name="SuperMenu Beta" \
+            -F prerelease=true \
+            -f make_latest=false \
+            -F body=@beta-release-notes.md > /dev/null
+
+      - name: Align rolling beta tag with published commit
+        run: |
+          git tag --force beta "${BUILD_COMMIT}"
+          git push --force origin refs/tags/beta

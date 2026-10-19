@@ -1,0 +1,581 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import os
+import json
+import logging
+
+import keyring
+from PySide6.QtCore import QSettings
+from supermenu_core.config.model_target import ModelTargetSettingsMixin
+from supermenu_core.audio.settings import SpeechSettingsMixin
+from supermenu_core.config.model_memory import TextMemorySettingsMixin
+from supermenu_core.config.feature_modes import FeatureModesSettingsMixin
+from supermenu_core.config.voice_prompts import VoicePromptSettingsMixin
+from supermenu_core.config.text_prompts import TextPromptSettingsMixin
+from supermenu_core.config.prompt_transfer import export_prompt_bundle, import_prompt_bundle
+from supermenu_core.config.prompt_restore import keep_library_copy
+from src.config.build_info import BUILD_CHANNEL
+from src.config.foundry_models import DEFAULT_FOUNDRY_MODEL, normalize_foundry_model
+from supermenu_core.config.openai_models import (
+    DEFAULT_OPENAI_MODEL,
+    get_default_reasoning_effort_for_model,
+    normalize_openai_model,
+    normalize_reasoning_effort,
+)
+from supermenu_core.api.model_capabilities import normalize_reasoning_option
+from supermenu_core.config.prompts import (
+    LEGACY_INSTANT_HOTKEY,
+    default_text_prompts,
+    default_voice_prompts,
+)
+from supermenu_core.config.provider_settings import (
+    CUSTOM_REASONING_EFFORTS,
+    normalize_update_channel,
+)
+from src.utils.logger import log
+
+_normalize_update_channel = normalize_update_channel
+
+
+class Settings(
+    ModelTargetSettingsMixin,
+    SpeechSettingsMixin,
+    TextPromptSettingsMixin,
+    VoicePromptSettingsMixin,
+    TextMemorySettingsMixin,
+    FeatureModesSettingsMixin,
+):
+    """Manage application settings"""
+    
+    def __init__(self):
+        # Utiliser un fichier INI dans le dossier utilisateur au lieu du registre Windows
+        # Cela rend l'application plus portable et évite les problèmes d'accès au registre
+        self.settings = QSettings(os.path.join(os.path.expanduser("~"), "SuperMenu.ini"), QSettings.Format.IniFormat)
+        # Before any default is written: settings of an earlier version mean
+        # an update, which keeps every feature it already offered.
+        existing_install = self.has_saved_preferences()
+        self.initialize_feature_modes(existing_install)
+        self.default_prompts = default_text_prompts()
+        
+        self.default_voice_prompts = default_voice_prompts()
+        
+        self.default_hotkey = "Ctrl+²"
+        self.default_screenshot_hotkey = "Ctrl+Alt+&"
+        self.default_voice_hotkey = "Ctrl+Alt+²"
+        self.default_custom_hotkey = "Ctrl+Alt+M"
+        self.default_screenshot_capture_mode = "fullscreen"
+        self.default_custom_endpoint_type = "ollama"
+        self.default_model = DEFAULT_OPENAI_MODEL
+        self.default_reasoning_effort = get_default_reasoning_effort_for_model(
+            self.default_model
+        )
+        self.default_custom_reasoning_effort = "none"
+        self.default_custom_endpoint = ""
+        self.default_custom_model = ""
+        self.default_use_custom_endpoint = False
+        self.default_transcription_languages = "fr"
+        self.default_transcription_prompt = ""
+        self.default_transcription_keywords = ""
+        self.default_theme = "dark"
+        self.available_themes = ["dark", "light", "auto"]  # Thèmes modernes avec pyqtdarktheme
+        self.default_update_channel = _normalize_update_channel(BUILD_CHANNEL)
+        
+        # Initialize settings if they don't exist
+        self._initialize_settings()
+    
+    def _initialize_settings(self):
+        """Initialize default settings if they don't exist"""
+        if not self.settings.contains("hotkey"):
+            self.settings.setValue("hotkey", self.default_hotkey)  # Raccourci par défaut
+        
+        if not self.settings.contains("screenshot_hotkey"):
+            self.settings.setValue("screenshot_hotkey", self.default_screenshot_hotkey)  # Raccourci de capture d'écran par défaut
+
+        if not self.settings.contains("screenshot_capture_mode"):
+            self.settings.setValue("screenshot_capture_mode", self.default_screenshot_capture_mode)
+
+        # L'ancien sélecteur Qt/Win32 ne pilotait pas le menu contextuel et
+        # ajoutait des stratégies d'ouverture divergentes. La fenêtre de
+        # réponse utilise désormais une stratégie hybride unique.
+        if self.settings.contains("response_window_open_mode"):
+            self.settings.remove("response_window_open_mode")
+        
+        if not self.settings.contains("theme"):
+            self.settings.setValue("theme", self.default_theme)  # Default theme
+
+        if not self.settings.contains("update_channel"):
+            self.settings.setValue(
+                "update_channel",
+                self.default_update_channel,
+            )
+        
+        if not self.settings.contains("prompts"):
+            self.settings.setValue("prompts", json.dumps(self.default_prompts))
+        self._migrate_legacy_instant_hotkey()
+        
+        if not self.settings.contains("voice_prompts"):
+            self.settings.setValue("voice_prompts", json.dumps(self.default_voice_prompts))
+        
+        if not self.settings.contains("model"):
+            self.settings.setValue("model", self.default_model)  # Default model
+        else:
+            self.get_model()
+
+        legacy_reasoning_effort = (
+            self.settings.value("reasoning_effort")
+            if self.settings.contains("reasoning_effort")
+            else None
+        )
+        if not self.settings.contains("openai_reasoning_effort"):
+            initial_effort = (
+                legacy_reasoning_effort
+                if legacy_reasoning_effort is not None
+                else get_default_reasoning_effort_for_model(self.get_model())
+            )
+            self.set_openai_reasoning_effort(initial_effort)
+
+        if not self.settings.contains("custom_reasoning_effort"):
+            initial_custom_effort = (
+                legacy_reasoning_effort
+                if legacy_reasoning_effort in CUSTOM_REASONING_EFFORTS
+                else self.default_custom_reasoning_effort
+            )
+            self.set_custom_reasoning_effort(initial_custom_effort)
+            
+        if not self.settings.contains("custom_endpoint"):
+            self.settings.setValue("custom_endpoint", self.default_custom_endpoint)
+
+        if not self.settings.contains("custom_endpoint_type"):
+            self.settings.setValue("custom_endpoint_type", self.default_custom_endpoint_type)
+            
+        if not self.settings.contains("custom_model"):
+            self.settings.setValue("custom_model", self.default_custom_model)
+            
+        if not self.settings.contains("use_custom_endpoint"):
+            self.settings.setValue("use_custom_endpoint", self.default_use_custom_endpoint)
+            
+        # Retire the old PortAudio index; Qt stores the current device ID separately.
+        self.settings.remove("microphone_index")
+
+        if not self.settings.contains("transcription_languages"):
+            self.settings.setValue(
+                "transcription_languages",
+                self.default_transcription_languages,
+            )
+
+        if not self.settings.contains("transcription_prompt"):
+            self.settings.setValue(
+                "transcription_prompt",
+                self.default_transcription_prompt,
+            )
+
+        if not self.settings.contains("transcription_keywords"):
+            self.settings.setValue(
+                "transcription_keywords",
+                self.default_transcription_keywords,
+            )
+            
+        if not self.settings.contains("voice_hotkey"):
+            self.settings.setValue("voice_hotkey", self.default_voice_hotkey)  # Raccourci vocal par défaut
+
+        if not self.settings.contains("custom_hotkey"):
+            self.settings.setValue("custom_hotkey", self.default_custom_hotkey)  # Raccourci du mode personnalisé
+
+    def _migrate_legacy_instant_hotkey(self):
+        """Move the former single instant hotkey onto its assigned prompt."""
+        try:
+            raw_prompts = json.loads(self.settings.value("prompts", "{}"))
+            if not isinstance(raw_prompts, dict):
+                return
+
+            legacy_hotkey = self.settings.value(
+                "instant_hotkey",
+                LEGACY_INSTANT_HOTKEY,
+            )
+            changed = False
+            for prompt in raw_prompts.values():
+                if not isinstance(prompt, dict):
+                    continue
+                had_legacy_field = "instant_hotkey" in prompt
+                legacy_enabled = prompt.pop("instant_hotkey", False)
+                if legacy_enabled and not prompt.get("hotkey"):
+                    prompt["hotkey"] = str(legacy_hotkey or LEGACY_INSTANT_HOTKEY)
+                    changed = True
+                if "hotkey" not in prompt:
+                    prompt["hotkey"] = ""
+                    changed = True
+                changed = changed or had_legacy_field
+
+            if changed:
+                self.settings.setValue("prompts", json.dumps(raw_prompts))
+            if self.settings.contains("instant_hotkey"):
+                self.settings.remove("instant_hotkey")
+            self.settings.sync()
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            log(f"Migration du raccourci instantané impossible: {e}", logging.WARNING)
+    
+    def get_api_key(self):
+        """Get the OpenAI API key"""
+        try:
+            return keyring.get_password("SuperMenu", "openai_api_key")
+        except Exception as e:
+            log(f"Error retrieving API key from keyring: {e}", logging.WARNING)
+            return ""
+    
+    def set_api_key(self, api_key):
+        """Set the OpenAI API key"""
+        keyring.set_password("SuperMenu", "openai_api_key", api_key)
+
+    def get_custom_endpoint_api_key(self):
+        """Get the credential dedicated to the configured custom endpoint."""
+        try:
+            return keyring.get_password("SuperMenu", "custom_endpoint_api_key") or ""
+        except Exception as e:
+            log(
+                f"Error retrieving custom endpoint key from keyring: {e}",
+                logging.WARNING,
+            )
+            return ""
+
+    def set_custom_endpoint_api_key(self, api_key):
+        """Store a custom-endpoint credential separately from the OpenAI key."""
+        keyring.set_password(
+            "SuperMenu",
+            "custom_endpoint_api_key",
+            str(api_key or "").strip(),
+        )
+    
+    def get_model(self):
+        """Get the OpenAI model"""
+        saved_model = self.settings.value("model")
+        model = normalize_openai_model(saved_model)
+        if model != saved_model:
+            self.set_model(model)
+        return model
+    
+    def set_model(self, model):
+        """Set the OpenAI model"""
+        self.settings.setValue("model", normalize_openai_model(model))
+
+    def get_openai_reasoning_effort(self, model=None):
+        """Get and validate the OpenAI effort independently of local providers."""
+        saved_model = self.get_model()
+        model = normalize_openai_model(model or saved_model)
+        default = get_default_reasoning_effort_for_model(model)
+        effort = self.settings.value("openai_reasoning_effort", default)
+        normalized = normalize_reasoning_effort(model, effort)
+        # The stored effort belongs to the saved model. Previewing another one
+        # (scrolling the settings list, a prompt's own model) must not rewrite it.
+        if normalized != effort and model == saved_model:
+            self.settings.setValue("openai_reasoning_effort", normalized)
+        return normalized
+
+    def set_openai_reasoning_effort(self, effort, model=None):
+        """Persist an effort supported by the selected OpenAI model."""
+        model = normalize_openai_model(model or self.get_model())
+        normalized = normalize_reasoning_effort(model, effort)
+        self.settings.setValue("openai_reasoning_effort", normalized)
+
+    def get_custom_reasoning_effort(self):
+        """Get the local-provider think effort without touching OpenAI settings."""
+        raw_effort = self.settings.value(
+            "custom_reasoning_effort", self.default_custom_reasoning_effort
+        )
+        effort = normalize_reasoning_option(
+            raw_effort, self.default_custom_reasoning_effort
+        )
+        if effort != raw_effort:
+            self.settings.setValue("custom_reasoning_effort", effort)
+        return effort
+
+    def set_custom_reasoning_effort(self, effort):
+        """Persist the local-provider think effort independently."""
+        normalized = normalize_reasoning_option(
+            effort, self.default_custom_reasoning_effort
+        )
+        self.settings.setValue("custom_reasoning_effort", normalized)
+
+    def get_reasoning_effort(self):
+        """Get the effort for the active provider."""
+        if self.get_ai_provider() == "foundry":
+            return "none"
+        if self.get_use_custom_endpoint():
+            return self.get_custom_reasoning_effort()
+        return self.get_openai_reasoning_effort()
+
+    def set_reasoning_effort(self, effort):
+        """Set the effort for the active provider."""
+        if self.get_use_custom_endpoint():
+            self.set_custom_reasoning_effort(effort)
+        else:
+            self.set_openai_reasoning_effort(effort)
+
+    def sync(self):
+        """Force l'écriture des paramètres persistés."""
+        self.settings.sync()
+    
+    def get_custom_endpoint(self):
+        """Get the custom endpoint URL"""
+        return self.settings.value("custom_endpoint", self.default_custom_endpoint)
+    
+    def set_custom_endpoint(self, endpoint):
+        """Set the custom endpoint URL"""
+        self.settings.setValue("custom_endpoint", endpoint)
+
+    def get_custom_endpoint_type(self):
+        """Get the custom endpoint type (ollama or lmstudio)"""
+        endpoint_type = self.settings.value("custom_endpoint_type", "")
+        if isinstance(endpoint_type, str):
+            endpoint_type = endpoint_type.strip().lower()
+        else:
+            endpoint_type = ""
+
+        if endpoint_type in ("ollama", "lmstudio"):
+            return endpoint_type
+        return self.default_custom_endpoint_type
+
+    def set_custom_endpoint_type(self, endpoint_type):
+        """Set the custom endpoint type"""
+        endpoint_type = (endpoint_type or "").strip().lower()
+        if endpoint_type not in ("ollama", "lmstudio"):
+            endpoint_type = self.default_custom_endpoint_type
+        self.settings.setValue("custom_endpoint_type", endpoint_type)
+    
+    def get_custom_model(self):
+        """Get the custom model name"""
+        return self.settings.value("custom_model", self.default_custom_model)
+    
+    def set_custom_model(self, model):
+        """Set the custom model name"""
+        self.settings.setValue("custom_model", model)
+    
+    def get_use_custom_endpoint(self):
+        """Get whether to use custom endpoint"""
+        use_custom = self.settings.value("use_custom_endpoint", self.default_use_custom_endpoint)
+        # Convertir en booléen si c'est une chaîne
+        if isinstance(use_custom, str):
+            return use_custom.lower() == 'true'
+        return bool(use_custom)
+    
+    def set_use_custom_endpoint(self, use_custom):
+        """Set whether to use custom endpoint"""
+        self.settings.setValue("use_custom_endpoint", bool(use_custom))
+        self.settings.setValue("ai_provider", "custom" if use_custom else "openai")
+
+    def get_ai_provider(self):
+        provider = self.settings.value("ai_provider", "")
+        if provider in ("openai", "custom", "foundry"):
+            return provider
+        return "custom" if self.get_use_custom_endpoint() else "openai"
+
+    def set_ai_provider(self, provider):
+        if provider not in ("openai", "custom", "foundry"):
+            provider = "openai"
+        self.settings.setValue("ai_provider", provider)
+        self.settings.setValue("use_custom_endpoint", provider == "custom")
+
+    def get_foundry_model(self):
+        return normalize_foundry_model(self.settings.value("foundry_model", DEFAULT_FOUNDRY_MODEL))
+
+    def set_foundry_model(self, model):
+        self.settings.setValue("foundry_model", normalize_foundry_model(model))
+
+    def get_foundry_device(self):
+        return "cpu" if self.settings.value("foundry_device", "auto") == "cpu" else "auto"
+
+    def set_foundry_device(self, device):
+        self.settings.setValue("foundry_device", "cpu" if device == "cpu" else "auto")
+        
+    def get_hotkey(self):
+        """Get the hotkey"""
+        return self.settings.value("hotkey", self.default_hotkey)
+    
+    def set_hotkey(self, hotkey):
+        """Set the hotkey"""
+        self.settings.setValue("hotkey", hotkey)
+
+    def get_screenshot_hotkey(self):
+        """Get the screenshot hotkey"""
+        return self.settings.value("screenshot_hotkey", self.default_screenshot_hotkey)
+    
+    def set_screenshot_hotkey(self, hotkey):
+        """Set the screenshot hotkey"""
+        self.settings.setValue("screenshot_hotkey", hotkey)
+
+    def get_screenshot_capture_mode(self):
+        mode = self.settings.value("screenshot_capture_mode", self.default_screenshot_capture_mode)
+        if mode not in ("fullscreen", "region", "ask"):
+            return self.default_screenshot_capture_mode
+        return mode
+
+    def set_screenshot_capture_mode(self, mode):
+        if mode not in ("fullscreen", "region", "ask"):
+            return
+        self.settings.setValue("screenshot_capture_mode", mode)
+
+    def get_transcription_languages(self):
+        """Return expected language codes; an empty value enables detection."""
+        value = self.settings.value(
+            "transcription_languages",
+            self.default_transcription_languages,
+        )
+        return str(value or "").strip()
+
+    def set_transcription_languages(self, languages):
+        self.settings.setValue(
+            "transcription_languages",
+            str(languages or "").strip(),
+        )
+
+    def get_transcription_prompt(self):
+        """Return optional context for live speech recognition."""
+        value = self.settings.value(
+            "transcription_prompt",
+            self.default_transcription_prompt,
+        )
+        return str(value or "").strip()
+
+    def set_transcription_prompt(self, prompt):
+        self.settings.setValue(
+            "transcription_prompt",
+            str(prompt or "").strip(),
+        )
+
+    def get_transcription_keywords(self):
+        """Return comma/newline-separated literal vocabulary hints."""
+        value = self.settings.value(
+            "transcription_keywords",
+            self.default_transcription_keywords,
+        )
+        return str(value or "").strip()
+
+    def set_transcription_keywords(self, keywords):
+        self.settings.setValue(
+            "transcription_keywords",
+            str(keywords or "").strip(),
+        )
+    
+    def get_voice_hotkey(self):
+        """Get the voice hotkey"""
+        return self.settings.value("voice_hotkey", self.default_voice_hotkey)
+    
+    def set_voice_hotkey(self, hotkey):
+        """Set the voice hotkey"""
+        self.settings.setValue("voice_hotkey", hotkey)
+
+    def get_custom_hotkey(self):
+        """Get the custom mode hotkey"""
+        return self.settings.value("custom_hotkey", self.default_custom_hotkey)
+
+    def set_custom_hotkey(self, hotkey):
+        """Set the custom mode hotkey"""
+        self.settings.setValue("custom_hotkey", hotkey)
+
+    def get_last_update_check_date(self):
+        """Get the last automatic update check date as YYYY-MM-DD."""
+        return self.settings.value("last_update_check_date", "")
+
+    def set_last_update_check_date(self, date_value):
+        """Set the last automatic update check date as YYYY-MM-DD."""
+        self.settings.setValue("last_update_check_date", date_value or "")
+
+    def get_update_channel(self):
+        """Return the selected update channel, defaulting safely to stable."""
+        channel = _normalize_update_channel(
+            self.settings.value(
+                "update_channel",
+                self.default_update_channel,
+            )
+        )
+        if channel != self.settings.value("update_channel"):
+            self.settings.setValue("update_channel", channel)
+        return channel
+
+    def set_update_channel(self, channel):
+        """Persist a validated stable or beta update channel."""
+        self.settings.setValue(
+            "update_channel",
+            _normalize_update_channel(channel),
+        )
+    
+    def get_theme(self):
+        """Get the configured theme"""
+        return self.settings.value("theme", self.default_theme)
+    
+    def set_theme(self, theme):
+        """Set the theme"""
+        if theme in self.available_themes:
+            self.settings.setValue("theme", theme)
+        else:
+            log("Le thème spécifié n'est pas disponible.", logging.WARNING)
+    
+    def _check_prompt_hotkey(self, prompts, hotkey, prompt_id):
+        """Name the prompt that already uses this hotkey."""
+        for existing_id, existing_prompt in prompts.items():
+            if (
+                existing_id != prompt_id
+                and hotkey
+                and str(existing_prompt.get("hotkey", "")).strip().casefold()
+                == hotkey.casefold()
+            ):
+                raise ValueError(
+                    f"Le raccourci '{hotkey}' est déjà utilisé par "
+                    f"le prompt '{existing_prompt.get('name', existing_id)}'."
+                )
+
+    def export_prompts(self, file_path):
+        try:
+            export_prompt_bundle(self, file_path)
+            return True, "Prompts exportés avec succès."
+        except Exception as exc:
+            return False, f"Erreur d’exportation : {exc}"
+
+    def import_prompts(self, file_path):
+        try:
+            import_prompt_bundle(self, file_path)
+            return True, "Prompts importés avec succès."
+        except Exception as exc:
+            return False, f"Import impossible : {exc}"
+
+    def reset_to_defaults(self):
+        """Reset all settings to defaults"""
+        self.set_hotkey(self.default_hotkey)
+        self.set_screenshot_hotkey(self.default_screenshot_hotkey)
+        self.set_voice_hotkey(self.default_voice_hotkey)
+        self.set_custom_hotkey(self.default_custom_hotkey)
+        self.set_screenshot_capture_mode(self.default_screenshot_capture_mode)
+        self.set_theme(self.default_theme)
+        self.set_update_channel(self.default_update_channel)
+        self.set_last_update_check_date("")
+        # The prompt libraries remain recoverable from prompts_backups.
+        keep_library_copy(self)
+        keep_library_copy(self, voice=True)
+        self.set_prompts(self.default_prompts)
+        self.set_voice_prompts(self.default_voice_prompts)
+        self.set_model(self.default_model)
+        self.set_openai_reasoning_effort(self.default_reasoning_effort)
+        self.set_custom_reasoning_effort(self.default_custom_reasoning_effort)
+        self.set_custom_endpoint_type(self.default_custom_endpoint_type)
+        self.set_custom_endpoint(self.default_custom_endpoint)
+        self.set_custom_model(self.default_custom_model)
+        self.set_use_custom_endpoint(self.default_use_custom_endpoint)
+        self.set_foundry_model(DEFAULT_FOUNDRY_MODEL)
+        self.set_foundry_device("auto")
+        self.set_speech_provider("openai")
+        self.set_speech_device("auto")
+        self.set_speech_microphone("")
+        self.set_speech_idle_seconds(300)
+        self.set_text_idle_seconds(300)
+        self.set_dictation_hotkey("")
+        self.set_dictation_hotkey_mode("press")
+        self.set_dictation_auto_insert(False)
+        self.set_dictation_correct_before_insert(False)
+        self.set_transcription_languages(
+            self.default_transcription_languages
+        )
+        self.set_transcription_prompt(self.default_transcription_prompt)
+        self.set_transcription_keywords(
+            self.default_transcription_keywords
+        )
+        self.settings.sync()

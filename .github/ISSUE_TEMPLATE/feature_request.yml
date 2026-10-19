@@ -1,0 +1,70 @@
+name: Proposer une fonction
+description: Une idée de nouvelle fonction ou d’amélioration.
+title: "[Idée] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci pour votre proposition ! Décrivez de préférence le besoin avant la solution : cela aide à trouver la réponse qui convient au plus grand nombre.
+        Une nouvelle fonction se discute ici avant toute pull request (voir le [guide de contribution](https://github.com/lfpoulain/SuperMenu/blob/main/CONTRIBUTING.md)).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Besoin ou problème
+      description: Que cherchez-vous à faire, et qu’est-ce qui vous en empêche aujourd’hui ?
+      placeholder: Quand je traduis un texte dans…, je dois…
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solution proposée
+      description: Comment imaginez-vous la fonction ? Où apparaîtrait-elle dans SuperMenu ?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives envisagées
+      description: Autres solutions ou contournements utilisés aujourd’hui.
+
+  - type: dropdown
+    id: platforms
+    attributes:
+      label: Plateformes concernées
+      multiple: true
+      options:
+        - Windows
+        - macOS
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Domaine
+      options:
+        - Prompts et menu
+        - Insertion et presse-papiers
+        - Fournisseurs IA et modèles
+        - Voix et dictée
+        - Capture d’écran
+        - Raccourcis
+        - Interface et réglages
+        - Mises à jour et installation
+        - Autre
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Vérifications
+      options:
+        - label: J’ai cherché dans les issues existantes et cette idée n’y figure pas.
+          required: true
+        - label: Je suis prêt à proposer une pull request pour cette fonction.

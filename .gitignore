@@ -1,0 +1,66 @@
+# Python bytecode and caches
+__pycache__/
+*.py[codz]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments and local configuration
+.env
+.env.*
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging and build output
+build/
+dist/
+*.egg-info/
+*.egg
+*.manifest
+*.dSYM/
+
+# Apple signing material must only live in Keychain or GitHub Actions secrets.
+*.p12
+*.p8
+*.cer
+*.certSigningRequest
+*.keychain
+*.keychain-db
+
+# Application runtime output
+logs/
+*.log
+downloads/
+macos/.test-state/
+macos/resources/icons/app_icon.icns
+win32/update-*.json
+win32/SHA256SUMS*.txt
+
+# Release binaries are generated locally.
+*.exe
+
+# Local marketing material (the published images live elsewhere).
+brag-output/
+
+# IDE and operating-system metadata
+.idea/
+.vscode/
+.claude/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Miscellaneous tool state
+.tox/
+.nox/
+.hypothesis/
+.pdm-python
+.pdm-build/
+.pixi/
+__pypackages__/
+site/

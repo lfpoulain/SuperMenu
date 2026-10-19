@@ -1,0 +1,148 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""
+Indicateur de chargement visuel pour SuperMenu.
+Affiche une notification non-bloquante pour les opérations longues.
+"""
+
+from functools import partial
+
+from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout
+from PySide6.QtCore import Qt, QTimer
+
+
+def _release_hidden(indicator):
+    """Forget an indicator once it is hidden, outside of its own events."""
+    try:
+        if indicator.isVisible():
+            return
+    except RuntimeError:
+        pass
+    SimpleLoadingIndicator._visible_indicators.discard(indicator)
+
+
+class SimpleLoadingIndicator(QDialog):
+    """Version simplifiée sans barre de progression (plus légère)."""
+
+    # Callers often show a parentless indicator, schedule its closing with
+    # QTimer.singleShot and drop their reference. A timer does not keep the
+    # Python wrapper alive, so the window was destroyed before anyone could
+    # read it. A visible indicator now keeps itself alive until it is hidden.
+    _visible_indicators = set()
+
+    def __init__(self, message="⏳ Chargement...", parent=None):
+        """
+        Initialise l'indicateur simple.
+
+        Args:
+            message (str): Message à afficher (peut inclure des emojis)
+            parent: Widget parent (optionnel)
+        """
+        super().__init__(parent)
+
+        # Configuration minimaliste
+        self.setWindowFlags(
+            Qt.Window
+            | Qt.FramelessWindowHint
+            | Qt.WindowStaysOnTopHint
+            | Qt.Tool
+            | Qt.WindowDoesNotAcceptFocus
+        )
+        self.setModal(False)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        # Qt::Tool maps to an NSPanel on macOS, and AppKit hides tool windows
+        # whenever the owning application is deactivated. This indicator exists
+        # precisely to report progress while the *target* application is in
+        # front, so without this attribute it vanishes exactly when it matters.
+        # The attribute is ignored on other platforms.
+        self.setAttribute(Qt.WA_MacAlwaysShowToolWindow, True)
+        self.setFocusPolicy(Qt.NoFocus)
+
+        # Style compact
+        self.setObjectName("loadingIndicator")
+
+        # Layout
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.label = QLabel(message)
+        # Statuses can come from user prompts: never interpret them as HTML.
+        self.label.setTextFormat(Qt.PlainText)
+        self.label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.label)
+
+        self.setLayout(layout)
+        self.adjustSize()
+
+    def showEvent(self, event):
+        SimpleLoadingIndicator._visible_indicators.add(self)
+        super().showEvent(event)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        # Release on the next loop turn: dropping the last reference here
+        # would delete the window while Qt is still delivering this event.
+        QTimer.singleShot(0, partial(_release_hidden, self))
+
+    def set_message(self, message):
+        """Met à jour le message."""
+        self.label.setText(message)
+        self.adjustSize()
+
+    def move_near_cursor(self):
+        """Place the compact indicator near the cursor without leaving the screen."""
+        from PySide6.QtGui import QCursor, QGuiApplication
+
+        cursor = QCursor.pos()
+        screen = QGuiApplication.screenAt(cursor) or QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+
+        area = screen.availableGeometry()
+        x = min(cursor.x() + 18, area.right() - self.width())
+        y = min(cursor.y() + 22, area.bottom() - self.height())
+        self.move(max(area.left(), x), max(area.top(), y))
+
+    @staticmethod
+    def show_simple(message="⏳ Chargement...", duration_ms=None):
+        """
+        Affiche un indicateur simple.
+
+        Args:
+            message (str): Message à afficher
+            duration_ms (int): Durée d'affichage (None = manuel)
+
+        Returns:
+            SimpleLoadingIndicator: Instance de l'indicateur
+        """
+        indicator = SimpleLoadingIndicator(message)
+
+        # Centrer sur l'écran
+        from PySide6.QtGui import QGuiApplication
+
+        screen = QGuiApplication.primaryScreen().geometry()
+        indicator.move(
+            screen.center().x() - indicator.width() // 2,
+            screen.center().y() - indicator.height() // 2,
+        )
+
+        indicator.show()
+
+        # Auto-fermeture si demandé
+        if duration_ms:
+            QTimer.singleShot(duration_ms, indicator.close)
+
+        return indicator
+
+    @staticmethod
+    def show_near_cursor(message="⏳ Chargement...", duration_ms=None):
+        """Show a small, non-blocking notification close to the active selection."""
+        indicator = SimpleLoadingIndicator(message)
+        indicator.move_near_cursor()
+        indicator.show()
+
+        if duration_ms:
+            QTimer.singleShot(duration_ms, indicator.close)
+
+        return indicator

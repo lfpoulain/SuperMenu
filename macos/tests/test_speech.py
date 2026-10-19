@@ -1,0 +1,117 @@
+import pytest
+from PySide6.QtWidgets import QApplication
+
+from src.audio import speech_backend
+from src.config.settings import Settings
+from supermenu_core.audio.backends import OpenAISpeechBackend, ProcessSpeechBackend
+from supermenu_core.audio.resident import ResidentSpeechBackend
+
+
+def test_voice_provider_round_trip_is_independent_of_text(tmp_path):
+    path = str(tmp_path / "settings.ini")
+    settings = Settings(path)
+    settings.set_ai_provider("custom")
+    settings.set_speech_provider("apple")
+    settings.set_transcription_languages("fr-ca")
+    settings.sync()
+    reloaded = Settings(path)
+    assert reloaded.get_ai_provider() == "custom"
+    assert reloaded.get_speech_provider() == "apple"
+    assert reloaded.get_transcription_languages() == "fr-ca"
+
+
+def test_apple_speech_backend_checks_os_without_cloud_fallback(monkeypatch, tmp_path):
+    settings = Settings(str(tmp_path / "settings.ini"))
+    monkeypatch.setattr(speech_backend.sys, "platform", "darwin")
+    monkeypatch.setattr(speech_backend.platform, "mac_ver", lambda: ("15.0", (), ""))
+    with pytest.raises(ValueError, match="macOS 26"):
+        speech_backend.create_speech_backend(settings, {"provider": "apple"})
+
+
+def test_apple_backend_launches_bundled_helper_without_key(monkeypatch, tmp_path):
+    app = QApplication.instance() or QApplication([])
+    settings = Settings(str(tmp_path / "settings.ini"))
+    helper = tmp_path / "SuperMenuSpeech"
+    helper.write_text("")
+    monkeypatch.setattr(speech_backend.sys, "platform", "darwin")
+    monkeypatch.setattr(speech_backend.platform, "mac_ver", lambda: ("26.0", (), ""))
+    monkeypatch.setattr(speech_backend, "resource_path", lambda *_: str(helper))
+    backend = speech_backend.create_speech_backend(
+        settings, {"provider": "apple", "language": "fr"}
+    )
+    assert isinstance(backend, ResidentSpeechBackend)
+    assert backend.command == (str(helper), [])
+    assert "api_key" not in backend.options
+    backend.cancel()
+    probe = speech_backend.create_speech_backend(
+        settings, {"provider": "apple", "action": "probe", "language": "fr"}
+    )
+    assert isinstance(probe, ProcessSpeechBackend)
+    probe.cancel()
+    assert app is not None
+
+
+def test_openai_voice_remains_available_on_older_macos(monkeypatch, tmp_path):
+    app = QApplication.instance() or QApplication([])
+    settings = Settings(str(tmp_path / "settings.ini"))
+    monkeypatch.setattr(speech_backend.platform, "mac_ver", lambda: ("15.0", (), ""))
+    backend = speech_backend.create_speech_backend(settings, {"provider": "openai"})
+    assert isinstance(backend, OpenAISpeechBackend)
+    backend.cancel()
+    assert app is not None
+
+
+def test_dictation_delivers_final_text_to_original_target_without_second_window(monkeypatch, tmp_path):
+    from supermenu_core.audio.backends import SpeechBackend
+    from src.audio import speech_backend
+    from src.utils import context_menu
+    QApplication.instance() or QApplication([])
+    backend = SpeechBackend()
+    backend.start = lambda: None
+    backend.cancel = lambda: None
+    monkeypatch.setattr(speech_backend, "create_speech_backend", lambda *_: backend)
+    monkeypatch.setattr(context_menu, "activate_current_application", lambda: True)
+    manager = context_menu.ContextMenuManager(Settings(str(tmp_path / "settings.ini")))
+    inserted, presented = [], []
+    def insert(self, text, target, done, *, is_cancelled):
+        assert not is_cancelled()
+        inserted.append((text, target))
+        done(True, "")
+    monkeypatch.setattr(context_menu.TextInserter, "insert_text_async", insert)
+    monkeypatch.setattr(manager.response_window, "present", lambda: presented.append(True))
+    target = object()
+    manager.start_dictation(target=target)
+    backend.completed.emit("Bonjour, monde.")
+    dialog = manager._dictation.recording_dialog
+    assert dialog.isVisible() and not presented
+    dialog.insert_button.click()
+    assert inserted == [("Bonjour, monde.", target)]
+    assert not presented
+    manager.close()
+    assert manager._dictation.recording_dialog is None
+
+
+# A missing Apple Speech helper names the right remedy for each build.
+
+
+@pytest.mark.parametrize(
+    "frozen, expected",
+    [
+        (True, "Réinstallez SuperMenu."),
+        (False, "bash scripts/build_speech_helper.sh"),
+    ],
+)
+def test_missing_helper_message_matches_build(monkeypatch, tmp_path, frozen, expected):
+    settings = Settings(str(tmp_path / "settings.ini"))
+    monkeypatch.setattr(speech_backend.sys, "platform", "darwin")
+    monkeypatch.setattr(speech_backend.sys, "frozen", frozen, raising=False)
+    monkeypatch.setattr(speech_backend.platform, "mac_ver", lambda: ("26.0", (), ""))
+    monkeypatch.setattr(
+        speech_backend, "resource_path", lambda *_: str(tmp_path / "absent")
+    )
+    with pytest.raises(ValueError) as error:
+        speech_backend.create_speech_backend(
+            settings, {"provider": "apple", "language": "fr"}
+        )
+    assert expected in str(error.value)
+    assert "bêta" not in str(error.value)

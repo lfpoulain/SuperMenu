@@ -1,0 +1,43 @@
+# Weekly update pull requests, run through the CI like any other change.
+# The 7-day cooldown leaves time for a compromised or broken release to be
+# reported and withdrawn before it is proposed here.
+version: 2
+updates:
+  # Actions are pinned by commit SHA; Dependabot updates the SHA and the
+  # version comment next to it together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: pip
+    directories:
+      - /shared
+      - /win32
+      - /macos
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: deps
+    open-pull-requests-limit: 5
+    groups:
+      # The framework wheels must keep the exact version of pyobjc-core.
+      pyobjc:
+        patterns:
+          - "pyobjc*"
+      python-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch

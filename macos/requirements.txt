@@ -1,0 +1,18 @@
+-e ../shared
+
+PySide6==6.11.1
+requests==2.34.2
+pynput==1.8.2
+pyqtdarktheme==0.1.7
+# PyObjC is pinned like the Windows dependencies: the signed and notarized DMG
+# must not change between two builds of the same commit. The framework
+# packages only require pyobjc-core>=, so the core and the transitive
+# CoreText binding are pinned too. Upgrade them together in a dedicated commit.
+pyobjc-core==12.2.2
+pyobjc-framework-Cocoa==12.2.2
+pyobjc-framework-Quartz==12.2.2
+pyobjc-framework-CoreText==12.2.2
+# Provides the HIServices module, which owns AXIsProcessTrustedWithOptions.
+# Quartz only depends on pyobjc-core and pyobjc-framework-Cocoa, so without
+# this line the native Accessibility consent dialog is never displayed.
+pyobjc-framework-ApplicationServices==12.2.2

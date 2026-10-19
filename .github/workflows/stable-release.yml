@@ -1,0 +1,444 @@
+name: Stable Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stable-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Both builds wait for this check: a wrong tag or notes left on the previous
+  # version fail within a minute, before any Apple notarization is submitted.
+  # Every other job depends on this one, so a fork that copies a tag starts
+  # nothing instead of failing on the missing Apple secrets.
+  validate-stable:
+    if: github.repository == 'lfpoulain/SuperMenu'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      make_latest: ${{ steps.validate.outputs.make_latest }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # tools/release_guard.py compares versions exactly as the updaters do.
+      # The installed apps read the manifests of the release marked Latest.
+      - name: Validate stable tag and notes
+        id: validate
+        run: |
+          set -euo pipefail
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "Stable tags must use the exact vMAJOR.MINOR.PATCH format" >&2
+            exit 1
+          fi
+          app_version="${BASH_REMATCH[1]}"
+
+          declared_version="$(tr -d '[:space:]' < win32/VERSION)"
+          if [[ "${app_version}" != "${declared_version}" ]]; then
+            echo "Tag version ${app_version} does not match win32/VERSION (${declared_version})" >&2
+            exit 1
+          fi
+
+          # Only a commit already on main, hence tested by its CI, is released.
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" refs/remotes/origin/main; then
+            echo "Tag ${GITHUB_REF_NAME} does not point to a commit of main" >&2
+            exit 1
+          fi
+
+          # The release body comes from this file: never publish the notes of
+          # the previous version.
+          python3 tools/release_guard.py notes-heading "${app_version}" .github/STABLE_NOTES.md
+
+          # macOS has its own number: without a bump, the Mac updater would see
+          # no newer version.
+          macos_version="$(tr -d '[:space:]' < macos/VERSION)"
+          latest_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/latest/download"
+          python3 tools/release_guard.py require-newer "${macos_version}" "${latest_url}/update-macos-stable.json"
+
+          # An older line (a fix for a previous version) never takes the
+          # Latest badge from a newer release.
+          make_latest="$(python3 tools/release_guard.py make-latest "${app_version}" "${latest_url}/update-stable.json")"
+          echo "make_latest=${make_latest}" >> "${GITHUB_OUTPUT}"
+
+  build-windows-stable:
+    needs: validate-stable
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: win32
+    env:
+      INNO_SETUP_VERSION: 6.7.1
+    outputs:
+      app_version: ${{ steps.metadata.outputs.app_version }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Read the tag from the environment: an expression would be pasted into
+      # the script before PowerShell parses it.
+      - name: Validate Windows stable version
+        id: metadata
+        shell: powershell
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v(\d+\.\d+\.\d+)$') {
+            throw "Stable tags must use the exact vMAJOR.MINOR.PATCH format"
+          }
+
+          $appVersion = $Matches[1]
+          $declaredVersion = (Get-Content -LiteralPath "VERSION" -Raw).Trim()
+          if ($appVersion -ne $declaredVersion) {
+            throw "Tag version $appVersion does not match win32/VERSION ($declaredVersion)"
+          }
+
+          "APP_VERSION=$appVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "app_version=$appVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            shared/pyproject.toml
+            win32/requirements.txt
+            win32/requirements-dev.txt
+
+      - name: Install dependencies
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Validate source
+        shell: powershell
+        run: |
+          python -m compileall -q ../shared/supermenu_core src run.py
+          python -m pytest -q ../shared/tests
+          python -m pytest -q tests
+          python -m flake8 ../shared/supermenu_core src tests run.py --select=F,E9
+
+      - name: Inject Windows stable metadata
+        shell: powershell
+        run: |
+          @(
+            '"""Build metadata overwritten by GitHub Actions for packaged releases."""'
+            ''
+            "APP_VERSION = `"$env:APP_VERSION`""
+            'BUILD_CHANNEL = "stable"'
+          ) | Set-Content -LiteralPath "src/config/build_info.py" -Encoding utf8
+
+      - name: Build portable executable
+        shell: powershell
+        run: |
+          pyinstaller --noconfirm --clean SuperMenu.spec
+          if (!(Test-Path -LiteralPath "dist/SuperMenu.exe")) {
+            throw "dist/SuperMenu.exe not found"
+          }
+
+          $smoke = Start-Process -FilePath "dist/SuperMenu.exe" -ArgumentList "--smoke-test" -WindowStyle Hidden -Wait -PassThru
+          if ($smoke.ExitCode -ne 0) {
+            throw "Packaged smoke test failed with exit code $($smoke.ExitCode)"
+          }
+
+          $foundry = Start-Process -FilePath "dist/SuperMenu.exe" -ArgumentList "--foundry-smoke-test" -RedirectStandardOutput "build/foundry-smoke.json" -WindowStyle Hidden -Wait -PassThru
+          Get-Content -LiteralPath "build/foundry-smoke.json"
+          if ($foundry.ExitCode -ne 0) {
+            throw "Bundled Foundry runtime/catalog smoke test failed with exit code $($foundry.ExitCode)"
+          }
+
+          Copy-Item -LiteralPath "dist/SuperMenu.exe" -Destination "SuperMenu.exe"
+
+      # A fixed version: the installer must not change with the runner image
+      # or with a new Chocolatey package. Dependabot does not track it.
+      - name: Install Inno Setup
+        shell: powershell
+        run: |
+          choco install innosetup --version $env:INNO_SETUP_VERSION --allow-downgrade --no-progress -y
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup $env:INNO_SETUP_VERSION installation failed"
+          }
+          $installed = choco list innosetup --exact --limit-output
+          if ($installed -ne "innosetup|$env:INNO_SETUP_VERSION") {
+            throw "Expected Inno Setup $env:INNO_SETUP_VERSION, found: $installed"
+          }
+
+      - name: Build stable installer
+        shell: powershell
+        run: |
+          iscc "setup_supermenu.iss" "/DMyAppVersion=$env:APP_VERSION" "/DMyOutputBaseFilename=SuperMenu_Setup"
+          if (!(Test-Path -LiteralPath "SuperMenu_Setup.exe")) {
+            throw "SuperMenu_Setup.exe not found"
+          }
+
+      - name: Preserve Windows stable artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: stable-windows
+          path: |
+            win32/SuperMenu.exe
+            win32/SuperMenu_Setup.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  build-macos-stable:
+    needs: validate-stable
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    defaults:
+      run:
+        working-directory: macos
+    outputs:
+      app_version: ${{ steps.metadata.outputs.app_version }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare macOS stable metadata
+        id: metadata
+        run: |
+          app_version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "${app_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "macos/VERSION must contain a SemVer version such as 1.2.0" >&2
+            exit 1
+          fi
+
+          echo "APP_VERSION=${app_version}" >> "${GITHUB_ENV}"
+          echo "app_version=${app_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            shared/pyproject.toml
+            macos/requirements.txt
+            macos/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Validate source
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m compileall -q ../shared/supermenu_core src run.py
+          python -m pytest -q ../shared/tests
+          python -m pytest -q tests
+          python -m flake8 ../shared/supermenu_core src tests run.py --select=F,E9
+          python run.py --smoke-test
+
+      - name: Inject macOS stable metadata
+        run: |
+          printf '%s\n' \
+            '"""Build metadata overwritten by GitHub Actions for packaged releases."""' \
+            '' \
+            "APP_VERSION = \"${APP_VERSION}\"" \
+            'BUILD_CHANNEL = "stable"' \
+            > src/config/build_info.py
+
+      - name: Configure required Developer ID signing
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_APPLE_ID: ${{ secrets.MACOS_APPLE_ID }}
+          MACOS_APP_PASSWORD: ${{ secrets.MACOS_APP_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: |
+          required=(
+            MACOS_CERTIFICATE_BASE64
+            MACOS_CERTIFICATE_PASSWORD
+            MACOS_APPLE_ID
+            MACOS_APP_PASSWORD
+            MACOS_TEAM_ID
+          )
+          missing=()
+          for variable_name in "${required[@]}"; do
+            if [[ -z "${!variable_name:-}" ]]; then
+              missing+=("${variable_name}")
+            fi
+          done
+          if [[ "${#missing[@]}" -ne 0 ]]; then
+            printf 'Configuration Apple incomplète. Secrets absents : %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          certificate_path="${RUNNER_TEMP}/supermenu-developer-id.p12"
+          keychain_path="${RUNNER_TEMP}/supermenu-signing.keychain-db"
+          keychain_password="$(openssl rand -base64 32)"
+          printf '%s' "${MACOS_CERTIFICATE_BASE64}" | base64 --decode -o "${certificate_path}"
+
+          security create-keychain -p "${keychain_password}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p "${keychain_password}" "${keychain_path}"
+          security import "${certificate_path}" \
+            -P "${MACOS_CERTIFICATE_PASSWORD}" \
+            -A -t cert -f pkcs12 -k "${keychain_path}"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -k "${keychain_password}" \
+            "${keychain_path}"
+          security list-keychains -d user -s "${keychain_path}"
+
+          identity="$(security find-identity -v -p codesigning "${keychain_path}" | awk -F '"' '/Developer ID Application/ {print $2; exit}')"
+          if [[ -z "${identity}" ]]; then
+            echo "Le fichier P12 ne contient aucune identité Developer ID Application valide." >&2
+            exit 1
+          fi
+
+          echo "MACOS_CODESIGN_IDENTITY=${identity}" >> "${GITHUB_ENV}"
+          echo "MACOS_KEYCHAIN_PATH=${keychain_path}" >> "${GITHUB_ENV}"
+
+      - name: Build, sign and notarize app and DMG
+        env:
+          MACOS_APPLE_ID: ${{ secrets.MACOS_APPLE_ID }}
+          MACOS_APP_PASSWORD: ${{ secrets.MACOS_APP_PASSWORD }}
+          MACOS_TEAM_ID: ${{ secrets.MACOS_TEAM_ID }}
+        run: |
+          chmod +x scripts/*.sh
+          scripts/build_dmg.sh
+          scripts/notarize_dmg.sh
+          cp \
+            "dist/SuperMenu-${APP_VERSION}-macOS-arm64.dmg" \
+            "dist/SuperMenu-macOS-arm64.dmg"
+
+      - name: Preserve signed and notarized macOS stable artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: stable-macos
+          path: macos/dist/SuperMenu-macOS-arm64.dmg
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove temporary signing keychain
+        if: always()
+        run: |
+          keychain_path="${MACOS_KEYCHAIN_PATH:-${RUNNER_TEMP}/supermenu-signing.keychain-db}"
+          security delete-keychain "${keychain_path}" 2>/dev/null || true
+          rm -f "${RUNNER_TEMP}/supermenu-developer-id.p12"
+
+  publish-stable:
+    needs:
+      - validate-stable
+      - build-windows-stable
+      - build-macos-stable
+    runs-on: ubuntu-latest
+    # id-token and attestations only serve the provenance attestation.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      WINDOWS_VERSION: ${{ needs.build-windows-stable.outputs.app_version }}
+      MACOS_VERSION: ${{ needs.build-macos-stable.outputs.app_version }}
+
+    steps:
+      # Only the release notes are read from the tag; no code runs from it.
+      - name: Checkout release notes
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          sparse-checkout: .github
+          persist-credentials: false
+
+      - name: Download Windows stable artifacts
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: stable-windows
+          path: release-assets
+
+      - name: Download macOS stable artifact
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: stable-macos
+          path: release-assets
+
+      # The installer fingerprints let the apps refuse a corrupted or swapped
+      # download. Older apps ignore the extra asset and sha256 fields.
+      - name: Generate platform manifests and checksums
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          windows_sha256="$(sha256sum SuperMenu_Setup.exe | cut -d ' ' -f 1)"
+          macos_sha256="$(sha256sum SuperMenu-macOS-arm64.dmg | cut -d ' ' -f 1)"
+
+          jq -n \
+            --arg version "${WINDOWS_VERSION}" \
+            --arg tag "${GITHUB_REF_NAME}" \
+            --arg sha256 "${windows_sha256}" \
+            '{schema_version: 1, channel: "stable", version: $version, prerelease: false, tag: $tag, asset: "SuperMenu_Setup.exe", sha256: $sha256}' \
+            > update-stable.json
+
+          jq -n \
+            --arg version "${MACOS_VERSION}" \
+            --arg tag "${GITHUB_REF_NAME}" \
+            --arg sha256 "${macos_sha256}" \
+            '{schema_version: 1, platform: "macos", architecture: "arm64", channel: "stable", version: $version, prerelease: false, tag: $tag, asset: "SuperMenu-macOS-arm64.dmg", sha256: $sha256}' \
+            > update-macos-stable.json
+
+          sha256sum \
+            SuperMenu.exe \
+            SuperMenu_Setup.exe \
+            SuperMenu-macOS-arm64.dmg \
+            update-stable.json \
+            update-macos-stable.json \
+            > SHA256SUMS.txt
+
+      # Signed statement that these files were built by this workflow from
+      # this tag; checked with `gh attestation verify`. Before publication, so
+      # a failure publishes nothing.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release-assets/*
+
+      # Edit STABLE_NOTES.md for each version; only the metadata is generated.
+      # The "Windows version:" and "macOS version:" lines are read by the apps
+      # when the manifests are unreachable: keep them, without backticks.
+      - name: Prepare stable notes
+        run: |
+          {
+            cat .github/STABLE_NOTES.md
+            printf '\n<details>\n<summary>Informations de build</summary>\n\n'
+            printf -- '- Channel: stable\n- Windows version: %s\n- macOS version: %s\n- Commit: `%s`\n' "${WINDOWS_VERSION}" "${MACOS_VERSION}" "${GITHUB_SHA}"
+            printf '\n</details>\n'
+          } > stable-release-notes.md
+
+      - name: Publish stable release
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
+        # immutableCreate creates the release as a draft, attaches the files,
+        # then publishes it: the published release is complete from the start.
+        with:
+          tag: ${{ github.ref_name }}
+          commit: ${{ github.sha }}
+          name: SuperMenu ${{ env.WINDOWS_VERSION }}
+          makeLatest: ${{ needs.validate-stable.outputs.make_latest }}
+          immutableCreate: true
+          allowUpdates: true
+          updateOnlyUnreleased: true
+          artifactErrorsFailBuild: true
+          artifacts: release-assets/*
+          token: ${{ secrets.GITHUB_TOKEN }}
+          bodyFile: stable-release-notes.md

@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Signaler une faille de sécurité
+    url: https://github.com/lfpoulain/SuperMenu/security/policy
+    about: Ne publiez pas de faille dans une issue. Suivez la politique de sécurité pour un signalement privé.
+  - name: Guide d’utilisation Windows
+    url: https://github.com/lfpoulain/SuperMenu/blob/main/win32/docs/GUIDE_UTILISATION.md
+    about: Installation, réglages, raccourcis et fonctions de la version Windows.
+  - name: Guide d’utilisation macOS
+    url: https://github.com/lfpoulain/SuperMenu/blob/main/macos/docs/GUIDE_UTILISATION.md
+    about: Installation, autorisations, réglages et fonctions de la version macOS.
