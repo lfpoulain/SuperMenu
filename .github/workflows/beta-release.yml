@@ -136,7 +136,7 @@ jobs:
           Copy-Item -LiteralPath "dist/SuperMenu.exe" -Destination "SuperMenu_Beta.exe"
 
       # A fixed version: the installer must not change with the runner image
-      # or with a new Chocolatey package. Dependabot does not track it.
+      # or with a new Chocolatey package.
       - name: Install Inno Setup
         shell: powershell
         run: |

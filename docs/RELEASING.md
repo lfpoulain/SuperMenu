@@ -304,17 +304,17 @@ Les releases publiées avant l’ajout de cette étape n’ont pas d’attestati
 
 ## Dépendances et outils de build
 
-- `.github/dependabot.yml` propose chaque semaine les mises à jour des actions
-  GitHub et des dépendances Python (`shared`, `win32`, `macos`), regroupées et
-  limitées aux versions publiées depuis au moins 7 jours. Elles passent par une
-  pull request et la CI comme tout changement.
+- Les dépendances Python sont épinglées dans les fichiers `requirements*.txt`
+  de `win32/` et `macos/` (et bornées dans `shared/pyproject.toml`). Elles sont
+  mises à jour à la main, par une pull request qui passe la CI ; testez une bêta
+  avant toute montée de version majeure.
 - Les actions des workflows Beta et Stable, qui manipulent le certificat Apple
   ou un jeton d’écriture, sont épinglées par SHA de commit, avec la version en
-  commentaire (`@<sha> # vX.Y.Z`). Dependabot met à jour les deux ensemble.
-  N’y référencez jamais une action par tag ou par branche.
+  commentaire (`@<sha> # vX.Y.Z`). Mettez à jour les deux ensemble, et n’y
+  référencez jamais une action par tag ou par branche.
 - Inno Setup est installé dans une version fixe (`INNO_SETUP_VERSION` dans les
-  jobs Windows Beta et Stable), que Dependabot ne suit pas. Pour en changer,
-  modifiez les deux valeurs ensemble et testez l’installateur d’une bêta.
+  jobs Windows Beta et Stable). Pour en changer, modifiez les deux valeurs
+  ensemble et testez l’installateur d’une bêta.
 
 ## Secrets nécessaires
 

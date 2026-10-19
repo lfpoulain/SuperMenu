@@ -284,20 +284,3 @@ def test_published_files_carry_a_provenance_attestation():
             < job.index("Attest build provenance")
             < job.index(publish_step)
         )
-
-
-def test_dependabot_updates_actions_and_pip_after_a_cooldown():
-    config = (REPOSITORY / ".github" / "dependabot.yml").read_text(encoding="utf-8")
-    ecosystems = re.split(r"^  - package-ecosystem: ", config, flags=re.M)[1:]
-
-    assert [block.split("\n", 1)[0] for block in ecosystems] == ["github-actions", "pip"]
-    for block in ecosystems:
-        assert "cooldown:\n      default-days: 7\n" in block
-        assert "groups:\n" in block
-    actions, pip = ecosystems
-    assert "directory: /\n" in actions
-    for directory in ("/shared", "/win32", "/macos"):
-        assert f"      - {directory}\n" in pip
-    # The pyobjc wheels move together, majors included.
-    assert 'pyobjc:\n        patterns:\n          - "pyobjc*"' in pip
-    assert pip.index("pyobjc:") < pip.index('- "*"')

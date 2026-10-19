@@ -287,7 +287,7 @@ def test_macos_pull_requests_build_a_test_dmg():
 
 def test_release_workflows_pin_every_action_by_commit():
     # These workflows hold the Apple certificate or a write token: a moved tag
-    # must not change the code they run. Dependabot updates SHA and comment.
+    # must not change the code they run. Update the SHA and its comment together.
     for workflow_name in ("beta-release.yml", "stable-release.yml"):
         actions = re.findall(r"^ +(?:- )?uses: (.+)$", _workflow(workflow_name), re.M)
         assert actions
