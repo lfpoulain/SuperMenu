@@ -17,11 +17,8 @@ from supermenu_core.config.openai_models import (
     normalize_openai_model,
     normalize_reasoning_effort,
 )
-from supermenu_core.api.model_capabilities import (
-    choose_reasoning_option,
-    parse_lmstudio_model_catalog,
-)
-from supermenu_core.api.providers import common, ollama
+from supermenu_core.api.model_capabilities import parse_lmstudio_model_catalog
+from supermenu_core.api.providers import common, lmstudio, ollama
 from supermenu_core.api.providers.common import log, logger  # noqa: F401 - logger is part of this module's API.
 from supermenu_core.utils.thinking import split_inline_thinking
 
@@ -251,24 +248,16 @@ class OpenAIClient(QObject):
                 return
             try:
                 headers = self._build_headers()
-                response = _session().get(
-                    f"{base_url}/api/v1/models",
-                    headers=headers,
-                    timeout=timeout,
+                payload = lmstudio.request_model_catalog(
+                    _session(),
+                    base_url,
+                    headers,
+                    timeout,
                 )
-                if response.status_code != 200:
+                if payload is None:
                     self._lmstudio_probe_failed_at = time.monotonic()
                     return
-
-                payload = response.json()
-                if not isinstance(payload, dict):
-                    self._lmstudio_probe_failed_at = time.monotonic()
-                    return
-                selected = None
-                for model_details in parse_lmstudio_model_catalog(payload):
-                    if self.model in model_details["identifiers"]:
-                        selected = model_details
-                        break
+                selected = lmstudio.find_catalog_model(payload, self.model)
 
                 # Only a readable catalog is final for this client.
                 self._lmstudio_catalog_checked = True
@@ -295,19 +284,11 @@ class OpenAIClient(QObject):
 
     def _build_lmstudio_reasoning_value(self, reasoning_mode="default"):
         """Translate SuperMenu's effort into the selected model's native option."""
-        requested = (self._get_provider_reasoning_effort(reasoning_mode) or "none").strip().lower()
-        options = self._lmstudio_reasoning_options
-
-        if self._lmstudio_reasoning_supported is False:
-            return None
-
-        if not options:
-            return "off" if requested in {"none", "off"} else requested
-
-        return choose_reasoning_option(
-            options,
-            preferred=requested,
-            default=self._lmstudio_reasoning_default,
+        return lmstudio.build_reasoning_value(
+            self._get_provider_reasoning_effort(reasoning_mode),
+            self._lmstudio_reasoning_supported,
+            self._lmstudio_reasoning_options,
+            self._lmstudio_reasoning_default,
         )
 
     _is_gpt_oss_model = staticmethod(common.is_gpt_oss_model)
@@ -407,55 +388,7 @@ class OpenAIClient(QObject):
             return ollama.extract_response_parts(response_data)
 
         if self.use_lmstudio_api:
-            output = (
-                response_data.get("output", [])
-                if isinstance(response_data, dict)
-                else []
-            )
-            if isinstance(output, list) and output:
-                messages = []
-                reasoning_parts = []
-                for item in output:
-                    if not isinstance(item, dict):
-                        continue
-                    item_type = str(item.get("type", "")).lower()
-                    item_text = self._content_to_text(
-                        item.get("content", item.get("text", ""))
-                    )
-                    if item_type == "message" and item_text:
-                        messages.append(item_text)
-                    elif item_type == "reasoning":
-                        reasoning_text = self._reasoning_value_to_text(
-                            item.get("content", item.get("text", ""))
-                        )
-                        if reasoning_text:
-                            reasoning_parts.append(reasoning_text)
-                return self._normalize_response_parts(
-                    "\n".join(messages),
-                    "\n\n".join(reasoning_parts),
-                )
-
-            choices = (
-                response_data.get("choices", [])
-                if isinstance(response_data, dict)
-                else []
-            )
-            if not choices:
-                return self._normalize_response_parts(
-                    "",
-                    self._extract_reasoning_text(response_data),
-                )
-
-            message = (
-                choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
-            )
-            content = (
-                self._content_to_text(message.get("content", ""))
-                if isinstance(message, dict)
-                else ""
-            )
-            reasoning = self._extract_reasoning_text(response_data)
-            return self._normalize_response_parts(content, reasoning)
+            return lmstudio.extract_response_parts(response_data)
 
         if isinstance(response_data, dict) and response_data.get("output_text"):
             return self._normalize_response_parts(
@@ -716,56 +649,22 @@ class OpenAIClient(QObject):
 
     def _build_lmstudio_compat_data(self, native_data, reasoning_mode="default"):
         """Convert a native LM Studio request for pre-0.4 compatible servers."""
-        native_input = native_data.get("input", "")
-        if isinstance(native_input, str):
-            message_content = native_input
-        else:
-            content_parts = []
-            for item in native_input if isinstance(native_input, list) else []:
-                if not isinstance(item, dict):
-                    continue
-                if item.get("type") == "message":
-                    text_content = item.get("content")
-                    if isinstance(text_content, str):
-                        content_parts.append({"type": "text", "text": text_content})
-                elif item.get("type") == "image":
-                    data_url = item.get("data_url")
-                    if isinstance(data_url, str):
-                        content_parts.append(
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": data_url},
-                            }
-                        )
-            message_content = content_parts
-
-        data = {
-            "model": native_data.get("model", self.model),
-            "messages": [{"role": "user", "content": message_content}],
-            # LM Studio's compatible API uses -1 for no artificial output cap.
-            "max_tokens": -1,
-        }
-        effort = (self._get_provider_reasoning_effort(reasoning_mode) or "none").strip().lower()
-        if effort in {"low", "medium", "high"}:
-            data["reasoning"] = {"effort": effort}
-        elif self._is_gpt_oss_model(self.model):
-            data["reasoning"] = {"effort": "low"}
-        return data
+        return lmstudio.build_compat_data(
+            native_data,
+            self.model,
+            self._get_provider_reasoning_effort(reasoning_mode),
+        )
 
     def _perform_request(self, headers, data, timeout, reasoning_mode="default"):
         """Send a request, retry unsupported reasoning, then fall back if needed."""
         if self.use_lmstudio_api and "device" in self.model_target:
-            from .lmstudio_transport import targeted_completion
-            result = targeted_completion(
+            # LM Link routing to one device never falls back to REST.
+            return lmstudio.targeted_completion_response(
                 _models_base_url(self.custom_endpoint, False, lmstudio=True),
                 self.endpoint_api_key,
                 data, self.model_target["device"], cancelled=self._closing,
-                include_reasoning=True, timeout=timeout,
+                timeout=timeout,
             )
-            response = requests.Response()
-            response.status_code = 200
-            response._content = json.dumps(result).encode("utf-8")
-            return response
         response = self._make_request_with_retry(
             headers,
             data,
@@ -823,11 +722,7 @@ class OpenAIClient(QObject):
     def _truncation_message(self):
         """Explain a server-side cutoff in terms of what the user can change."""
         if self.use_lmstudio_api:
-            return (
-                "LM Studio a interrompu la réponse car la fenêtre de "
-                "contexte du modèle est pleine. Rechargez le modèle avec "
-                "un Context Length plus élevé, puis réessayez."
-            )
+            return lmstudio.TRUNCATION_MESSAGE
         if self.use_ollama_api:
             return ollama.TRUNCATION_MESSAGE
         if self.use_custom_endpoint:
@@ -1028,26 +923,13 @@ class OpenAIClient(QObject):
             return data, image_path
 
         if self.use_lmstudio_api:
-            native_input = full_prompt
-            if image_data_url:
-                native_input = [
-                    {"type": "message", "content": prompt},
-                    {"type": "image", "data_url": image_data_url},
-                ]
-            data = {
-                "model": self.model,
-                "input": native_input,
-                "stream": False,
-                "store": False,
-            }
-            reasoning = self._build_lmstudio_reasoning_value(reasoning_mode)
-            if reasoning:
-                data["reasoning"] = reasoning
-                log(
-                    f"LM Studio: raisonnement '{reasoning}' envoyé au modèle "
-                    f"'{self.model}'.",
-                    logging.INFO,
-                )
+            data = lmstudio.build_payload(
+                self.model,
+                prompt,
+                full_prompt,
+                image_data_url,
+                self._build_lmstudio_reasoning_value(reasoning_mode),
+            )
             return data, image_path
 
         if image_data_url:

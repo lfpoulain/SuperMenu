@@ -168,6 +168,27 @@ def extract_reasoning_text(response_data):
     return ""
 
 
+def chat_completion_parts(response_data):
+    """Read the first chat-completions choice used by OpenAI-compatible APIs."""
+    choices = (
+        response_data.get("choices", []) if isinstance(response_data, dict) else []
+    )
+    if not choices:
+        return normalize_response_parts(
+            "",
+            extract_reasoning_text(response_data),
+        )
+
+    message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
+    content = (
+        content_to_text(message.get("content", ""))
+        if isinstance(message, dict)
+        else ""
+    )
+    reasoning = extract_reasoning_text(response_data)
+    return normalize_response_parts(content, reasoning)
+
+
 def response_was_truncated(response_data):
     """Detect explicit server-side token/context cutoffs."""
     if not isinstance(response_data, dict):
