@@ -174,7 +174,6 @@ def test_distribution_scripts_sign_notarize_and_staple_the_dmg():
     assert '--sign "${MACOS_CODESIGN_IDENTITY}"' in build
     assert "xcrun notarytool submit" in notarize
     assert "xcrun stapler staple" in notarize
-    assert "xcrun stapler validate" in notarize
     assert "spctl --assess" in notarize
     assert "notarize.sh" in notarize_dmg
 
@@ -199,20 +198,21 @@ def test_the_app_bundle_is_stapled_before_it_is_packaged():
 
 
 def test_stapling_retries_a_transient_apple_failure():
-    """An Accepted notarization can still fail to staple or validate
-    (stapler error 68, "network connection was lost") while Apple's ticket
-    service catches up: retry both before failing."""
+    """An Accepted notarization can still fail to staple (stapler error 68,
+    "network connection was lost") while Apple's ticket service catches up:
+    retry before failing. Stapling validates the ticket itself, so no extra
+    `stapler validate` round trip can fail a notarization that succeeded;
+    the offline Gatekeeper assessment is the final check."""
     notarize = _commands(_script("scripts", "notarize.sh"))
 
-    assert "for attempt in 1 2 3; do" in notarize
-    assert 'if xcrun stapler staple "${artifact_path}"' in notarize
-    assert "sleep $((attempt * 15))" in notarize
-    retry = notarize.index("for attempt in 1 2 3; do")
-    leave = notarize.index("break", retry)
+    assert "for attempt in 1 2 3 4 5; do" in notarize
+    assert 'if xcrun stapler staple "${artifact_path}"; then' in notarize
+    assert "sleep $((attempt * 20))" in notarize
+    retry = notarize.index("for attempt in 1 2 3 4 5; do")
     assert notarize.index("xcrun notarytool submit") < retry
-    assert retry < notarize.index("xcrun stapler validate") < leave
+    assert retry < notarize.index("spctl --assess")
     assert notarize.count("xcrun stapler staple") == 1
-    assert notarize.count("xcrun stapler validate") == 1
+    assert "stapler validate" not in notarize
 
 
 def test_ci_builds_an_unsigned_dmg_without_apple_credentials():

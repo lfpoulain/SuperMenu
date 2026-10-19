@@ -47,18 +47,20 @@ xcrun notarytool submit "${upload_path}" \
     --timeout 20m
 
 # Apple's ticket CDN can lag behind the Accepted verdict or drop a request
-# (stapler error 68). Both staple and validate query it, so retry them
-# together before failing a notarization that succeeded.
-for attempt in 1 2 3; do
-    if xcrun stapler staple "${artifact_path}" \
-        && xcrun stapler validate "${artifact_path}"; then
+# (stapler error 68): retry before failing a notarization that succeeded.
+# `stapler staple` already validates the ticket it attaches ("The staple and
+# validate action worked!"). A separate `stapler validate` only adds another
+# network round trip, which GitHub's macOS runners regularly lose, so the
+# offline Gatekeeper assessment below is the final check.
+for attempt in 1 2 3 4 5; do
+    if xcrun stapler staple "${artifact_path}"; then
         break
     fi
-    if [[ "${attempt}" -eq 3 ]]; then
-        echo "Agrafage impossible après trois tentatives : ${artifact_path}" >&2
+    if [[ "${attempt}" -eq 5 ]]; then
+        echo "Agrafage impossible après cinq tentatives : ${artifact_path}" >&2
         exit 1
     fi
-    sleep $((attempt * 15))
+    sleep $((attempt * 20))
 done
 spctl --assess \
     "${assess_args[@]}" \
