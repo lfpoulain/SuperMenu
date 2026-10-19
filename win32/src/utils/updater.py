@@ -1,32 +1,38 @@
 import hashlib
-import json
 import logging
 import os
 import re
 import shutil
 import tempfile
 from datetime import datetime, timezone
-from typing import Optional, Tuple
+from typing import Optional
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-
-UPDATE_CHANNEL_STABLE = "stable"
-UPDATE_CHANNEL_BETA = "beta"
-UPDATE_CHANNELS = (UPDATE_CHANNEL_STABLE, UPDATE_CHANNEL_BETA)
-
-_VERSION_PATTERN = re.compile(
-    r"v?(\d+\.\d+\.\d+(?:-(?:beta|rc)\.\d+)?)",
-    re.IGNORECASE,
+# Version, channel, manifest and release-notes rules are shared with macOS.
+from supermenu_core.utils.updates import (
+    MANIFEST_SCHEMA_VERSION as _MANIFEST_SCHEMA_VERSION,
+    SHA256_PATTERN as _SHA256_PATTERN,
+    UPDATE_CHANNEL_BETA,
+    VERSION_PATTERN as _VERSION_PATTERN,
+    WINDOWS_VERSION_LINE as _WINDOWS_VERSION_LINE,
+    declared_sha256,
+    decode_release_manifest,
+    normalize_update_channel,
+    parse_version as _parse_version,
+    release_manifest_url,
+    request_release_manifest,
 )
-# "Windows version: X" (metadata line) or "Windows : `X`" (beta summary line).
-_WINDOWS_VERSION_LINE = re.compile(
-    rf"Windows(?:\s+version)?\s*:\s*`?{_VERSION_PATTERN.pattern}",
-    re.IGNORECASE,
+# Re-exported for the existing Windows callers.
+from supermenu_core.utils.updates import (  # noqa: F401
+    UPDATE_CHANNEL_STABLE,
+    UPDATE_CHANNELS,
+    is_newer_version,
 )
-_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+
+
 # The rolling beta reuses its tag: each push to main replaces the installer
 # at this same URL, possibly while the "Télécharger" question was open.
 _ROLLING_BETA_ASSET_URL = re.compile(
@@ -34,8 +40,6 @@ _ROLLING_BETA_ASSET_URL = re.compile(
     re.IGNORECASE,
 )
 _DOWNLOAD_FOLDER_PREFIX = "SuperMenu_update_"
-
-_MANIFEST_SCHEMA_VERSION = 1
 
 # Same logger as src.utils.logger, without importing its file handlers here.
 _LOGGER = logging.getLogger("SuperMenu")
@@ -84,13 +88,6 @@ def _build_session() -> requests.Session:
 _SESSION = _build_session()
 
 
-def normalize_update_channel(value: Optional[str]) -> str:
-    normalized = str(value or "").strip().lower()
-    if normalized == UPDATE_CHANNEL_BETA:
-        return UPDATE_CHANNEL_BETA
-    return UPDATE_CHANNEL_STABLE
-
-
 def installer_asset_name(channel: Optional[str]) -> str:
     if normalize_update_channel(channel) == UPDATE_CHANNEL_BETA:
         return "SuperMenu_Beta_Setup.exe"
@@ -101,38 +98,6 @@ def release_manifest_name(channel: Optional[str]) -> str:
     if normalize_update_channel(channel) == UPDATE_CHANNEL_BETA:
         return "update-beta.json"
     return "update-stable.json"
-
-
-def _parse_version(value: str) -> Tuple[int, ...]:
-    normalized = str(value or "").strip().lower()
-    match = re.fullmatch(
-        r"v?(\d+)\.(\d+)\.(\d+)(?:-(beta|rc)\.(\d+))?",
-        normalized,
-    )
-    if not match:
-        return ()
-
-    major, minor, patch = (int(match.group(i)) for i in range(1, 4))
-    prerelease_kind = match.group(4)
-    prerelease_number = int(match.group(5) or 0)
-    stage_rank = {
-        "beta": 0,
-        "rc": 1,
-        None: 2,
-    }[prerelease_kind]
-    return major, minor, patch, stage_rank, prerelease_number
-
-
-def is_newer_version(current: Optional[str], candidate: Optional[str]) -> bool:
-    if not candidate:
-        return False
-    parsed_candidate = _parse_version(candidate)
-    if not parsed_candidate:
-        return False
-    parsed_current = _parse_version(current or "")
-    if not parsed_current:
-        return True
-    return parsed_candidate > parsed_current
 
 
 def get_installed_app_version(app_id_guid: str) -> Optional[str]:
@@ -255,11 +220,10 @@ def _release_from_manifest(
 
     # Manifests published before the fingerprint was added have no sha256;
     # a declared one must be valid, otherwise the manifest is rejected.
-    sha256 = None
-    if payload.get("sha256") is not None:
-        sha256 = str(payload.get("sha256")).strip().lower()
-        if not _SHA256_PATTERN.fullmatch(sha256):
-            raise ValueError("L'empreinte SHA-256 du manifeste est invalide.")
+    sha256 = declared_sha256(
+        payload,
+        "L'empreinte SHA-256 du manifeste est invalide.",
+    )
 
     release_base = f"https://github.com/{owner}/{repo}/releases"
     asset = {
@@ -289,32 +253,19 @@ def get_release_from_manifest(
 ) -> Optional[dict]:
     normalized_channel = normalize_update_channel(channel)
     manifest_name = release_manifest_name(normalized_channel)
-    if normalized_channel == UPDATE_CHANNEL_BETA:
-        url = (
-            f"https://github.com/{owner}/{repo}/releases/download/"
-            f"beta/{manifest_name}"
-        )
-    else:
-        url = (
-            f"https://github.com/{owner}/{repo}/releases/latest/download/"
-            f"{manifest_name}"
-        )
-
-    response = _SESSION.get(
-        url,
-        timeout=(5, timeout_s),
-        headers={
-            "Accept": "application/json",
-            "Cache-Control": "no-cache",
-        },
+    url = release_manifest_url(
+        f"https://github.com/{owner}/{repo}/releases",
+        normalized_channel,
+        manifest_name,
     )
-    if response.status_code == 404:
+
+    response = request_release_manifest(_SESSION.get, url, timeout_s)
+    if response is None:
         return None
-    response.raise_for_status()
-    try:
-        payload = json.loads(response.content.decode("utf-8-sig"))
-    except (AttributeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("Le manifeste de mise à jour est illisible.") from exc
+    payload = decode_release_manifest(
+        response,
+        "Le manifeste de mise à jour est illisible.",
+    )
     return _release_from_manifest(
         payload,
         owner,

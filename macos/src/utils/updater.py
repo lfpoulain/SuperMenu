@@ -2,33 +2,38 @@
 
 from __future__ import annotations
 
-import json
 import re
 
 import requests
 
 # Single source of truth, shared with src.config.settings and with Windows.
 from supermenu_core.config.provider_settings import normalize_update_channel
+# Version, manifest and release-notes rules are shared with Windows.
+from supermenu_core.utils.updates import (
+    MANIFEST_SCHEMA_VERSION as _MANIFEST_SCHEMA_VERSION,
+    VERSION_PATTERN as _VERSION_PATTERN,
+    WINDOWS_VERSION_LINE as _WINDOWS_VERSION_LINE,
+    declared_sha256,
+    decode_release_manifest,
+    is_newer_version,
+    parse_version,
+    release_manifest_url,
+    request_release_manifest,
+)
+# Formerly defined here; still exposed under its previous name.
+from supermenu_core.utils.updates import (  # noqa: F401
+    SHA256_PATTERN as _SHA256_PATTERN,
+)
 
 
 REPOSITORY_RELEASES_URL = "https://github.com/lfpoulain/SuperMenu/releases"
 _REPOSITORY_DOWNLOADS_URL = f"{REPOSITORY_RELEASES_URL}/download"
-_MANIFEST_SCHEMA_VERSION = 1
-_VERSION_PATTERN = re.compile(
-    r"v?(\d+\.\d+\.\d+(?:-(?:beta|rc)\.\d+)?)",
-    re.IGNORECASE,
-)
 # "macOS version: X" (metadata line) or "macOS Apple Silicon : `X`" (beta
 # summary line). Windows lines are only detected, never used as a version.
 _MACOS_VERSION_LINE = re.compile(
     rf"macOS(?:\s+version|\s+Apple\s+Silicon)?\s*:\s*`?{_VERSION_PATTERN.pattern}",
     re.IGNORECASE,
 )
-_WINDOWS_VERSION_LINE = re.compile(
-    rf"Windows(?:\s+version)?\s*:\s*`?{_VERSION_PATTERN.pattern}",
-    re.IGNORECASE,
-)
-_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 __all__ = [
     "REPOSITORY_RELEASES_URL",
@@ -41,31 +46,6 @@ __all__ = [
     "parse_version",
     "release_manifest_name",
 ]
-
-
-def parse_version(value: str) -> tuple[int, ...]:
-    match = re.fullmatch(
-        r"v?(\d+)\.(\d+)\.(\d+)(?:-(beta|rc)\.(\d+))?",
-        str(value or "").strip().lower(),
-    )
-    if not match:
-        return ()
-    stage = {"beta": 0, "rc": 1, None: 2}[match.group(4)]
-    return (
-        int(match.group(1)),
-        int(match.group(2)),
-        int(match.group(3)),
-        stage,
-        int(match.group(5) or 0),
-    )
-
-
-def is_newer_version(current: str, candidate: str) -> bool:
-    parsed_candidate = parse_version(candidate)
-    if not parsed_candidate:
-        return False
-    parsed_current = parse_version(current)
-    return not parsed_current or parsed_candidate > parsed_current
 
 
 def dmg_asset_name(channel: str) -> str:
@@ -122,11 +102,9 @@ def _release_from_manifest(payload: dict, expected_channel: str) -> dict:
         raise ValueError("Le DMG déclaré dans le manifeste est incorrect.")
 
     # Older manifests have no fingerprint; a declared one must be valid.
-    sha256 = ""
-    if payload.get("sha256") is not None:
-        sha256 = str(payload.get("sha256")).strip().lower()
-        if not _SHA256_PATTERN.fullmatch(sha256):
-            raise ValueError("L'empreinte SHA-256 du manifeste macOS est invalide.")
+    sha256 = declared_sha256(
+        payload, "L'empreinte SHA-256 du manifeste macOS est invalide."
+    ) or ""
 
     return {
         "channel": expected_channel,
@@ -138,25 +116,20 @@ def _release_from_manifest(payload: dict, expected_channel: str) -> dict:
 
 
 def _manifest_url(channel: str) -> str:
-    name = release_manifest_name(channel)
-    if channel == "beta":
-        return f"{_REPOSITORY_DOWNLOADS_URL}/beta/{name}"
-    return f"{REPOSITORY_RELEASES_URL}/latest/download/{name}"
+    return release_manifest_url(
+        REPOSITORY_RELEASES_URL, channel, release_manifest_name(channel)
+    )
 
 
 def _get_release_manifest(channel: str, timeout_s: int) -> dict | None:
-    response = requests.get(
-        _manifest_url(channel),
-        timeout=(5, timeout_s),
-        headers={"Accept": "application/json", "Cache-Control": "no-cache"},
+    response = request_release_manifest(
+        requests.get, _manifest_url(channel), timeout_s
     )
-    if response.status_code == 404:
+    if response is None:
         return None
-    response.raise_for_status()
-    try:
-        payload = json.loads(response.content.decode("utf-8-sig"))
-    except (AttributeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("Le manifeste de mise à jour macOS est illisible.") from exc
+    payload = decode_release_manifest(
+        response, "Le manifeste de mise à jour macOS est illisible."
+    )
     return _release_from_manifest(payload, channel)
 
 
