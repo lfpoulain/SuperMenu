@@ -42,13 +42,16 @@ a = Analysis(
 # - Qt Virtual Keyboard is only available under GPL-3.0 or a commercial
 #   license, unlike the LGPL Qt libraries (every input context plugin is
 #   collected by the QtGui hook);
-# - the PDF image plugin and QtPdf.framework embed PDFium.
+# - the PDF image plugin and QtPdf.framework embed PDFium. PyInstaller also
+#   collects a top-level "QtPdf" symlink to the framework's binary for the
+#   plugin's dependency: left behind, it dangles and codesign rejects the
+#   whole bundle.
 def _is_shipped(entry):
     name = entry[0].lower()
     return (
         "virtualkeyboard" not in name
         and "qtpdf.framework" not in name
-        and Path(name).name != "libqpdf.dylib"
+        and Path(name).name not in {"libqpdf.dylib", "qtpdf"}
     )
 
 
