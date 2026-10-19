@@ -1,4 +1,8 @@
-"""Exercise popups and feedback states without starting external services."""
+"""Exercise popups and feedback states without starting external services.
+
+Usage, from the repository root: python shared/tools/preview_ui.py
+Screenshots of both themes are written to build/ui-preview/ (ignored by git).
+"""
 import os
 import sys
 from pathlib import Path

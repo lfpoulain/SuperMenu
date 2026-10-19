@@ -230,6 +230,7 @@ def test_provider_selection_saves_without_api_key_or_endpoint(qt_app, tmp_path, 
     manager.close()
     window._quitting = True
     window.close()
+    window.deleteLater()
 
 
 def test_availability_feedback_retry_and_cancellation(helper, tmp_path):
@@ -271,3 +272,4 @@ def test_availability_feedback_retry_and_cancellation(helper, tmp_path):
     assert card.property("state") == "idle"  # Ignore late results after switching provider.
     window._quitting = True
     window.close()
+    window.deleteLater()

@@ -1,360 +1,732 @@
-# Guide d'utilisation de SuperMenu
+# Guide d’utilisation de SuperMenu pour Windows
 
-Ce guide détaille le fonctionnement de SuperMenu et explique comment tirer le meilleur parti de ses fonctionnalités.
+Ce guide explique comment installer, configurer et utiliser SuperMenu sous
+Windows, puis comment résoudre les problèmes courants. Pour une présentation
+rapide, consultez le [README Windows](../README.md).
 
 ## Sommaire
-1. [Présentation générale](#présentation-générale)
+
+1. [Présentation](#présentation)
 2. [Installation](#installation)
-3. [Premier démarrage](#premier-démarrage)
-4. [Utilisation quotidienne](#utilisation-quotidienne)
-5. [Personnalisation](#personnalisation)
-6. [Fonctionnalités avancées](#fonctionnalités-avancées)
-7. [Dépannage](#dépannage)
+3. [La fenêtre de configuration](#la-fenêtre-de-configuration)
+4. [Choisir le moteur de texte](#choisir-le-moteur-de-texte)
+5. [Fonctions avancées et expérimentales](#fonctions-avancées-et-expérimentales)
+6. [Raccourcis clavier](#raccourcis-clavier)
+7. [Utilisation quotidienne](#utilisation-quotidienne)
+8. [Presse-papiers et applications particulières](#presse-papiers-et-applications-particulières)
+9. [Gérer les prompts](#gérer-les-prompts)
+10. [Voix et dictée](#voix-et-dictée)
+11. [Capture d’écran](#capture-décran)
+12. [Apparence](#apparence)
+13. [Mises à jour](#mises-à-jour)
+14. [Données et confidentialité](#données-et-confidentialité)
+15. [Dépannage](#dépannage)
+16. [Désinstallation](#désinstallation)
 
-## Présentation générale
+## Présentation
 
-SuperMenu est une application Windows qui intègre l'intelligence artificielle dans votre flux de travail quotidien. Elle vous permet d'effectuer diverses opérations sur du texte sélectionné dans n'importe quelle application grâce à un menu contextuel accessible par raccourci clavier.
+SuperMenu fonctionne en arrière-plan, depuis la zone de notification. Il
+traite le texte sélectionné dans n’importe quelle application : vous appuyez
+sur un raccourci, choisissez un prompt (une instruction enregistrée, comme
+« Corriger » ou « Traduire en anglais »), et la réponse de l’IA s’affiche ou
+remplace la sélection.
 
-### Principales fonctionnalités
-
-- **Menu contextuel intelligent** : Correction, reformulation, résumé, traduction, etc.
-- **Reconnaissance vocale** : Dictez vos commandes pour une utilisation mains libres
-- **Capture d'écran** : Analysez des images ou du texte à partir de captures d'écran
-- **Personnalisation** : Adaptez les prompts, raccourcis et comportements à vos besoins
+Les fonctions de base sont toujours disponibles. Deux groupes de fonctions
+s’activent séparément : les **fonctions avancées** (modèle et raccourci par
+prompt, mémoire des modèles locaux) et les **fonctions expérimentales** (voix,
+dictée, capture d’écran). Voir
+[Fonctions avancées et expérimentales](#fonctions-avancées-et-expérimentales).
 
 ## Installation
 
-### Méthode recommandée (installateur)
+### Configuration requise
 
-1. Exécutez le fichier d'installation `SuperMenu_Setup.exe`
-2. Suivez les instructions à l'écran
-3. Une fois l'installation terminée, SuperMenu démarrera automatiquement
+- Windows 10 ou 11, 64 bits ;
+- pour OpenAI : une clé API OpenAI, l’usage étant facturé par OpenAI ;
+- pour Ollama ou LM Studio : un serveur accessible depuis le PC ;
+- pour Foundry Local : Windows 11 24H2 ou plus récent ; 16 Go de RAM sont
+  conseillés pour Qwen3.5 4B et 24 Go pour Qwen3.5 9B.
 
-Notes :
+### Installateur
 
-- SuperMenu s'exécute ensuite en arrière-plan (icône dans la zone de notification).
-- Les logs sont disponibles dans `%LOCALAPPDATA%\SuperMenu\logs\supermenu.log`.
-- La configuration utilisateur est stockée dans `%USERPROFILE%\SuperMenu.ini`.
+1. Téléchargez `SuperMenu_Setup.exe` depuis la
+   [dernière release](https://github.com/lfpoulain/SuperMenu/releases/latest)
+   (`SuperMenu_Beta_Setup.exe` pour le canal Bêta).
+2. Lancez-le et acceptez la demande d’autorisation de Windows.
+3. Acceptez la licence, puis choisissez si besoin un raccourci sur le Bureau
+   et **Démarrer SuperMenu avec Windows**.
+4. À la fin, SuperMenu démarre et son icône apparaît dans la zone de
+   notification.
 
-### Installation manuelle (pour développeurs)
+Un installateur peut être lancé par-dessus une installation existante : la
+configuration, les prompts, les clés et les modèles locaux sont conservés.
 
-1. Installez Python 3.11 ou 3.12.
-2. Placez-vous dans le dossier `win32/` du dépôt.
-3. Créez un environnement : `python -m venv .venv`.
-4. Activez-le : `.venv\Scripts\activate`.
-5. Installez les dépendances et le cœur partagé :
-   `python -m pip install -r requirements-dev.txt`.
-6. Lancez l'application : `python run.py`.
+Les exécutables ne portent pas de signature Authenticode : Windows SmartScreen
+peut afficher un avertissement. Pour vérifier un fichier, comparez le résultat
+de `Get-FileHash .\SuperMenu_Setup.exe` à la ligne correspondante de
+`SHA256SUMS.txt`, publié dans la même release.
 
-## Mise à jour
+### Version portable
 
-SuperMenu propose deux canaux dans l'onglet **À propos** :
+`SuperMenu.exe` (ou `SuperMenu_Beta.exe`) fonctionne sans installation. Il
+utilise les mêmes emplacements de configuration et de journaux que la version
+installée. Il ne se met pas à jour lui-même : **Vérifier les mises à jour**
+signale une version plus récente et propose d’ouvrir la page des
+téléchargements.
 
-- **Stable — recommandé** : reçoit uniquement les releases officielles validées. Les préversions GitHub sont ignorées.
-- **Beta — versions de test** : reçoit le dernier build automatique après chaque push validé sur `main`. Ce canal permet de tester les nouveautés immédiatement mais peut contenir des régressions.
+### Une seule instance
 
-Changer de canal réinitialise la date de vérification afin que vous puissiez lancer immédiatement **Vérifier les mises à jour**. Les installateurs sont distincts : `SuperMenu_Setup.exe` pour Stable et `SuperMenu_Beta_Setup.exe` pour Beta.
+Un seul SuperMenu fonctionne à la fois par session Windows. Lancer
+l’application alors qu’elle tourne déjà affiche simplement sa fenêtre de
+configuration.
 
-La méthode recommandée est d'utiliser le canal Stable. Un installateur peut être exécuté par-dessus une installation existante.
+## La fenêtre de configuration
 
-La vérification utilise normalement un manifeste léger téléchargé avec la release et ne dépend donc pas du quota de l'API GitHub.
+Pour l’ouvrir, double-cliquez sur l’icône de la zone de notification ou
+choisissez **Ouvrir SuperMenu** dans son menu. Fermer la fenêtre laisse
+SuperMenu actif ; **Quitter**, dans le menu de l’icône, l’arrête.
 
-Les fichiers de configuration et les logs sont conservés lors d'une mise à jour.
+La fenêtre comporte quatre onglets :
 
-## Premier démarrage
+- **Prompts** : liste des prompts textuels et éditeur ;
+- **Voix** : prompts vocaux (fonctions expérimentales) ;
+- **Réglages**, en quatre rubriques :
+  - **Texte** : moteur de texte et modèle ;
+  - **Dictée** : microphone et moteur de transcription (fonctions
+    expérimentales) ;
+  - **Raccourcis** : raccourcis globaux, dictée instantanée et mode de capture
+    d’écran ;
+  - **Application** : thème, canal de mise à jour, interrupteurs **Fonctions**,
+    fenêtre de correction, import et export des prompts, dossiers et
+    réinitialisation ;
+- **À propos** : version, licence et lien vers les versions publiées.
 
-Lors du premier lancement, vous devrez configurer quelques éléments essentiels :
+Les options rarement utiles sont regroupées dans des sections repliables, comme
+**Options avancées**. **Enregistrer** valide les rubriques Texte et Dictée,
+**Appliquer** la rubrique Application ; un raccourci global s’applique dès
+qu’il est défini.
 
-### Configuration Initiale
+## Choisir le moteur de texte
 
-Lors du premier lancement de SuperMenu, ou en accédant aux paramètres via l'icône de la barre d'état système, une fenêtre de configuration s'ouvrira. Voici les principaux éléments à configurer :
+Dans **Réglages > Texte**, la liste **Moteur de texte** propose trois choix.
+Cliquez sur **Enregistrer** après chaque modification. Les nouvelles requêtes
+utilisent aussitôt la nouvelle configuration ; une requête déjà en cours
+termine avec l’ancienne.
 
-1.  **Clé API OpenAI** :
-    *   Indispensable pour que SuperMenu puisse communiquer avec les services OpenAI.
-    *   Entrez votre clé API dans le champ dédié. Elle sera stockée de manière sécurisée dans le trousseau de votre système.
+### OpenAI
 
-2.  **Modèle / Endpoint** :
-     *   Dans l'onglet "Modèles", choisissez :
-         * OpenAI (modèles disponibles dans l'interface)
-         * ou un endpoint personnalisé compatible OpenAI (ex : Ollama)
-     *   Modèles OpenAI proposés : `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` et `gpt-5.4`.
-     *   `gpt-5.6-sol` est le choix par défaut pour la qualité maximale, `terra` équilibre qualité et coût, et `luna` vise les usages rapides ou volumineux.
-     *   L'effort de raisonnement est enregistré séparément des réglages Ollama / LM Studio. Les modèles GPT-5.6 proposent `none`, `low`, `medium`, `high`, `xhigh` et `max`; GPT-5.4 propose les mêmes niveaux sauf `max`.
+1. Collez votre **Clé API**.
+2. Choisissez le **Modèle** : `gpt-5.6-sol` (qualité maximale, par défaut),
+   `gpt-5.6-terra` (équilibre entre qualité et coût), `gpt-5.6-luna` (rapide
+   et économique) ou `gpt-5.4`.
+3. Dans **Options avancées**, réglez si besoin le **Raisonnement** : `none`,
+   `low`, `medium`, `high`, `xhigh` ou `max` pour GPT-5.6 ; les mêmes niveaux
+   sauf `max` pour GPT-5.4.
 
-3.  **Raccourcis Clavier** :
-    *   **Raccourci Principal** : Pour afficher le menu contextuel après avoir sélectionné du texte (par défaut : `Ctrl+²`). Sur un clavier non AZERTY, `²` correspond à la touche située sous Échap (par exemple ``Ctrl+` `` en QWERTY ou `Ctrl+^` en QWERTZ).
-    *   **Raccourci Capture d'Écran** : Pour lancer l'outil de capture d'écran (par défaut : `Ctrl+Alt+&`). Disponible avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales).
-    *   **Raccourci Vocal** : Pour ouvrir le menu vocal (par défaut : `Ctrl+Alt+²`). Disponible avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales).
-    *   Règles : les raccourcis doivent contenir au moins un modificateur (`Ctrl`, `Alt` ou `Shift`). Les touches de fonction `F1` à `F24` sont prises en charge. `Shift` seul ne convient qu'aux touches `F1` à `F24` : une lettre, un chiffre, un symbole, Espace, Entrée ou une flèche doit être combiné avec `Ctrl` ou `Alt`, car Windows réserve la combinaison à SuperMenu dans toutes les applications (`Shift+K` empêcherait de taper un K majuscule). La touche `Win` n'est pas autorisée et les raccourcis à une seule touche ne sont pas supportés.
+Les anciens identifiants de modèles sont convertis automatiquement : anciens
+modèles phares vers Sol, variantes mini vers Terra, variantes nano vers Luna.
 
-4. **Dictée et transcription** :
-   * Disponible avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales).
-   * Dans **Réglages > Dictée**, choisissez OpenAI ou Foundry Local avec Nemotron. Ce choix est indépendant du moteur de texte.
-   * Sélectionnez le microphone puis utilisez **Tester le micro** : le niveau s'affiche pendant cinq secondes, sans sauvegarde ni envoi d'audio.
-   * Choisissez la langue. OpenAI accepte plusieurs langues attendues ; Nemotron accepte une langue ou la détection automatique.
-   * Avec Foundry Local, **Vérifier** indique si les composants et le modèle sont disponibles. Téléchargez-les si nécessaire ; le chargement en mémoire intervient ensuite pour dicter.
-   * Dans **Options avancées**, ajustez le vocabulaire, le contexte et le délai de déchargement du modèle local. Par défaut, il reste en mémoire cinq minutes après la dernière dictée. **Décharger maintenant** libère la mémoire sans supprimer les fichiers téléchargés. Le délai et **Décharger maintenant** n'apparaissent qu'avec les [fonctions avancées](#fonctions-avancées-et-expérimentales).
-   * Enregistrez les réglages avant de lancer une dictée.
-   * La dictée simple affiche son texte final dans la même fenêtre, avec **Copier** et **Insérer**. Vous pouvez retoucher le texte avant l’insertion.
-   * Dans **Après la dictée**, **Coller automatiquement** et **Corriger avec le moteur de texte avant d’insérer** sont deux options indépendantes. Une correction utilise le moteur choisi dans **Texte**. Un échec conserve votre dictée sans rien coller. Les prompts vocaux conservent leur fonctionnement propre.
-   * Dans **Réglages > Raccourcis > Dictée instantanée**, définissez un raccourci facultatif, sans passer par le menu. Choisissez **Appuyer une fois** (arrêt avec **Terminer**) ou **Maintenir pour parler** (arrêt au relâchement). Attendez **À l’écoute** avant de parler ; un relâchement pendant le chargement annule le démarrage.
+### Ollama / LM Studio
 
-5. **Mémoire du modèle texte Foundry** : disponible avec les [fonctions avancées](#fonctions-avancées-et-expérimentales). Dans **Texte > Foundry Local > Matériel et mémoire du modèle**, choisissez un déchargement après chaque requête, après 1/5/15/30 minutes d’inactivité, ou à la fermeture. Le délai par défaut est de cinq minutes. **Décharger maintenant** libère la RAM/VRAM quand aucune requête n’est en cours ; les modèles restent téléchargés. Sans les fonctions avancées, ce volet s’appelle **Matériel du modèle** et ne propose ni délai ni **Décharger maintenant** : le modèle se décharge après cinq minutes d’inactivité.
+1. Saisissez l’**URL de l’endpoint**, par exemple `http://localhost:11434`
+   pour Ollama.
+2. Dans **Options avancées**, choisissez le **Type d’endpoint** (**Ollama** ou
+   **LM Studio / Bionic**), un éventuel **Jeton de l’endpoint** et le réglage
+   **Raisonnement / think**, adapté aux capacités annoncées par le modèle.
+   Choisissez **LM Studio / Bionic** pour LM Studio, Bionic ou tout autre
+   serveur compatible OpenAI, et **Ollama** pour un serveur Ollama.
+3. Choisissez le **Modèle**, ou cliquez sur **Actualiser** pour interroger le
+   serveur. Vous pouvez aussi saisir un nom de modèle.
 
-### Configuration de l'API
+Avec LM Studio, SuperMenu utilise l’API native du serveur, avec un repli
+compatible OpenAI pour les anciennes versions. Une adresse saisie avec
+`/api/v1` fonctionne aussi. Les modèles partagés par d’autres postes via
+**LM Link** apparaissent avec leur provenance, par exemple « Sur … (LM Link) » ;
+**Nommer ce poste distant…** leur donne un nom lisible.
 
-1. Ouvrez les paramètres de SuperMenu
-2. Allez dans **Réglages > Texte**
-3. Renseignez la clé API (si vous utilisez OpenAI)
-4. Sélectionnez un modèle
-5. (Optionnel) activez un endpoint personnalisé et configurez l'URL + le modèle
+Avec Ollama, SuperMenu lit les capacités du modèle. Qwen 3 et DeepSeek
+reçoivent l’interrupteur `think` ; GPT-OSS reçoit toujours un niveau (`low`,
+`medium` ou `high`), car son raisonnement ne peut pas être désactivé : le choix
+`none` envoie `low` et masque la trace. Un modèle sans raisonnement ne reçoit
+aucun paramètre superflu.
 
-### Vérification des raccourcis clavier
+Le jeton de l’endpoint est distinct de la clé OpenAI. La clé OpenAI n’est
+jamais envoyée à un autre serveur.
 
-Par défaut, SuperMenu utilise les raccourcis suivants :
-- **Ctrl+²** : Menu contextuel pour le texte sélectionné
-- **Ctrl+Alt+&** : Capture d'écran (avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales))
-- **Ctrl+Alt+²** : Reconnaissance vocale (avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales))
+### IA locale Microsoft — Foundry Local
 
-Vous pouvez les modifier dans l'onglet "Réglages" des paramètres.
+Foundry Local exécute Qwen3.5 4B ou 9B sur le PC, sans clé API ni serveur. La
+préparation se fait en trois temps : **Vérifier le modèle**, **Télécharger le
+modèle** si nécessaire, puis **Enregistrer**. Configuration, limites et
+mémoire du modèle : voir [Foundry Local sous Windows](foundry-local.md).
 
-Notes importantes :
-- Les raccourcis sont enregistrés au niveau Windows (raccourcis globaux).
-- Si un raccourci est déjà utilisé par une autre application, SuperMenu ne pourra pas l'enregistrer.
-- Certaines touches dépendent de la disposition clavier (ex : `²`, `&` en AZERTY). Si vous changez de layout, ajustez le raccourci.
-- Sur un clavier non AZERTY, `Ctrl+²` et `Ctrl+Alt+²` utilisent la touche située sous Échap (par exemple ``Ctrl+` `` en QWERTY ou `Ctrl+^` en QWERTZ).
+### Réponses interrompues et délais
 
-### Fonctions avancées et expérimentales
+Si le serveur coupe une réponse avant la fin (limite de longueur ou de
+contexte), SuperMenu affiche une erreur qui indique quoi changer, par exemple
+augmenter la taille de contexte du modèle dans LM Studio. Une réponse
+incomplète n’est jamais insérée.
 
-SuperMenu affiche l’essentiel par défaut. Dans **Réglages > Application > Fonctions**, deux interrupteurs indépendants ajoutent des fonctions. Cochez ou décochez, puis cliquez sur **Appliquer** : le changement est immédiat, sans redémarrage.
+Une génération lente n’est pas relancée : SuperMenu attend jusqu’à trois
+minutes (cinq avec LM Studio), puis affiche un message clair. Les erreurs de
+connexion et les surcharges momentanées du serveur sont retentées
+automatiquement.
 
-- **Fonctions avancées** : modèle, fournisseur ou poste LM Link choisi pour chaque prompt, texte ou vocal ; raccourci direct par prompt ; durée de conservation en mémoire des modèles locaux (modèle texte Foundry Local et modèle vocal). Désactivées, chaque prompt utilise le moteur et le modèle des réglages **Texte**, éventuellement en ligne, les raccourcis par prompt sont inactifs et les modèles locaux se déchargent après cinq minutes d’inactivité. Le raisonnement par prompt reste toujours disponible.
-- **Fonctions expérimentales** : prompts vocaux (onglet **Voix**, menu vocal et son raccourci), dictée instantanée, rubrique **Dictée** (moteur, micro et test du micro), capture et analyse d’écran (raccourci et mode de capture). Désactivées, leurs raccourcis ne sont pas réservés auprès de Windows.
+## Fonctions avancées et expérimentales
 
-Une nouvelle installation démarre avec les deux interrupteurs désactivés. Une mise à jour depuis une version précédente les active tous les deux : aucune fonction déjà utilisée ne disparaît.
+SuperMenu affiche l’essentiel par défaut. Dans **Réglages > Application >
+Fonctions**, deux interrupteurs indépendants ajoutent des fonctions. Cochez ou
+décochez, puis cliquez sur **Appliquer** : le changement est immédiat, sans
+redémarrage.
 
-Désactiver une fonction ne supprime rien. Prompts vocaux, raccourcis, modèles choisis par prompt et délais de déchargement sont conservés, restent dans l’export des prompts et réapparaissent tels quels à la réactivation. Si des prompts ont leur propre modèle, SuperMenu demande confirmation avant de désactiver les fonctions avancées. **Réinitialiser tous les paramètres** garde le choix de ces interrupteurs, mais remet à zéro les réglages masqués, comme **Tout restaurer…** pour les prompts ; une copie des prompts reste disponible avec **Revenir à la copie…**.
+**Fonctions avancées**
+
+- modèle, fournisseur ou poste LM Link choisi pour chaque prompt, textuel ou
+  vocal ;
+- raccourci direct par prompt ;
+- durée de conservation en mémoire du modèle texte Foundry Local et du modèle
+  vocal Nemotron.
+
+Quand elles sont désactivées, chaque prompt utilise le moteur et le modèle
+des réglages **Texte**, les raccourcis de prompts ne sont pas enregistrés auprès de Windows
+et les modèles locaux se déchargent après cinq minutes d’inactivité. Le
+raisonnement par prompt reste toujours disponible.
+
+**Fonctions expérimentales**
+
+- onglet **Voix** (prompts vocaux), menu vocal et son raccourci ;
+- dictée instantanée ;
+- rubrique **Dictée** : moteur de transcription, microphone et test du micro ;
+- capture et analyse d’écran : raccourci et mode de capture.
+
+Quand elles sont désactivées, ces éléments sont masqués et leurs raccourcis
+ne sont pas réservés auprès de Windows. Une vérification du moteur vocal ou un test du
+micro en cours s’arrête, et le modèle vocal inactif est déchargé.
+
+**Valeurs initiales.** Une nouvelle installation démarre avec les deux
+interrupteurs désactivés. Une mise à jour depuis une version précédente les
+active tous les deux : aucune fonction déjà utilisée ne disparaît.
+
+**Rien n’est supprimé.** Prompts vocaux, raccourcis, modèles choisis par
+prompt et délais de déchargement sont conservés, restent dans l’export des
+prompts et réapparaissent tels quels à la réactivation. Si des prompts ont
+leur propre modèle, SuperMenu demande confirmation avant de désactiver les
+fonctions avancées, car ils utiliseront alors le moteur des réglages Texte,
+éventuellement en ligne.
+
+Si un raccourci ne peut pas être réactivé après **Appliquer**, une alerte
+**Raccourcis inactifs** les énumère ; choisissez-en un autre dans **Réglages >
+Raccourcis** ou dans l’onglet **Prompts**.
+
+## Raccourcis clavier
+
+### Valeurs par défaut
+
+| Action | Raccourci | Disponible |
+|---|---|---|
+| Menu des prompts | `Ctrl+²` | toujours |
+| Mode personnalisé | `Ctrl+Alt+M` | toujours |
+| Menu vocal | `Ctrl+Alt+²` | fonctions expérimentales |
+| Capture d’écran | `Ctrl+Alt+&` | fonctions expérimentales |
+| Dictée instantanée | aucun | fonctions expérimentales |
+| Raccourci direct d’un prompt | aucun | fonctions avancées |
+
+Pour modifier un raccourci, ouvrez **Réglages > Raccourcis**, cliquez sur
+**Définir** et appuyez sur la combinaison voulue. Pendant l’enregistrement,
+les autres raccourcis de SuperMenu sont libérés ; une combinaison déjà prise
+par un autre raccourci de SuperMenu est refusée. **Afficher le menu des
+prompts** teste le menu sans passer par le raccourci global.
+
+### Règles
+
+- Un raccourci combine au moins un modificateur (`Ctrl`, `Alt` ou `Shift`) et
+  une touche. La touche `Win` n’est pas acceptée.
+- `Shift` seul ne convient qu’aux touches `F1` à `F24`. Une lettre, un
+  chiffre, un symbole, Espace, Entrée ou une flèche doit être combiné avec
+  `Ctrl` ou `Alt` : Windows réserve la combinaison dans toutes les
+  applications, et `Shift+K` empêcherait de taper un K majuscule.
+- La majuscule d’une lettre n’ajoute pas `Shift` : `Ctrl+Alt+C` se tape avec
+  Ctrl, Alt et C.
+- Une combinaison déjà utilisée par Windows ou par une autre application ne
+  peut pas être enregistrée.
+
+### Dispositions de clavier
+
+`²` et `&` sont des touches du clavier AZERTY. Sur une autre disposition :
+
+- sans touche `²` (QWERTY par exemple), `Ctrl+²` et `Ctrl+Alt+²` utilisent la
+  touche physique située sous Échap : ``Ctrl+` `` et ``Ctrl+Alt+` `` en
+  QWERTY ;
+- quand `²` ne s’obtient qu’avec AltGr (QWERTZ allemand, AltGr+2), `Ctrl+²`
+  utilise aussi la touche sous Échap (`Ctrl+^`), tandis que `Ctrl+Alt+²` reste
+  `Ctrl+Alt+2`, c’est-à-dire AltGr+2 ;
+- les autres caractères suivent la disposition active : en QWERTY,
+  `Ctrl+Alt+&` correspond à `Ctrl+Alt+Shift+7`.
+
+Les réglages affichent toujours le raccourci tel qu’il a été enregistré, par
+exemple `Ctrl+²`. Si vous changez souvent de disposition, préférez une
+combinaison de lettres, comme `Ctrl+Alt+M`.
+
+### Raccourcis inactifs
+
+Un raccourci que Windows refuse reste enregistré mais inactif :
+
+- au démarrage, une notification liste les raccourcis principaux inactifs et
+  le nombre de raccourcis de prompts concernés ;
+- dans **Réglages > Raccourcis**, il apparaît suivi de « (inactif) », et
+  l’infobulle donne la raison ;
+- après **Appliquer**, l’alerte **Raccourcis inactifs** les énumère.
+
+Choisissez alors une autre combinaison.
 
 ## Utilisation quotidienne
 
-### Menu contextuel
+### Menu des prompts
 
-1. Sélectionnez du texte dans n'importe quelle application
-2. Appuyez sur **Ctrl+²** (ou votre raccourci personnalisé ; sur un clavier non AZERTY, la touche située sous Échap remplace `²`)
-3. Choisissez l'action souhaitée dans le menu qui apparaît
-4. Le résultat s'affiche dans une fenêtre dédiée ou est inséré directement
+1. Sélectionnez du texte dans n’importe quelle application.
+2. Appuyez sur `Ctrl+²`.
+3. Choisissez un prompt dans le menu affiché au curseur.
+4. La réponse s’affiche dans la fenêtre de réponse, ou remplace la sélection
+   si le prompt utilise l’insertion directe.
 
-Si vous cliquez en dehors du menu ou si vous changez de fenêtre sans sélectionner d'action, le menu se ferme automatiquement.
+Si aucun texte n’a pu être lu, les prompts sont grisés ; **Mode
+personnalisé…** reste disponible. Le menu se ferme si vous cliquez ailleurs
+ou changez de fenêtre.
+
+Avant de copier la sélection, SuperMenu attend que vous relâchiez Shift, Alt
+et Win (et aussi Ctrl pour un raccourci de prompt), deux secondes au plus.
+Sinon, l’application recevrait une autre combinaison, comme `Ctrl+Alt+C`. Si
+les touches restent enfoncées, le message « Relâchez les touches puis
+réessayez » s’affiche ; si la fenêtre active change pendant l’attente, le
+raccourci est ignoré.
+
+### Fenêtre de réponse
+
+- **Réessayer** renvoie la même requête, avec le même modèle et le même
+  raisonnement ;
+- **Copier** place la réponse dans le presse-papiers ;
+- **Voir le raisonnement** affiche ou masque le raisonnement renvoyé par un
+  modèle compatible ;
+- **Insérer le texte** colle la réponse dans l’application d’où la requête
+  est partie.
+
+En cas d’échec, la fenêtre affiche « Échec de la requête » et le message
+d’erreur : **Copier** et **Réessayer** restent disponibles, **Insérer le
+texte** est désactivé.
+
+Pour retrouver la dernière réponse, choisissez **Afficher la dernière
+réponse** dans le menu de l’icône, ou **Ouvrir la fenêtre de correction** dans
+**Réglages > Application > Fenêtre de correction**.
+
+### Insertion directe
+
+Un prompt dont l’option **Insérer le résultat sans ouvrir la fenêtre de
+réponse** est cochée remplace directement la sélection. Un petit indicateur
+près du curseur confirme l’envoi et la progression.
+
+Au lancement, SuperMenu mémorise la fenêtre et le champ actifs. Au moment de
+coller, il réactive cette fenêtre et vérifie qu’elle appartient toujours à la
+même application et que le même champ a le focus. Sinon, l’insertion est
+annulée et la réponse n’est pas perdue : elle s’affiche dans la fenêtre de
+réponse, avec **Réessayer** et **Insérer le texte**, ou elle est copiée dans
+le presse-papiers si cette fenêtre attend déjà une autre réponse. Un message
+indique où la retrouver. Une réponse n’est jamais collée dans une fenêtre
+devenue active entre-temps, ni quand aucune fenêtre cible n’avait été
+mémorisée au lancement.
+
+Pour obtenir un texte prêt à insérer, rédigez le prompt pour qu’il renvoie
+seulement le résultat, sans explication.
+
+### Mode personnalisé
+
+Appuyez sur `Ctrl+Alt+M` ou choisissez **Mode personnalisé…** dans le menu.
+Une boîte de dialogue montre la sélection éventuelle, telle qu’elle sera
+envoyée, et vous permet de saisir une instruction libre, par exemple
+« Transforme ces notes en liste d’actions ».
 
 ### Raccourcis directs par prompt
 
 Disponibles avec les [fonctions avancées](#fonctions-avancées-et-expérimentales).
 
-1. Dans l'onglet **Prompts**, sélectionnez un prompt puis cliquez sur **Définir** à côté de **Raccourci direct**.
-2. Saisissez la combinaison voulue et enregistrez le prompt.
-3. Sélectionnez du texte dans n'importe quelle application.
-4. Appuyez sur le raccourci de ce prompt.
-5. Le raccourci lance le prompt sans afficher le menu :
-   - si **Insérer directement** est coché, une petite notification confirme l'envoi puis le résultat remplace la sélection ;
-   - si l'option est décochée, la fenêtre de réponse s'ouvre et affiche le résultat.
+1. Dans l’onglet **Prompts**, sélectionnez un prompt.
+2. À côté de **Raccourci direct**, cliquez sur **Définir** et appuyez sur la
+   combinaison voulue, puis enregistrez le prompt.
+3. Sélectionnez du texte dans une application et appuyez sur ce raccourci.
 
-Chaque prompt peut avoir son propre raccourci, ou aucun. Deux prompts ne peuvent pas partager la même combinaison. En cas de conflit avec Windows, une autre application ou un raccourci principal de SuperMenu, l'ancien réglage est conservé.
+Le prompt démarre sans afficher le menu et respecte son option d’insertion
+directe. Deux prompts ne peuvent pas partager une combinaison. En cas de
+conflit avec Windows, une autre application ou un raccourci principal de
+SuperMenu, la modification est refusée et l’ancien réglage est conservé.
 
-### Reconnaissance vocale
+## Presse-papiers et applications particulières
 
-Disponible avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales), comme la capture d'écran.
+SuperMenu lit la sélection en simulant une copie et insère une réponse en
+simulant un collage.
 
-1. Appuyez sur **Ctrl+Alt+²** (ou votre raccourci personnalisé), puis choisissez l'action vocale
-2. Attendez **À l'écoute** avant de parler. Le modèle local déjà en mémoire est réutilisé
-3. La fenêtre affiche le texte en direct, le niveau du microphone et la durée, limitée à cinq minutes de capture
-4. Cliquez sur **Terminer** pour finaliser, ou sur **Annuler** pour abandonner la dictée et arrêter le microphone
-5. La finalisation intègre les derniers mots ; vous pouvez copier le texte affiché
-6. Avec la dictée simple, la transcription s'ouvre dans la fenêtre de réponse : vous pouvez la relire, la copier ou cliquer sur **Écrire**
-7. Avec un prompt vocal, la transcription est traitée selon les options de ce prompt
+- **Votre presse-papiers est préservé.** Avant de copier ou de coller,
+  SuperMenu sauvegarde son contenu avec tous ses formats (texte, texte mis en
+  forme, images). Il le restaure ensuite, seulement si personne ne l’a modifié
+  entre-temps.
+- **Historique et cloud.** Les écritures internes de SuperMenu (le marqueur de
+  copie et la réponse à coller) sont exclues de l’historique `Win+V` et de la
+  synchronisation du presse-papiers dans le cloud. Votre propre contenu,
+  restauré, y revient comme avant.
+- **Toutes les dispositions.** La copie et le collage utilisent les touches
+  physiques C et V : ils fonctionnent aussi avec un clavier cyrillique, grec
+  ou hébreu.
+- **Terminaux.** Les consoles Windows et Windows Terminal reçoivent
+  `Ctrl+Insert`, puis `Ctrl+Shift+C` si nécessaire. mintty (Git Bash), PuTTY,
+  KiTTY et WezTerm ne reçoivent que `Ctrl+Insert`. Aucun de ces terminaux ne
+  reçoit `Ctrl+C`, qui interromprait le programme en cours. Le terminal
+  intégré de VS Code ne se distingue pas de l’éditeur et reçoit `Ctrl+C` :
+  sélectionnez toujours du texte avant d’appeler SuperMenu dans ce terminal.
+- **Bureau à distance, Citrix et VMware.** SuperMenu attend plus longtemps
+  avant de restaurer le presse-papiers, le temps que la session distante lise
+  la réponse à coller.
+- **Pas d’accès aux fichiers.** Un texte sélectionné qui ressemble à un chemin
+  de fichier reste du texte : SuperMenu ne l’ouvre jamais.
 
-La préparation du moteur ne compte pas dans les cinq minutes de capture. Aucun
-fichier audio n'est sauvegardé. Avec OpenAI, le son est transmis au service ; avec
-Nemotron, il est traité sur le PC. Les mots-clés doivent rester courts et
-correspondre à des termes susceptibles d'être prononcés.
+## Gérer les prompts
 
-### Capture d'écran
+### Modifier un prompt
+
+L’onglet **Prompts** affiche la liste à gauche et l’éditeur à droite. Le champ
+**Rechercher un prompt…** filtre la liste, et l’ordre se change par
+glisser-déposer : c’est celui du menu. **Ajouter** crée un prompt,
+**Supprimer** en retire un après confirmation.
+
+Champs d’un prompt :
+
+- **Nom** : libellé affiché dans le menu ;
+- **Instructions** : texte envoyé au modèle avec la sélection, conservé tel
+  quel, balises HTML ou XML comprises ;
+- **Modèle de texte pour ce prompt** : fonctions avancées, voir plus bas ;
+- **Raisonnement (si disponible)** : voir plus bas ;
+- **Message pendant le traitement** : texte affiché pendant l’attente ;
+- **Insérer le résultat sans ouvrir la fenêtre de réponse** : insertion
+  directe ;
+- **Raccourci direct** : fonctions avancées.
+
+Cliquez sur **Enregistrer** pour valider le prompt.
+
+### Raisonnement par prompt
+
+**Raisonnement (si disponible)** propose trois choix :
+
+- **Réglage du moteur** : comportement des réglages Texte ;
+- **Sans raisonnement** : réponse plus rapide, adaptée à « Corriger » ;
+- **Avec raisonnement** : adapté à une analyse ou à une extraction de chiffres.
+
+Ce choix agit sur OpenAI, Ollama, LM Studio et Foundry Local (Qwen3.5), selon
+les capacités du modèle ; certains modèles, comme GPT-OSS, imposent un
+raisonnement minimal. Il est enregistré avec le prompt, conservé à l’export
+et réutilisé par **Réessayer**. L’affichage du raisonnement suit le mode
+réellement demandé. Le raisonnement peut allonger le traitement ; l’insertion
+conserve uniquement la réponse finale.
+
+### Modèle par prompt
+
+Disponible avec les [fonctions avancées](#fonctions-avancées-et-expérimentales).
+**Modèle de texte pour ce prompt** propose :
+
+- **Utiliser le réglage général** (par défaut) ;
+- **LM Studio / Ollama — serveur configuré** : un modèle, et éventuellement
+  un poste LM Link, du serveur défini dans **Réglages > Texte** ;
+- **OpenAI** : un des modèles OpenAI ;
+- **Foundry Local — sur ce PC** : Qwen3.5 4B ou 9B.
+
+Un prompt LM Studio / Ollama suit toujours le serveur des réglages Texte : son
+adresse n’est pas enregistrée dans le prompt. **Actualiser** interroge le
+serveur actuel, et un poste LM Link ne peut être choisi que si ce serveur est
+LM Studio. Le niveau de raisonnement OpenAI des réglages Texte n’est jamais
+modifié par le modèle choisi pour un prompt.
+
+### Réinitialiser, restaurer, revenir à une copie
+
+- **Réinitialiser** rétablit le prompt d’origine sélectionné, après
+  confirmation.
+- **Tout restaurer…** remplace la liste de l’onglet (Prompts ou Voix) par les
+  prompts d’origine, après confirmation. Les prompts personnels sont retirés ;
+  les réglages des moteurs ne changent pas.
+- **Revenir à la copie…** remet la copie précédente de la liste, après
+  confirmation ; le message indique sa date, son origine et le nombre de
+  prompts. La liste remplacée est elle-même gardée en copie. Chaque nouvel
+  usage remonte d’une copie, jusqu’à la plus ancienne des cinq conservées.
+
+SuperMenu garde les cinq dernières copies de chaque liste. Une copie est
+faite avant une restauration, un import ou une réinitialisation de tous les
+paramètres, et lorsqu’une configuration partiellement illisible est lue. Ces
+copies sont stockées dans le fichier de configuration (`prompts_backups` et
+`voice_prompts_backups`).
+
+Une entrée illisible dans la configuration n’efface jamais les autres
+prompts : elle est réparée avec des valeurs par défaut ou écartée, et une
+copie de la liste d’origine est conservée. Si la configuration ne peut pas
+être écrite (fichier en lecture seule ou disque plein), un import ou une
+restauration est annulé avec un message, sans rien modifier.
+
+### Importer et exporter
+
+**Importer** et **Exporter** se trouvent sous la liste des onglets Prompts et
+Voix, ainsi que dans **Réglages > Application > Importer ou exporter les
+prompts**. Un seul fichier JSON contient les prompts textuels et vocaux ; il
+s’échange entre Windows et macOS.
+
+- L’import vérifie tout le fichier avant d’écrire. Une erreur nomme le prompt
+  concerné et ne modifie rien. Un prompt sans instruction est accepté comme
+  brouillon. Les fichiers UTF-8, avec ou sans BOM, sont acceptés.
+- Une copie de vos prompts est gardée avant l’import (voir **Revenir à la
+  copie…**).
+- **Aucune adresse de serveur n’est échangée.** L’export n’en contient pas et
+  l’import ignore celles qu’un fichier contiendrait : un prompt LM Studio /
+  Ollama importé utilise votre serveur des réglages Texte, avec votre jeton.
+  Le moteur, le modèle et le poste LM Link de chaque prompt sont repris. Un
+  fichier importé ne peut donc viser que les moteurs déjà configurés dans vos
+  réglages. Avec les fonctions avancées, un prompt importé peut toutefois
+  utiliser OpenAI si votre clé est enregistrée, même si votre moteur Texte est
+  local : vérifiez le modèle des prompts importés.
+
+## Voix et dictée
+
+Disponibles avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales).
+Le moteur de transcription se choisit indépendamment du moteur de texte.
+
+### Régler la dictée
+
+Dans **Réglages > Dictée** :
+
+1. Choisissez le **Microphone** (**Actualiser** relit la liste), puis cliquez
+   sur **Tester le micro** : le niveau s’affiche pendant cinq secondes, sans
+   enregistrement ni envoi d’audio.
+2. Choisissez le **Moteur de transcription** :
+   - **OpenAI · en ligne** : GPT Live Transcribe, avec votre clé OpenAI ;
+     l’audio est envoyé à OpenAI et facturé selon votre usage ;
+   - **Nemotron 3.5 · sur ce PC** : Foundry Local, votre voix reste sur le PC ;
+     le modèle de 756 Mo se télécharge une fois.
+3. Choisissez la **Langue**. OpenAI accepte plusieurs langues attendues ;
+   Nemotron accepte une langue ou la détection automatique.
+4. Avec Nemotron, cliquez sur **Vérifier le moteur**, puis sur **Télécharger
+   le modèle** si nécessaire. La préparation affiche chaque étape :
+   vérification des fichiers, activation du GPU, téléchargement, puis
+   chargement en mémoire.
+5. Cliquez sur **Enregistrer**. Tant que la page diffère des réglages
+   enregistrés, « Modifications non enregistrées » s’affiche.
+
+**Options avancées** contient le **Calcul local** (**Automatique — CUDA en
+priorité** ou **CPU uniquement**), le vocabulaire et le contexte facultatifs
+pour OpenAI et, avec les fonctions avancées, la mémoire du modèle vocal. Les
+mots-clés doivent rester courts et correspondre à des termes susceptibles
+d’être prononcés.
+
+### Dicter du texte
+
+1. Appuyez sur `Ctrl+Alt+²` et choisissez **Dicter du texte…**.
+2. Attendez **À l’écoute** avant de parler. La préparation du moteur ne compte
+   pas dans la durée de dictée.
+3. Le texte apparaît pendant que vous parlez, avec le niveau du microphone.
+4. **Terminer** arrête le microphone et finalise la transcription ;
+   **Annuler** abandonne la dictée.
+5. Le texte final reste dans la même fenêtre : retouchez-le si besoin, puis
+   cliquez sur **Copier** ou **Insérer**.
+
+Une dictée dure au plus cinq minutes. Aucun fichier audio n’est enregistré.
+
+### Après la dictée
+
+Dans **Réglages > Dictée > Après la dictée**, deux options indépendantes :
+
+- **Coller automatiquement quand la dictée se termine** ;
+- **Corriger avec le moteur de texte avant d’insérer** : le bouton devient
+  **Corriger et insérer**.
+
+La correction utilise le raisonnement du prompt « Corriger » et, avec les
+fonctions avancées, le modèle choisi pour ce prompt ; sinon, le moteur et le
+modèle des réglages Texte. Si la correction échoue, votre dictée est
+conservée et rien n’est collé. Ces options ne changent pas les prompts
+vocaux.
+
+### Prompts vocaux
+
+Un prompt vocal applique une instruction au texte dicté, par exemple
+« Résume ». L’onglet **Voix** les crée et les modifie, avec les mêmes champs
+que les prompts textuels et deux options :
+
+- **Inclure le texte sélectionné dans la requête vocale** ;
+- **Ordre des éléments** : ordre de l’instruction, de la dictée et de la
+  sélection.
+
+Changer de prompt avec des modifications en cours demande s’il faut
+**Enregistrer**, **Ignorer** ou **Annuler**.
+
+Pour lancer un prompt vocal, appuyez sur `Ctrl+Alt+²` et choisissez-le dans le
+menu vocal. **Prompt vocal personnalisé…** dicte une instruction ponctuelle.
+La transcription est ensuite traitée par le moteur de texte, selon les options
+du prompt.
+
+### Dictée instantanée
+
+Dans **Réglages > Raccourcis > Dictée instantanée**, cliquez sur **Définir**
+pour choisir un raccourci, aucun n’étant défini au départ. Il lance une dictée
+depuis l’application où vous écrivez, sans passer par le menu. Deux modes :
+
+- **Appuyer une fois — arrêter avec Terminer** ;
+- **Maintenir pour parler — relâcher pour terminer**.
+
+Attendez **À l’écoute** avant de parler. Relâcher le raccourci pendant la
+préparation annule le démarrage.
+
+### Mémoire du modèle vocal
+
+Le modèle Nemotron reste en mémoire entre deux dictées, puis se décharge après
+cinq minutes d’inactivité. Avec les
+[fonctions avancées](#fonctions-avancées-et-expérimentales), **Options
+avancées** propose **Décharger le modèle vocal après** (chaque dictée, 1, 5,
+15 ou 30 minutes d’inactivité, ou à la fermeture de SuperMenu) et **Décharger
+maintenant**, qui libère la mémoire sans supprimer le modèle téléchargé. Le
+microphone reste arrêté entre les dictées.
+
+## Capture d’écran
 
 Disponible avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales).
 
-1. Appuyez sur **Ctrl+Alt+&** (ou votre raccourci personnalisé)
-2. Selon le réglage choisi, SuperMenu capture :
-   - plein écran
-   - ou une zone sélectionnée à la souris
-   - ou vous demande à chaque fois (menu de choix au curseur)
-3. Saisissez un prompt (GodMode) pour décrire/analyser l'image
-4. La réponse s'affiche dans la fenêtre de réponse
+1. Appuyez sur `Ctrl+Alt+&`.
+2. SuperMenu capture l’image selon le mode choisi.
+3. Saisissez une instruction, par exemple « Décris cette image » ou « Extrais
+   le texte ».
+4. La réponse s’affiche dans la fenêtre de réponse ; **Réessayer** réutilise
+   la même image.
 
-Note : si le mode est réglé sur "demander à chaque capture", le menu de choix (plein écran / sélection de zone) se ferme automatiquement si vous cliquez en dehors ou changez de fenêtre.
+Le mode se règle dans **Réglages > Raccourcis > Capture d’écran**, puis
+**Enregistrer le mode de capture** :
 
-## Personnalisation
+- **Plein écran** : l’écran principal ;
+- **Sélection de zone** : sur l’écran où se trouve le curseur, au pixel près,
+  y compris avec une mise à l’échelle de 125 ou 150 % ;
+- **Demander à chaque capture** : un menu au curseur propose les deux choix.
 
-### Thèmes visuels
+La fenêtre de réponse est masquée pendant la capture. L’image est envoyée au
+moteur de texte : choisissez un modèle qui accepte les images, comme les
+modèles OpenAI. Foundry Local ne traite pas les images. Le fichier temporaire
+de la capture est supprimé aussitôt après sa conversion.
 
-SuperMenu propose trois thèmes :
-- **Sombre**
-- **Clair**
-- **Automatique (Système)**
+## Apparence
 
-Pour changer de thème :
-1. Ouvrez les paramètres
-2. Dans l'onglet "Réglages", section "Thème de l'application"
-3. Sélectionnez le thème souhaité et cliquez sur "Appliquer le thème"
-4. Redémarrez l'application si SuperMenu le propose
+Dans **Réglages > Application > Interface et mises à jour**, choisissez le
+**Thème** (**Sombre**, **Clair** ou **Automatique (Système)**), puis cliquez
+sur **Appliquer**. Le thème change immédiatement.
 
-### Personnalisation des prompts textuels
+## Mises à jour
 
-1. Ouvrez les paramètres
-2. Allez dans l'onglet "Prompts"
-3. Sélectionnez un prompt existant ou cliquez sur "Ajouter un prompt"
-4. Modifiez les champs selon vos besoins :
-   - **Nom** : Nom affiché dans le menu
-   - **Prompt** : Instructions envoyées à l'API
-   - **Message d'attente** : Texte affiché pendant le traitement
-   - **Insérer directement** : Cochez pour insérer la réponse sans afficher de fenêtre
-   - **Raccourci direct** : Combinaison optionnelle propre à ce prompt, sans menu intermédiaire ; elle respecte le réglage **Insérer directement**. Disponible avec les [fonctions avancées](#fonctions-avancées-et-expérimentales)
-   - **Position** : Ordre d'apparition dans le menu (plus petit = plus haut)
+- **Stable** : versions validées, recommandées pour un usage quotidien.
+- **Bêta** : version reconstruite automatiquement après chaque modification
+  de `main` dont la CI réussit ; elle permet de tester les nouveautés et peut
+  contenir des régressions.
 
-### Personnalisation des prompts vocaux
+Le **Canal de mise à jour** se choisit dans **Réglages > Application >
+Interface et mises à jour** et s’enregistre immédiatement. **Vérifier les
+mises à jour**, sur cette page ou dans le menu de l’icône, lance une
+vérification. La version installée vérifie aussi discrètement au démarrage de
+SuperMenu, au plus une fois par jour, et ne se manifeste que si une mise à
+jour existe.
 
-Disponible avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales).
+Quand une version plus récente existe, SuperMenu propose de la télécharger :
 
-1. Ouvrez les paramètres
-2. Allez dans l'onglet "Prompts Vocaux"
-3. Configurez de la même manière que les prompts textuels
-4. Options supplémentaires :
-   - **Inclure le texte sélectionné** : Ajoute le texte sélectionné à la requête
-   - **Ordre des éléments** : Définit l'ordre du prompt, de la transcription et du texte sélectionné
+1. L’installateur est téléchargé dans un dossier temporaire privé.
+2. Son empreinte SHA-256 est comparée à celle publiée avec la release. Un
+   fichier différent est supprimé et refusé.
+3. SuperMenu demande s’il faut lancer l’installation, vérifie l’empreinte une
+   dernière fois, lance l’installateur et se ferme.
+4. Windows demande la confirmation administrateur. Après l’installation,
+   SuperMenu redémarre avec vos droits habituels, jamais en administrateur.
 
-### Modifier le modèle OpenAI utilisé
+Si une nouvelle Bêta paraît pendant le téléchargement, le fichier obtenu est
+supprimé : relancez **Vérifier les mises à jour**. Si GitHub limite
+temporairement les requêtes, le message indique l’heure de reprise et un lien
+vers les releases.
 
-Dans l'onglet "Modèles", sélectionnez le modèle et son effort de raisonnement, puis enregistrez. Les anciennes sélections sont migrées automatiquement selon leur rôle : anciens modèles phares vers Sol, variantes mini vers Terra et variantes nano vers Luna.
+## Données et confidentialité
 
-Avec LM Studio 0.4 ou plus récent, SuperMenu utilise l'API REST native et adapte le réglage de raisonnement aux capacités annoncées par le modèle. Par exemple, un modèle limité à `off/on` reçoit ces valeurs même si l'interface utilise `none/low/medium/high`. Les anciennes versions de LM Studio restent prises en charge via un repli compatible OpenAI. Aucune limite fixe de 2 048 tokens n'est appliquée aux réponses LM Studio.
+| Élément | Emplacement |
+|---|---|
+| Configuration et prompts | `%USERPROFILE%\SuperMenu.ini` |
+| Clé OpenAI et jeton d’endpoint | Gestionnaire d’identification Windows |
+| Journaux | `%LOCALAPPDATA%\SuperMenu\logs\supermenu.log` |
+| Modèles Foundry Local | `%LOCALAPPDATA%\SuperMenu\Foundry\cache\models` |
 
-Avec Ollama, SuperMenu consulte les capacités de `/api/show`. Qwen 3, DeepSeek R1 et DeepSeek v3.1 reçoivent un booléen `think`. GPT‑OSS reçoit obligatoirement `low`, `medium` ou `high` : comme son raisonnement ne peut pas être désactivé, le choix `none` utilise `low` mais masque la trace. Les modèles sans capacité `thinking` ne reçoivent aucun paramètre inutile. SuperMenu ne fixe plus `num_predict` à 2 048 et respecte donc la configuration du modèle.
+**Réglages > Application > Dossiers et diagnostic** ouvre le dossier de
+configuration et celui des journaux. Le journal est limité à 1 Mo, avec trois
+archives. Il ne contient ni clé, ni texte sélectionné, ni instruction saisie,
+ni transcription.
 
-## Fonctionnalités avancées
-
-### Insertion directe
-
-Pour les tâches fréquentes comme la correction orthographique, l'option "Insérer directement" permet d'obtenir le résultat sans afficher de fenêtre intermédiaire :
-
-1. Dans l'onglet "Prompts", sélectionnez le prompt souhaité
-2. Cochez "Insérer directement la réponse"
-3. Ajustez le prompt pour qu'il génère uniquement le texte final sans explications
-
-### Prompts avec capture d'écran
-
-Disponible avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales).
-
-Vous pouvez créer des prompts spécifiques pour l'analyse d'images :
-
-1. Capturez l'écran avec **Ctrl+Alt+&**
-2. Saisissez votre prompt personnalisé (ex : "Décris cette image")
-3. La réponse s'affiche et peut être copiée ou écrite
-
-Le mode de capture d'écran est configurable dans l'onglet **Réglages**. Vous pouvez choisir :
-- plein écran
-- sélection de zone
-- demander à chaque capture (choix dans un menu au curseur)
-
-### Utilisation avec plusieurs applications
-
-SuperMenu fonctionne avec pratiquement toutes les applications Windows :
-- Traitements de texte (Word, Google Docs, etc.)
-- Navigateurs web
-- Éditeurs de code
-- Applications de messagerie
-- Et bien d'autres...
+Le texte et les images sont envoyés uniquement au moteur choisi. Avec Foundry
+Local et Nemotron, tout reste sur le PC ; aucune requête n’est transférée
+automatiquement à un autre fournisseur.
 
 ## Dépannage
 
-### Le menu contextuel n'apparaît pas
+### Le menu n’apparaît pas
 
-1. Vérifiez que SuperMenu est bien en cours d'exécution (icône dans la barre des tâches)
-2. Assurez-vous que le raccourci clavier est correctement configuré
-3. Vérifiez qu'aucune autre application n'utilise le même raccourci
-4. Redémarrez SuperMenu
+1. Vérifiez que l’icône de SuperMenu est dans la zone de notification.
+2. Ouvrez **Réglages > Raccourcis** : un raccourci suivi de « (inactif) » est
+   refusé par Windows ou pris par une autre application. Choisissez-en un
+   autre.
+3. Cliquez sur **Afficher le menu des prompts** pour tester sans raccourci.
+4. Sur un clavier non AZERTY, voir
+   [Dispositions de clavier](#dispositions-de-clavier).
 
-Astuce : si vous venez de modifier un raccourci, choisissez une combinaison différente (certaines applications réservent des raccourcis globaux). En cas de conflit, un message d'erreur apparaît et le raccourci précédent est restauré.
+### Les prompts sont grisés
 
-Si besoin, consultez les logs : `%LOCALAPPDATA%\SuperMenu\logs\supermenu.log`.
+SuperMenu n’a lu aucun texte. Vérifiez que la sélection est active, que
+l’application autorise la copie et que vous avez relâché les touches du
+raccourci. Le **Mode personnalisé…** reste utilisable sans sélection.
 
-Le menu utilise toujours le composant Qt natif. L'ancien choix « Standard Qt / Forcer via Windows » concernait uniquement la fenêtre de résultat et a été retiré. Cette fenêtre applique maintenant automatiquement Qt puis un renforcement Win32.
+### « Insertion annulée »
 
-### Problèmes de reconnaissance vocale
+La fenêtre ou le champ cible a changé avant le collage. La réponse se trouve
+dans la fenêtre de réponse ou dans le presse-papiers, comme l’indique le
+message. Évitez de changer de fenêtre pendant une insertion directe.
 
-La rubrique **Dictée** n'apparaît qu'avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales).
+### Erreurs du moteur de texte
 
-1. Dans **Réglages > Dictée**, sélectionnez votre microphone et cliquez sur **Tester le micro**
-2. Si aucun niveau n'apparaît, vérifiez les autorisations Microphone de Windows et essayez une autre entrée
-3. Pour OpenAI, vérifiez la clé API et la connexion Internet. Pour Foundry Local, utilisez **Vérifier** puis téléchargez les composants manquants
-4. Distinguez le téléchargement sur disque du chargement en mémoire : un modèle déchargé peut être rechargé sans être téléchargé à nouveau
-5. Enregistrez les réglages puis relancez une dictée ; attendez **À l'écoute** avant de parler
+- OpenAI : vérifiez la clé API, la connexion et le crédit du compte, ou
+  essayez un autre modèle.
+- Ollama ou LM Studio : vérifiez que le serveur est démarré, l’URL, le type
+  d’endpoint et le jeton, puis cliquez sur **Actualiser**.
+- Réponse interrompue : suivez le conseil du message, par exemple réduire le
+  texte, augmenter le contexte du modèle ou choisir **Sans raisonnement**.
 
-### Erreurs d'API
+### Dictée
 
-1. Vérifiez que votre clé API est correctement saisie
-2. Assurez-vous d'avoir une connexion Internet active
-3. Vérifiez que votre compte OpenAI dispose de crédits suffisants
-4. Essayez un autre modèle (par exemple `gpt-5.6-terra`)
+1. Dans **Réglages > Dictée**, choisissez le microphone et cliquez sur
+   **Tester le micro**. Sans niveau, vérifiez l’autorisation Microphone de
+   Windows et essayez une autre entrée.
+2. Avec OpenAI, vérifiez la clé et la connexion. Avec Nemotron, cliquez sur
+   **Vérifier le moteur** et téléchargez les éléments manquants.
+3. Un modèle déchargé se recharge sans nouveau téléchargement.
+4. Enregistrez les réglages, puis attendez **À l’écoute** avant de parler.
+
+Si la rubrique **Dictée** n’apparaît pas, activez les
+[fonctions expérimentales](#fonctions-avancées-et-expérimentales).
+
+### Mise à jour refusée
+
+Un message indiquant que l’installateur ne correspond pas (ou plus) à
+l’empreinte publiée signifie que le fichier téléchargé diffère de celui de la
+release : il est supprimé sans être lancé. Réessayez plus tard ou
+téléchargez l’installateur depuis la page des releases.
+
+### Journaux
+
+Ouvrez **Réglages > Application > Dossiers et diagnostic > Ouvrir le dossier
+des journaux**. Les erreurs inattendues y sont consignées, ainsi que les
+étapes du traitement et leur durée.
 
 ## Désinstallation
 
-Lors de la désinstallation :
+Désinstallez SuperMenu depuis les Paramètres de Windows. SuperMenu est fermé
+automatiquement si nécessaire. Le programme de désinstallation demande s’il
+faut aussi supprimer vos données : configuration, journaux, modèles locaux et
+clés API enregistrées.
 
-- SuperMenu est fermé automatiquement si nécessaire.
-- Une option permet de supprimer également les données utilisateur (logs et configuration).
-
----
-
-Si vous rencontrez d'autres problèmes, n'hésitez pas à consulter la documentation complète ou à contacter le support.
-
-
-## Nouveau cycle bêta : raisonnement par prompt
-
-Dans **Prompts** ou **Voix**, choisissez **Raisonnement (si disponible)** :
-**Réglage du moteur** conserve le comportement habituel ; **Sans raisonnement**
-convient par exemple à « Corriger » ; **Avec raisonnement** convient à une analyse
-ou une extraction de chiffres. Ce choix s’enregistre avec le prompt, s’exporte
-et reste identique avec **Réessayer**. Il ne modifie pas le réglage des autres prompts.
-Les anciens prompts conservent leur comportement jusqu’à modification.
-
-Le choix agit sur OpenAI et les moteurs compatibles Ollama / LM Studio, selon
-les capacités du modèle. Foundry Local le prend en charge avec les deux Qwen3.5.
-Apple Foundation Models ne propose pas de commutateur de raisonnement ; il reste
-automatique. Certains modèles, notamment GPT-OSS, imposent un effort minimal.
-Le raisonnement peut allonger le traitement ; l’insertion conserve la réponse finale.
-
-Avec Foundry, le délai d’inactivité et **Décharger maintenant** (fonctions avancées) libèrent les poids
-du modèle tout en conservant le moteur initialisé. Fermer SuperMenu libère aussi
-le moteur. L’interface distingue la préparation du GPU, le chargement des poids
-et le traitement ou raisonnement. Les durées par phase sont consignées dans les
-journaux, sans enregistrer le texte traité.
-
-
-### Restauration des prompts et raccourcis directs
-
-« Tout restaurer… », dans Prompts ou Voix, remet la liste de cet onglet dans son
-état d’origine après confirmation. Les prompts personnels sont retirés et une copie
-JSON de la liste précédente est conservée dans `prompts_before_restore` ou
-`voice_prompts_before_restore` de la configuration. Les réglages des moteurs IA restent inchangés.
-En plus, les 5 dernières copies de chaque liste, faites avant une restauration, un import,
-une réinitialisation de tous les réglages ou lors de la lecture d’une configuration partiellement illisible,
-sont gardées dans `prompts_backups` et `voice_prompts_backups`. « Revenir à la copie… »
-remet la plus récente après confirmation ; la liste remplacée est elle-même gardée en copie.
-
-La majuscule d’une lettre dans un raccourci n’ajoute pas Shift : `Ctrl+Alt+C`
-fonctionne avec Ctrl, Alt et C seulement. SuperMenu attend le relâchement des touches
-avant de copier le texte sélectionné ; un changement de fenêtre pendant cette attente
-annule la capture. Un conflit de raccourci est signalé dans la fenêtre de configuration.
-
-Foundry conserve les poids déjà installés lorsqu’une nouvelle révision du même
-modèle apparaît au catalogue, en conservant le matériel choisi (notamment CUDA).
-La réactivation des composants GPU au démarrage n’est pas un nouveau téléchargement
-des poids. Une autre variante matérielle peut nécessiter ses propres fichiers.
+Retour au [README Windows](../README.md) ou au
+[README principal](../../README.md).

@@ -1,10 +1,15 @@
 # Signature et notarisation macOS
 
-SuperMenu reste distribué directement dans un DMG, sans Mac App Store. Le
+SuperMenu est distribué directement dans un DMG, sans Mac App Store. Le
 workflow GitHub utilise une identité **Developer ID Application** stable, active
 le Hardened Runtime par l'intermédiaire de PyInstaller, signe l'application,
 la notarie et l'agrafe, puis construit le DMG, le signe, le soumet à
 `notarytool` et l'agrafe à son tour.
+
+Ce document s'adresse au mainteneur, ou à quiconque veut produire des DMG
+signés depuis son propre dépôt avec son propre compte Apple Developer. Un
+build local sans identité reste possible pour le développement (voir le
+[README macOS](README.md)).
 
 ## Autorisations du Hardened Runtime
 
@@ -34,6 +39,11 @@ d'où cette explication ici plutôt que dedans. Le test
 Comme ce chemin ne se manifeste qu'à l'exécution et sous forme de crash, pas
 d'exception, `run.py --smoke-test` installe les moniteurs natifs sur le binaire
 signé avant que le DMG ne soit produit.
+
+Réduire ces exceptions, en particulier `disable-library-validation`, demande
+de valider un build signé et notarisé sur un vrai Mac Apple Silicon :
+raccourcis globaux, microphone et composants Apple. Les doublures utilisées
+par les tests ne permettent pas de le prouver.
 
 Le bundle identifier de distribution est `com.supermenu.macos`. Il ne doit plus
 être modifié : il fait partie de l'identité utilisée par macOS pour reconnaître
@@ -200,10 +210,10 @@ minutes, y compris un éventuel blocage pendant l’envoi. La création du DMG e
 retentée jusqu’à trois fois si `hdiutil` échoue. Une erreur de signature ou de
 notarisation empêche toujours la publication.
 
-## 4. Première migration signée
+## 4. Passer d'un build non signé à un build Developer ID
 
-La première version Developer ID constitue une nouvelle identité par rapport
-aux anciens builds ad hoc. Sur le Mac de test :
+Une première version Developer ID constitue une nouvelle identité par rapport
+à un build de développement signé ad hoc. Sur le Mac concerné :
 
 1. quitter l'ancienne application ;
 2. remplacer `/Applications/SuperMenu.app` par celle du DMG notarié ;

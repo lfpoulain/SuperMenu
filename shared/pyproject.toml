@@ -6,7 +6,11 @@ build-backend = "setuptools.build_meta"
 name = "supermenu-core"
 version = "0.1.0"
 description = "Shared application core for SuperMenu on macOS and Windows"
-requires-python = ">=3.10"
+readme = "README.md"
+# SPDX identifier; the full terms are in LICENSE at the repository root.
+# The table form is kept for setuptools < 77, which rejects a bare string.
+license = {text = "PolyForm-Noncommercial-1.0.0"}
+requires-python = ">=3.11"
 dependencies = [
     "PySide6>=6.11,<7",
     "requests>=2.34,<3",

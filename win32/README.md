@@ -1,217 +1,230 @@
-# SuperMenu 🚀
+# SuperMenu pour Windows
 
-![Platform](https://img.shields.io/badge/platform-Windows-blue)
-![Python](https://img.shields.io/badge/python-3.11%2B-blue)
-![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)
-![Status](https://img.shields.io/badge/status-Active-success)
+[![CI](https://github.com/lfpoulain/SuperMenu/actions/workflows/ci.yml/badge.svg)](https://github.com/lfpoulain/SuperMenu/actions/workflows/ci.yml)
+![Plateforme](https://img.shields.io/badge/plateforme-Windows%2010%20%7C%2011-0078D4)
+![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?logo=python&logoColor=white)
+![Licence](https://img.shields.io/badge/licence-PolyForm%20Noncommercial%201.0.0-lightgrey)
 
-**SuperMenu** est ton assistant IA personnel pour Windows. Accessible instantanément via un raccourci clavier, il s'intègre à n'importe quelle application pour traiter du texte, de la voix ou des images.
+SuperMenu amène l’IA dans toutes vos applications Windows. Sélectionnez un
+texte, appuyez sur un raccourci et choisissez une action : corriger,
+reformuler, résumer, traduire ou suivre une instruction libre. La réponse
+s’affiche dans une fenêtre, d’où vous pouvez la copier ou l’insérer, ou
+remplace directement la sélection.
 
-L'application Windows compose les intégrations Win32, audio et capture avec le
-package `../shared/supermenu_core`. Le client IA, les modèles, le schéma des
-prompts et les widgets Qt génériques sont ainsi maintenus une seule fois pour
-Windows et macOS.
+Ce dossier contient l’application Windows : raccourcis globaux, presse-papiers,
+insertion, capture d’écran, Foundry Local et installateur. Le client IA, les
+prompts et les composants d’interface communs viennent du cœur partagé avec
+macOS, [`shared/supermenu_core`](../shared/README.md).
 
-SuperMenu propose une **dictée en direct** indépendante du moteur de texte :
-OpenAI GPT Live Transcribe (clé API et facturation OpenAI) ou Foundry Local avec
-Nemotron 3.5 multilingue. Dans **Réglages > Dictée**, choisissez
-le moteur et le microphone, vérifiez la disponibilité puis téléchargez le modèle
-local (environ 756 Mo) et enregistrez. Le mode automatique privilégie CUDA sur
-NVIDIA ; le mode CPU est disponible explicitement. La dictée locale ne nécessite
-pas de clé API et n’envoie pas l’audio dans le cloud.
+## Fonctionnalités
 
-Les réglages sont répartis en quatre rubriques : **Texte**, **Dictée**,
-**Raccourcis** et **Application**. Les options avancées restent repliées.
-Dans Dictée, **Tester le micro** vérifie l’entrée choisie pendant cinq secondes,
-sans conserver ni transmettre d’audio. Ce test s’arrête en quittant la rubrique.
-Le correctif de capture Qt 6.11 permet aux microphones de s’ouvrir normalement.
+**Toujours disponibles**
 
-La préparation indique chaque étape : **vérification** des fichiers existants,
-**activation du GPU** (composants réutilisés si présents), **téléchargement** du
-modèle manquant, puis **chargement en mémoire** du modèle installé. Les modèles
-locaux sont conservés entre les mises à jour de SuperMenu.
+- menu des prompts au curseur, avec `Ctrl+²` par défaut ;
+- mode personnalisé pour une instruction libre, avec `Ctrl+Alt+M` ;
+- fenêtre de réponse avec **Réessayer**, **Copier**, **Voir le raisonnement**
+  et **Insérer le texte** ;
+- insertion directe : pour les prompts qui l’activent, la réponse remplace la
+  sélection sans fenêtre intermédiaire ;
+- prompts modifiables, réordonnables, importables et exportables, avec un
+  raisonnement réglable pour chacun ;
+- moteurs de texte : OpenAI (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`,
+  `gpt-5.4`), Ollama ou LM Studio (y compris les modèles partagés par LM Link),
+  et l’IA locale Microsoft Foundry Local avec Qwen3.5 4B ou 9B, sans clé API,
+  sur Windows 11 24H2 ou plus récent ([détails](docs/foundry-local.md)) ;
+- thèmes sombre, clair ou automatique, mises à jour Stable ou Bêta.
 
-Le modèle vocal local reste en mémoire entre les dictées, puis se décharge après
-**5 minutes d’inactivité** par défaut. Dans **Réglages > Dictée > Options avancées**,
-choisissez un déchargement après chaque dictée, après 1, 5, 15 ou 30 minutes, ou
-à la fermeture de SuperMenu. **Décharger maintenant** libère la mémoire quand
-aucune dictée n’est active, sans supprimer le modèle téléchargé. Le microphone
-et la session de transcription sont arrêtés entre les dictées ; leurs textes
-ne sont pas réutilisés. Ce réglage concerne le modèle vocal, indépendamment du
-modèle de texte Qwen.
+**Fonctions avancées**, à activer
 
-Le texte apparaît pendant que vous parlez, avec un indicateur de niveau du micro.
-**Terminer** arrête le micro puis finalise la transcription ; **Annuler** interrompt
-également le moteur. Le résultat peut être copié ou inséré dans l’application
-ciblée depuis le menu contextuel. Durée maximale : cinq minutes par dictée.
+- modèle, fournisseur ou poste LM Link propre à chaque prompt ;
+- raccourci direct par prompt ;
+- durée de conservation en mémoire des modèles locaux (texte et voix).
 
-> 💡 **Idée clé** : Ne perds plus de temps à copier-coller vers ChatGPT. SuperMenu amène l'IA directement là où tu travailles.
+**Fonctions expérimentales**, à activer
 
----
+- prompts vocaux et menu vocal, avec `Ctrl+Alt+²` ;
+- dictée en direct avec OpenAI GPT Live Transcribe (clé API et facturation
+  OpenAI) ou avec Nemotron 3.5 via Foundry Local, sur le PC (modèle de 756 Mo) ;
+- dictée instantanée par raccourci et test du micro ;
+- capture et analyse d’écran, avec `Ctrl+Alt+&`.
 
-## ✨ Fonctionnalités Principales
+Les deux interrupteurs se trouvent dans **Réglages > Application > Fonctions**.
+Une nouvelle installation démarre avec les deux désactivés ; une mise à jour
+depuis une version précédente les active tous les deux, pour ne retirer aucune
+fonction déjà utilisée. Les désactiver masque ces fonctions sans supprimer
+aucun réglage. Le [guide d’utilisation](docs/GUIDE_UTILISATION.md#fonctions-avancées-et-expérimentales)
+détaille leur fonctionnement.
 
-### 📝 Texte & Productivité
-- **Menu Contextuel Universel** : Sélectionne du texte n'importe où et lance SuperMenu (`Ctrl+²`).
-- **Actions Rapides** : Corriger, Reformuler, Résumer, Traduire, Expliquer...
-- **Insertion Directe** : Remplace automatiquement le texte sélectionné par la réponse de l'IA (idéal pour les corrections).
-- **Raccourcis par Prompt** : Attribue une combinaison différente à chaque prompt pour le lancer sans ouvrir le menu. Selon l'option du prompt, le résultat remplace directement la sélection ou s'affiche dans la fenêtre de réponse.
-- **Prompts Personnalisables** : Crée tes propres actions adaptées à tes besoins.
-- **Mode Personnalisé Direct** : Lance le prompt libre sans passer par le menu contextuel (`Ctrl+Alt+M`).
+## Installation
 
-### 🎙️ Voix & Dictée
-- **Commandes Vocales** : Parle à l'IA (`Ctrl+Alt+²`).
-- **Dictée en direct** : OpenAI GPT Live Transcribe ou Nemotron avec Foundry Local, capture Qt partagée avec Mac et aucun fichier audio temporaire.
-- **Retour Visuel Complet** : Durée d'enregistrement, limite visible, préparation, transcription, succès et erreurs dans une seule carte.
-- **Vocabulaire Personnalisé** : Langues attendues, termes techniques et contexte facultatif configurables.
-- **Contexte Mixte** : Combine ta voix avec le texte sélectionné à l'écran.
+Configuration requise : Windows 10 ou 11, 64 bits. Foundry Local demande
+Windows 11 24H2 ou plus récent.
 
-### 📸 Vision & Capture
-- **Analyse d'Écran** : Capture une zone ou l'écran entier (`Ctrl+Alt+&`).
-- **Vision IA** : Demande à l'IA d'analyser, décrire ou extraire des infos de l'image.
-- **Modes de Capture** : Plein écran, Zone sélective ou "Demander à chaque fois".
+1. Téléchargez `SuperMenu_Setup.exe` depuis la
+   [dernière release](https://github.com/lfpoulain/SuperMenu/releases/latest).
+2. Lancez-le. L’installateur demande les droits administrateur, affiche la
+   licence et propose deux options : un raccourci sur le Bureau et le
+   démarrage avec Windows.
+3. À la fin de l’installation, SuperMenu démarre et se place dans la zone de
+   notification.
 
-### ⚙️ Flexibilité & Sécurité
-- **IA locale Microsoft** : Foundry Local embarqué avec **Qwen3.5 4B** et **9B**, téléchargeables depuis les réglages, pour corriger, reformuler et traduire sans clé API. [Configuration et limites](docs/foundry-local.md).
-- **Multi-Modèles** : Sélecteur OpenAI limité à `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` et `gpt-5.4`, plus les **Endpoints Locaux** (Ollama, LM Studio).
-- **Thinking / Raisonnement** : GPT‑OSS utilise ses niveaux `low/medium/high`, Qwen et DeepSeek utilisent l’interrupteur `think`, et LM Studio suit les capacités natives du modèle (`off/on` ou niveaux).
-- **Sélecteur d'Endpoint** : Choisis explicitement Ollama ou LM Studio dans les paramètres au lieu de dépendre d'une détection automatique.
-- **Interface Moderne** : Thèmes Sombre/Clair/Auto (basé sur le système).
-- **Fenêtres Fiables** : Menu Qt natif et présentation hybride Qt/Win32 pour la fenêtre de résultat, sans mode expérimental à choisir.
-- **Sécurisé** : La clé OpenAI et l'éventuel jeton d'endpoint privé sont
-  séparés et stockés dans le trousseau Windows, jamais en clair ni réutilisés
-  entre fournisseurs.
-- **Mises à jour Faciles** : Système de mise à jour intégré via GitHub Releases.
+| Fichier | Usage |
+|---|---|
+| `SuperMenu_Setup.exe` | installateur, canal Stable (recommandé) |
+| `SuperMenu.exe` | version portable, sans installation |
+| `SuperMenu_Beta_Setup.exe` et `SuperMenu_Beta.exe` | canal Bêta, dans la release `beta` |
+| `SHA256SUMS.txt` (Bêta : `SHA256SUMS-beta.txt`) | empreintes SHA-256 des fichiers publiés |
 
----
+Les exécutables ne portent pas de signature Authenticode : Windows SmartScreen
+peut afficher un avertissement au premier lancement. Pour vérifier un
+téléchargement, comparez le résultat de
+`Get-FileHash .\SuperMenu_Setup.exe` à la ligne correspondante de
+`SHA256SUMS.txt`.
 
-## 🚀 Installation
+## Mises à jour
 
-### Recommandée (Utilisateurs)
-1. Télécharge la dernière version de l'installateur (`SuperMenu_Setup.exe`) depuis les [Releases](https://github.com/lfpoulain/SuperMenu/releases).
-2. Lance l'exécutable et suis les instructions.
-3. SuperMenu se lance automatiquement et se loge dans la barre des tâches (systray).
+- Le canal (**Stable** ou **Bêta**) se choisit dans **Réglages > Application >
+  Interface et mises à jour**, qui propose aussi **Vérifier les mises à
+  jour**. Le menu de la zone de notification offre la même vérification, et la
+  version installée vérifie discrètement au démarrage de SuperMenu, au plus
+  une fois par jour.
+- La Bêta est reconstruite automatiquement après chaque modification de `main`
+  dont la CI réussit. Elle peut contenir des régressions.
+- SuperMenu lit un petit manifeste publié avec la release, puis l’API GitHub
+  en secours. L’installateur est téléchargé dans un dossier temporaire privé ;
+  son empreinte SHA-256 est comparée à celle du manifeste, puis vérifiée de
+  nouveau juste avant son lancement. Un fichier différent est supprimé et
+  n’est jamais exécuté.
+- L’installateur est lancé avec vos droits : Windows demande lui-même la
+  confirmation administrateur. Après l’installation, SuperMenu redémarre avec
+  vos droits habituels, jamais en administrateur.
+- La version portable ne se met pas à jour elle-même : **Vérifier les mises
+  à jour** signale une version plus récente et ouvre la page des
+  téléchargements.
+- La configuration, les prompts, les clés et les modèles locaux sont conservés.
 
-### Mise à jour
-- **Stable (recommandé)** : uniquement les releases officielles non expérimentales.
-- **Beta** : build automatique produit après chaque push sur `main` dont la CI réussit, publié comme prérelease.
-- Le canal se choisit dans **À propos > Canal de mise à jour**.
-- **Automatique** : utilise **Vérifier les mises à jour** ou la vérification quotidienne discrète.
-- **Manuelle** : télécharge `SuperMenu_Setup.exe` pour une stable ou `SuperMenu_Beta_Setup.exe` pour une beta.
-- La vérification automatique lit d'abord un petit manifeste attaché à la release, sans consommer le quota de l'API GitHub. L'API reste disponible comme solution de secours.
+## Premiers pas
 
----
+1. Ouvrez la configuration : double-cliquez sur l’icône de la zone de
+   notification, ou choisissez **Ouvrir SuperMenu** dans son menu.
+2. Dans **Réglages > Texte**, choisissez le **Moteur de texte** : OpenAI avec
+   votre clé API, Ollama / LM Studio avec l’adresse du serveur, ou
+   **IA locale Microsoft — Foundry Local**, puis téléchargez un modèle Qwen.
+   Cliquez sur **Enregistrer**.
+3. Sélectionnez un texte dans n’importe quelle application, appuyez sur
+   `Ctrl+²` et choisissez une action.
 
-## 🛠️ Configuration Rapide
+| Action | Raccourci par défaut | Disponible |
+|---|---|---|
+| Menu des prompts | `Ctrl+²` | toujours |
+| Mode personnalisé | `Ctrl+Alt+M` | toujours |
+| Menu vocal | `Ctrl+Alt+²` | avec les fonctions expérimentales |
+| Capture d’écran | `Ctrl+Alt+&` | avec les fonctions expérimentales |
+| Dictée instantanée | aucun | avec les fonctions expérimentales |
+| Raccourci direct d’un prompt | aucun | avec les fonctions avancées |
 
-Au premier lancement (ou via l'icône dans la barre des tâches) :
+`²` et `&` sont des touches du clavier AZERTY. Sur une autre disposition :
 
-1. **Moteur IA** : Choisis OpenAI avec ta clé API, un endpoint Ollama/LM Studio,
-   ou **IA locale Microsoft** puis télécharge un Qwen et enregistre la configuration.
-2. **Raccourcis** : Vérifie ou modifie les raccourcis par défaut.
-   - **Menu** : `Ctrl+²` (le carré, en haut à gauche du clavier AZERTY). Sur un clavier non AZERTY, c'est la touche située sous Échap (par exemple ``Ctrl+` `` en QWERTY ou `Ctrl+^` en QWERTZ).
-   - **Voix** : `Ctrl+Alt+²`.
-   - **Capture** : `Ctrl+Alt+&`.
-   - **Mode personnalisé** : `Ctrl+Alt+M`.
-3. **Fonctions** : dans **Réglages > Application > Fonctions**, active si besoin
-   les **fonctions avancées** (modèle et raccourci par prompt, conservation des
-   modèles locaux en mémoire) et les **fonctions expérimentales** (voix, dictée
-   et capture d'écran), puis clique sur **Appliquer**. Une nouvelle
-   installation les laisse désactivées ; une mise à jour les garde actives. Les
-   désactiver ne supprime aucun réglage. [Détails](docs/GUIDE_UTILISATION.md#fonctions-avancées-et-expérimentales).
+- sans touche `²` (QWERTY par exemple), `Ctrl+²` et `Ctrl+Alt+²` utilisent la
+  touche située sous Échap : ``Ctrl+` `` et ``Ctrl+Alt+` `` en QWERTY ;
+- quand `²` ne s’obtient qu’avec AltGr (QWERTZ allemand, AltGr+2), `Ctrl+²`
+  utilise aussi la touche sous Échap (`Ctrl+^`), mais `Ctrl+Alt+²` reste
+  `Ctrl+Alt+2`, c’est-à-dire AltGr+2 ;
+- `&` suit la disposition : en QWERTY, `Ctrl+Alt+&` correspond à
+  `Ctrl+Alt+Shift+7`.
 
----
+Les réglages affichent toujours `Ctrl+²`. Tous les raccourcis se modifient dans
+**Réglages > Raccourcis**.
 
-## 🧑‍💻 Développement
+## Données et confidentialité
 
-Envie de contribuer ou de modifier le code ?
+| Élément | Emplacement |
+|---|---|
+| Configuration et prompts | `%USERPROFILE%\SuperMenu.ini` |
+| Clé OpenAI et jeton d’endpoint | Gestionnaire d’identification Windows |
+| Journaux | `%LOCALAPPDATA%\SuperMenu\logs\supermenu.log` (`win32\logs\` depuis les sources) |
+| Modèles locaux Foundry | `%LOCALAPPDATA%\SuperMenu\Foundry\cache\models` |
 
-### Prérequis
-- Windows 10/11
-- Python 3.11+
+- La clé OpenAI et le jeton d’un endpoint privé sont stockés séparément et ne
+  sont jamais envoyés à un autre fournisseur.
+- Les journaux ne contiennent ni clé, ni texte sélectionné, ni instruction
+  saisie, ni transcription.
+- Aucun fichier audio n’est enregistré. Avec OpenAI, le son est transmis au
+  service ; avec Nemotron, il reste sur le PC.
+- À la désinstallation, une option supprime aussi la configuration, les
+  journaux, les modèles locaux et les clés enregistrées.
 
-### Installation Dev
+## Développement
 
-```bash
-# Cloner le dépôt
+Prérequis : Windows 10 ou 11 64 bits, Python 3.11 ou 3.12 (la CI teste les
+deux), Git. La construction de l’installateur demande aussi
+[Inno Setup 6](https://jrsoftware.org/isinfo.php).
+
+```powershell
 git clone https://github.com/lfpoulain/SuperMenu.git
-cd SuperMenu
-cd win32
-
-# Créer l'environnement virtuel
-python -m venv venv
-venv\Scripts\activate
-
-# Installer les dépendances runtime et développement
-pip install -r requirements-dev.txt
-
-# Lancer l'application
+cd SuperMenu\win32
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements-dev.txt
 python run.py
 ```
 
-L'installation doit être lancée depuis `win32/`, car `requirements.txt`
-référence le package local `../shared`.
+Lancez l’installation depuis `win32/` : `requirements.txt` installe le cœur
+partagé `../shared` en mode éditable.
 
-Validation locale complète :
+### Tests et vérifications
 
-```bash
+Les mêmes contrôles que la CI, depuis `win32/` :
+
+```powershell
 python -m compileall -q ../shared/supermenu_core src run.py
 python -m pytest -q ../shared/tests
 python -m pytest -q tests
 python -m flake8 ../shared/supermenu_core src tests run.py --select=F,E9
 ```
 
-### Build (Création de l'exe)
+Les tests ne contactent aucun serveur réel. Pour qu’aucune fenêtre ne s’ouvre
+pendant les tests Windows, définissez d’abord
+`$env:QT_QPA_PLATFORM = "offscreen"` ; les tests du cœur partagé le font
+d’eux-mêmes. Les modules de test propres à Windows qui ont un équivalent macOS
+se terminent par `_win.py`.
 
-```bash
-# Générer l'exécutable avec la version PyInstaller validée
+### Construire l’exécutable et l’installateur
+
+```powershell
 pyinstaller --noconfirm --clean SuperMenu.spec
-
-# Vérifier les ressources du bundle sans lancer l'interface
-dist\SuperMenu.exe --smoke-test
+$smoke = Start-Process -FilePath dist\SuperMenu.exe -ArgumentList "--smoke-test" -Wait -PassThru
+$smoke.ExitCode   # 0 attendu
+iscc setup_supermenu.iss
 ```
+
+PyInstaller écrit `dist\SuperMenu.exe` et `dist\third_party_licenses\`, la
+liste des composants tiers embarqués. `iscc` produit `SuperMenu_Setup.exe`
+dans `win32/`, avec la version lue dans `VERSION`.
 
 ### CI et publication
 
-- `../.github/workflows/ci.yml` valide le cœur partagé et Windows avec Python
-  3.11/3.12, valide macOS avec Python 3.12 et construit un DMG de test. Il ne
-  publie aucune release.
-- `../.github/workflows/beta-release.yml` construit la prérelease roulante `beta` après la réussite de la CI d'un push sur `main`, avec des artefacts clairement suffixés `Beta` et leurs checksums SHA-256.
-- `../.github/workflows/stable-release.yml` publie une release stable immuable uniquement lors du push d'un tag `vMAJOR.MINOR.PATCH`.
-- `VERSION` contient la prochaine version stable attendue. Le tag stable doit correspondre exactement à ce fichier.
+La CI (`.github/workflows/ci.yml`) teste le cœur partagé et Windows avec
+Python 3.11 et 3.12, puis macOS avec Python 3.12 ; elle ne publie rien. La
+Bêta roulante et les releases Stable sont produites par
+`beta-release.yml` et `stable-release.yml`. La procédure complète, réservée
+au mainteneur, est décrite dans [docs/RELEASING.md](../docs/RELEASING.md).
+Pour contribuer, lisez [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-Pour publier une stable, il faut volontairement effectuer ces quatre opérations :
+## Documentation
 
-1. inscrire le nouveau numéro sans `v` dans `VERSION`, par exemple `1.2.1` ;
-2. mettre à jour `../.github/STABLE_NOTES.md` avec les nouveautés, en y citant ce numéro (par exemple « ## Nouveautés de SuperMenu 1.2.1 ») : ce fichier devient le texte de la release ;
-3. commiter et pousser ces changements sur `main`, puis attendre que la CI réussisse ;
-4. créer et pousser le tag correspondant avec un `v`, par exemple `v1.2.1`.
+- [Guide d’utilisation](docs/GUIDE_UTILISATION.md)
+- [Foundry Local sous Windows](docs/foundry-local.md)
+- [Architecture technique](docs/ARCHITECTURE.md)
+- [Cœur partagé](../shared/README.md)
+- [Journal des modifications](../CHANGELOG.md)
+- [README principal](../README.md)
 
-Exemple lorsque `VERSION` contient déjà `1.2.1` et que ce changement est sur `main` :
+## Licence
 
-```bash
-# VERSION contient 1.2.1 et le commit a déjà été poussé sur main
-git tag v1.2.1
-git push origin v1.2.1
-```
-
-À partir du push du tag, les tests, la compilation des exécutables et de l'installateur, les checksums et la publication de la release GitHub Stable sont automatiques. Si le tag et `VERSION` ne correspondent pas, ou si `STABLE_NOTES.md` ne cite pas la version, le workflow s'arrête dès la première minute sans publier.
-
----
-
-## 📚 Documentation
-
-Pour aller plus loin, consulte les guides dans le dossier `docs/` :
-- [📖 Guide d'Utilisation Complet](docs/GUIDE_UTILISATION.md)
-- [🏗️ Architecture Technique](docs/ARCHITECTURE.md)
-
----
-
-## 📄 Licence
-
-© 2025 LFPoulain. Tous droits réservés.
-Distribué sous licence **Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)**.
-
-> Vous êtes autorisé à partager et adapter le matériel, à condition de créditer l'auteur.
-> **L'utilisation commerciale est strictement interdite.**
-> Voir le fichier [LICENSE](../LICENSE) pour plus de détails.
+SuperMenu est distribué sous licence
+[PolyForm Noncommercial 1.0.0](../LICENSE), qui n’autorise que les usages non
+commerciaux ; le texte de la licence fait foi. Les composants tiers embarqués
+et leurs licences sont listés dans
+[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).

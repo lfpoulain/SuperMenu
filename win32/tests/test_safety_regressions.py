@@ -376,3 +376,4 @@ def test_main_window_constructs_without_duplicate_prompts(monkeypatch, tmp_path)
     window.save_api_key()
     assert settings.get_custom_model() == "qwen3.5-4b"
     window.close()
+    window.deleteLater()

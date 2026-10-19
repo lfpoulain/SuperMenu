@@ -44,9 +44,9 @@ MENU_VISIBILITY_CHECK_DELAY_MS = 350
 def _application_level(target):
     """The target without its window-level check, when it has one.
 
-    « Écrire » is an explicit click: the user may well have opened the reply
-    or document the answer is meant for in the meantime. Only the insertions
-    nobody confirms keep the window-level check.
+    « Insérer le texte » is an explicit click: the user may well have opened
+    the reply or document the answer is meant for in the meantime. Only the
+    insertions nobody confirms keep the window-level check.
     """
     application_only = getattr(target, "application_only", None)
     if not callable(application_only):

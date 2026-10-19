@@ -1,11 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import importlib.util
 import os
 from pathlib import Path
 
 
 project_dir = Path(SPECPATH)
 shared_dir = project_dir.parent / "shared"
+repository_dir = project_dir.parent
 version = (project_dir / "VERSION").read_text(encoding="utf-8").strip()
 codesign_identity = os.environ.get("MACOS_CODESIGN_IDENTITY") or None
 
@@ -17,6 +19,10 @@ a = Analysis(
     datas=[
         ("resources", "resources"),
         ("VERSION", "."),
+        # SuperMenu's own terms and the third-party notices ship with the app.
+        (str(repository_dir / "LICENSE"), "."),
+        (str(repository_dir / "THIRD_PARTY_NOTICES.md"), "."),
+        (str(repository_dir / "licenses"), "licenses"),
     ],
     hiddenimports=[
         "pynput.keyboard._darwin",
@@ -30,6 +36,37 @@ a = Analysis(
     excludes=[],
     noarchive=False,
     optimize=0,
+)
+# Libraries collected by the Qt hooks that SuperMenu never loads. They are
+# left out so their licenses do not apply to the build:
+# - Qt Virtual Keyboard is only available under GPL-3.0 or a commercial
+#   license, unlike the LGPL Qt libraries (every input context plugin is
+#   collected by the QtGui hook);
+# - the PDF image plugin and QtPdf.framework embed PDFium.
+def _is_shipped(entry):
+    name = entry[0].lower()
+    return (
+        "virtualkeyboard" not in name
+        and "qtpdf.framework" not in name
+        and Path(name).name != "libqpdf.dylib"
+    )
+
+
+a.binaries = [entry for entry in a.binaries if _is_shipped(entry)]
+a.datas = [entry for entry in a.datas if _is_shipped(entry)]
+
+# License files of every third-party distribution actually bundled, copied
+# from the build environment. A distribution without one only warns.
+_collector_spec = importlib.util.spec_from_file_location(
+    "collect_third_party_licenses",
+    repository_dir / "tools" / "collect_third_party_licenses.py",
+)
+license_collector = importlib.util.module_from_spec(_collector_spec)
+_collector_spec.loader.exec_module(license_collector)
+a.datas += license_collector.pyinstaller_datas(
+    Path(workpath) / "third_party_licenses",
+    requirement_files=[project_dir / "requirements.txt"],
+    toc=a.pure + a.binaries + a.datas + a.scripts,
 )
 pyz = PYZ(a.pure)
 
@@ -75,7 +112,9 @@ app = BUNDLE(
         "CFBundleDisplayName": "SuperMenu",
         "CFBundleShortVersionString": version,
         "CFBundleVersion": version,
-        "LSMinimumSystemVersion": "12.0",
+        # Minimum of the PySide6 6.11 wheels (macosx_13_0): Qt does not start
+        # on an older macOS.
+        "LSMinimumSystemVersion": "13.0",
         "LSUIElement": True,
         "NSHighResolutionCapable": True,
         "NSMicrophoneUsageDescription": "SuperMenu utilise le microphone uniquement pendant votre dictée pour transcrire votre voix en texte.",

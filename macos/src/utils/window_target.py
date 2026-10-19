@@ -217,8 +217,8 @@ class PasteTarget:
         """The same target, verified at the application level only.
 
         Used where pasting into another window of the application may be
-        intended -- the explicit « Écrire » button -- or where the remembered
-        window may be stale.
+        intended -- the explicit « Insérer le texte » button -- or where the
+        remembered window may be stale.
         """
         if self.focused_window is None:
             return self

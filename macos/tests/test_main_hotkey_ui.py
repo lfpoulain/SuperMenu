@@ -64,6 +64,7 @@ def configuration_window(tmp_path):
     yield window
     window._quitting = True
     window.close()
+    window.deleteLater()
 
 
 def test_menu_bar_uses_only_the_native_status_item(

@@ -335,9 +335,6 @@ class MainWindow(QMainWindow):
         self.settings = settings
         self.context_menu_manager = context_menu_manager # Stocker la référence
         self.tray_icon = None
-        # self.hotkey_manager = None  # Sera initialisé plus tard
-        # self.voice_hotkey_manager = None
-        # self.screenshot_hotkey_manager = None # Ajout pour le gestionnaire de raccourci de capture d'écran
 
         # Stocker les références aux gestionnaires de raccourcis passés
         self.hotkey_manager = hotkey_manager

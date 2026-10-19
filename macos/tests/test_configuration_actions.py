@@ -18,6 +18,7 @@ def window(tmp_path, monkeypatch):
     yield instance
     instance._quitting = True
     instance.close()
+    instance.deleteLater()
     app.processEvents()
 
 

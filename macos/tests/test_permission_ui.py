@@ -18,6 +18,7 @@ def window(qt_app, tmp_path):
     yield instance
     instance._quitting = True
     instance.close()
+    instance.deleteLater()
 
 
 def test_first_permission_click_shows_only_native_consent(

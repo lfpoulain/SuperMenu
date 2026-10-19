@@ -211,8 +211,13 @@ def _raw(settings):
 
 
 def _close(window):
+    """Close the window; the conftest destroys it once the test is over.
+
+    A window left alive would be restyled by every later Apply.
+    """
     window._quitting = True
     window.close()
+    window.deleteLater()
 
 
 def _granted(monkeypatch):

@@ -44,6 +44,9 @@ win32/SHA256SUMS*.txt
 # Release binaries are generated locally.
 *.exe
 
+# Local marketing material (the published images live elsewhere).
+brag-output/
+
 # IDE and operating-system metadata
 .idea/
 .vscode/

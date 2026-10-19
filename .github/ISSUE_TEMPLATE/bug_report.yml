@@ -1,0 +1,141 @@
+name: Signaler un bug
+description: Un comportement incorrect, un plantage ou un message d’erreur inattendu.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci de prendre le temps de signaler un problème.
+
+        **Ne collez jamais de clé API, de mot de passe ni de jeton**, même partiellement masqué, et retirez de vos exemples tout texte personnel ou confidentiel.
+        Pour une faille de sécurité, n’ouvrez pas d’issue : suivez la [politique de sécurité](https://github.com/lfpoulain/SuperMenu/security/policy).
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Plateforme
+      options:
+        - Windows
+        - macOS (Apple Silicon)
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: Version du système
+      description: Par exemple Windows 11 24H2 ou macOS 26.1.
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: Version de SuperMenu
+      description: Affichée dans l’onglet **À propos**, par exemple 1.2.1 ou 1.2.2-beta.71.
+      placeholder: 1.2.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: channel
+    attributes:
+      label: Canal et type d’installation
+      description: Le canal est indiqué dans **Réglages > Application > Canal de mise à jour**.
+      options:
+        - Stable, installateur Windows
+        - Stable, exécutable portable Windows
+        - Stable, DMG macOS
+        - Bêta, installateur Windows
+        - Bêta, exécutable portable Windows
+        - Bêta, DMG macOS
+        - Lancé depuis les sources
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Fournisseur IA concerné
+      multiple: true
+      options:
+        - OpenAI
+        - Ollama
+        - LM Studio (sur ce poste)
+        - LM Studio via LM Link
+        - Autre serveur compatible OpenAI
+        - Foundry Local (Windows)
+        - Apple Foundation Models (macOS)
+        - Aucun, le problème ne dépend pas de l’IA
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Modèle utilisé
+      description: Facultatif. Par exemple gpt-5.4, qwen3.5-4b ou le nom du modèle LM Studio.
+
+  - type: dropdown
+    id: feature-modes
+    attributes:
+      label: Fonctions activées
+      description: Voir **Réglages > Application > Fonctions**.
+      multiple: true
+      options:
+        - Fonctions avancées
+        - Fonctions expérimentales
+        - Aucune des deux
+        - Je ne sais pas
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description du problème
+      description: Ce qui se passe, et ce que vous attendiez à la place.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Étapes pour reproduire
+      description: Indiquez aussi l’application dans laquelle le texte était sélectionné (Word, Chrome, VS Code…), si c’est utile.
+      placeholder: |
+        1. Sélectionner un texte dans…
+        2. Appuyer sur…
+        3. Choisir le prompt…
+        4. Constater que…
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Extrait du journal
+      description: |
+        Le bouton **Réglages > Application > Dossiers et diagnostic > Ouvrir le dossier des journaux** ouvre le bon dossier. Sinon :
+        - Windows (installateur ou portable) : `%LOCALAPPDATA%\SuperMenu\logs\supermenu.log` ;
+        - Windows, lancé depuis les sources : `win32\logs\supermenu.log` dans le dépôt ;
+        - macOS : `~/Library/Logs/SuperMenu/supermenu.log`, et `native-crash.log` dans le même dossier après un plantage.
+
+        Copiez seulement les lignes proches du problème. Les journaux ne contiennent normalement ni clé API ni texte sélectionné, mais relisez-les avant de les publier et masquez adresses de serveur, noms de postes ou chemins personnels si besoin.
+      render: text
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Informations complémentaires
+      description: Captures d’écran, disposition du clavier, plusieurs écrans, Bureau à distance…
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Vérifications
+      options:
+        - label: J’ai cherché dans les issues existantes et ce problème n’y figure pas.
+          required: true
+        - label: Mon rapport ne contient aucune clé API, aucun mot de passe et aucune donnée personnelle.
+          required: true

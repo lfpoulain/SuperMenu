@@ -1236,14 +1236,14 @@ class MainWindow(QMainWindow):
             if not status.all_granted:
                 message += (
                     " — la lecture de l’état macOS reste incomplète ; "
-                    "vérifie Accessibilité avant le premier copier-coller."
+                    "vérifiez Accessibilité avant le premier copier-coller."
                 )
             granted = True
         elif not status.all_granted:
             missing = " et ".join(status.missing_labels)
             message = (
-                f"⚠️ Raccourcis inactifs : autorise {missing}. "
-                "Si SuperMenu n’apparaît pas, ajoute SuperMenu.app avec le bouton +."
+                f"⚠️ Raccourcis inactifs : autorisez {missing}. "
+                "Si SuperMenu n’apparaît pas, ajoutez SuperMenu.app avec le bouton +."
             )
             granted = False
         else:
@@ -1260,12 +1260,12 @@ class MainWindow(QMainWindow):
                 # refuse it again, recording a new one fixes it.
                 message = (
                     f"⚠️ Raccourci inactif — {refused[0].rstrip('.')}. "
-                    "Réenregistre-le avec « Définir »."
+                    "Réenregistrez-le avec « Définir »."
                 )
             else:
                 message = (
                     "⚠️ Autorisations accordées, mais les raccourcis ne sont "
-                    f"pas encore actifs ({detail}). Quitte puis relance SuperMenu."
+                    f"pas encore actifs ({detail}). Quittez puis relancez SuperMenu."
                 )
             granted = False
         self._set_status_label(

@@ -379,8 +379,10 @@ jobs:
             printf '\n</details>\n'
           } > stable-release-notes.md
 
-      - name: Publish immutable stable release
+      - name: Publish stable release
         uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
+        # immutableCreate creates the release as a draft, attaches the files,
+        # then publishes it: the published release is complete from the start.
         with:
           tag: ${{ github.ref_name }}
           commit: ${{ github.sha }}

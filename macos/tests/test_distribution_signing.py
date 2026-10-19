@@ -70,6 +70,28 @@ def test_entitlements_stay_parseable_by_codesign():
     assert b"\r\n" not in raw
 
 
+def test_app_bundle_ships_the_license_and_third_party_notices():
+    spec = (MACOS_ROOT / "SuperMenu-macos.spec").read_text(encoding="utf-8")
+    build = _commands(_script("scripts", "build_dmg.sh"))
+
+    for name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "licenses"):
+        assert f'(str(repository_dir / "{name}"), ' in spec
+        assert (REPOSITORY_ROOT / name).exists()
+    assert '"tools" / "collect_third_party_licenses.py"' in spec
+    assert "license_collector.pyinstaller_datas(" in spec
+    # Nothing outside the .app needs the generated folder on macOS.
+    assert 'Path(workpath) / "third_party_licenses"' in spec
+    assert 'requirement_files=[project_dir / "requirements.txt"]' in spec
+    assert spec.index("a = Analysis(") < spec.index("a.datas += license_collector")
+    assert spec.index("a.datas += license_collector") < spec.index("coll = COLLECT(")
+
+    # The packaged app is checked before it is signed into a DMG.
+    assert "Contents/Resources/${notice}" in build
+    for notice in ("LICENSE", "THIRD_PARTY_NOTICES.md", "licenses/LGPL-3.0.txt"):
+        assert notice in build
+    assert build.index("Contents/Resources/${notice}") < build.index("hdiutil create")
+
+
 def test_build_targets_apple_silicon_only():
     spec = (MACOS_ROOT / "SuperMenu-macos.spec").read_text(encoding="utf-8")
 

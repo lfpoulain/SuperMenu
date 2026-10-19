@@ -1,309 +1,489 @@
-# Architecture technique de SuperMenu
+# Architecture technique de SuperMenu pour Windows
 
-Ce document détaille l'architecture technique de SuperMenu, expliquant comment les différents composants interagissent entre eux et comment l'application est structurée.
+Ce document décrit l’organisation de l’application Windows, ses frontières
+avec le cœur partagé, les flux principaux et la chaîne de distribution. Il
+s’adresse aux contributeurs ; l’utilisation est décrite dans le
+[guide d’utilisation](GUIDE_UTILISATION.md).
 
-## Vue d'ensemble
+## Vue d’ensemble
 
-SuperMenu est développé en Python avec PySide6. L'application Windows est une
-composition : le métier multiplateforme vit dans `shared/supermenu_core`, tandis
-que `win32/src` porte uniquement l'application et les intégrations Windows.
+SuperMenu est écrit en Python avec PySide6 (Qt 6). L’application Windows est
+une composition : le métier commun aux deux plateformes vit dans
+`shared/supermenu_core`, et `win32/src` ne contient que l’application et les
+intégrations propres à Windows.
 
-```
+```text
 SuperMenu/
-├── shared/supermenu_core/      # Cœur commun, sans API native
-│   ├── api/                    # OpenAI, Ollama, LM Studio
-│   ├── audio/                  # Capture Qt, dictée en direct, modèles résidents
-│   ├── config/                 # Modèles et schémas de prompts
-│   ├── ui/                     # Widgets Qt composables
-│   └── utils/                  # Validateurs purs
+├── shared/supermenu_core/      # cœur commun, sans API native
+│   ├── api/                    # client OpenAI, Ollama, LM Studio et LM Link
+│   ├── audio/                  # capture Qt, dictée, modèles vocaux résidents
+│   ├── config/                 # modèles, prompts, fonctions avancées/expérimentales
+│   ├── ui/                     # fenêtres et widgets Qt communs
+│   └── utils/                  # validateurs et traitement du raisonnement
 └── win32/
+    ├── run.py                  # point d’entrée (sources et exécutable)
     ├── src/
-    │   ├── main.py             # Composition de l'application
-    │   ├── api/                # Adaptateur multimodal du client
-    │   ├── audio/              # Moteurs vocaux Windows et worker Nemotron
-    │   ├── config/             # Persistance Windows
-    │   ├── ui/                 # UI Windows et capture
-    │   └── utils/              # Hotkeys, cible et presse-papiers
-    ├── requirements*.txt
-    ├── SuperMenu.spec
-    └── setup_supermenu.iss
+    │   ├── main.py             # classe SuperMenu : démarrage, instance unique
+    │   ├── api/                # adaptateur du client, Foundry Local (texte)
+    │   ├── audio/              # moteurs vocaux Windows, worker Nemotron
+    │   ├── config/             # Settings (QSettings + keyring), catalogue Foundry
+    │   ├── ui/                 # fenêtre principale, réponse, capture, Foundry
+    │   └── utils/              # raccourcis, menu, presse-papiers, insertion, updater
+    ├── tests/
+    ├── requirements.txt        # dépendances épinglées, dont ../shared en éditable
+    ├── SuperMenu.spec          # build PyInstaller
+    └── setup_supermenu.iss     # installateur Inno Setup
 ```
 
-Règle de dépendance : `win32/src` peut importer `supermenu_core`, mais le cœur
-partagé ne peut importer ni `src`, ni Win32, ni AppKit. Un test architectural
-analyse tous ses imports pour garantir cette frontière.
+**Règle de dépendance** : `win32/src` peut importer `supermenu_core`, jamais
+l’inverse. Le cœur n’importe ni `src`, ni Win32 (`win32api`, `winreg`,
+`ctypes.windll`…), ni AppKit, ni `foundry_local`. Le test
+`shared/tests/test_architecture.py` analyse tous les imports du cœur, y
+compris `importlib.import_module` et `__import__`, et n’autorise que la
+bibliothèque standard portable et une liste fermée de dépendances.
 
-## Composants principaux
+## Composants
 
-### 1. Point d'entrée et initialisation
+### Démarrage
 
-- **run.py** : Script de lancement (ajoute la racine du projet au `sys.path` puis lance `src.main.SuperMenu`)
-- **src/__main__.py** : Point d'entrée du package (lancement via `python -m src`)
-- **src/main.py** : Classe `SuperMenu` qui initialise l'application, les raccourcis et les gestionnaires
+- `run.py` ajoute la racine de `win32/` au `sys.path`, installe la
+  journalisation des exceptions non gérées sur le chemin graphique, puis lance
+  `src.main.SuperMenu`. Il accepte aussi les modes `--smoke-test`,
+  `--foundry-smoke-test`, `--microphone-smoke-test` et les modes worker
+  (`--foundry-worker`, `--speech-worker`).
+- `src/main.py` crée l’application, les gestionnaires de raccourcis, le
+  `ContextMenuManager` et la `MainWindow`, puis termine le démarrage par
+  `_finish_startup`. Les raccourcis principaux sont enregistrés avant ceux des
+  prompts, pour qu’un prompt ne prenne jamais un raccourci principal.
+- Un échec de démarrage est consigné avec sa trace, puis expliqué dans une
+  boîte de dialogue minimale (jamais en mode smoke test ou worker).
 
-En distribution, l'application est packagée en `SuperMenu.exe` (PyInstaller)
-et installée via Inno Setup. En mode one-file, les ressources sont résolues
-depuis le répertoire d'extraction temporaire fourni par PyInstaller
-(`sys._MEIPASS`).
+En distribution, l’application est un exécutable PyInstaller « one-file »
+(`SuperMenu.exe`) installé par Inno Setup. Les ressources sont résolues depuis
+le dossier d’extraction de PyInstaller (`sys._MEIPASS`) par
+`src/utils/paths.py`.
 
-### 2. Interface utilisateur
+### Instance unique
 
-- **main_window.py** : Fenêtre principale des paramètres
-- **`shared/.../response_window.py`** : comportement et rendu communs de la
-  fenêtre de réponse ; `src/ui/response_window.py` ajoute la présentation Win32
-  et l'insertion native.
-- **`shared/.../prompt_dialog.py`** : dialogue Qt commun (texte et image).
-- **screen_capture.py** : Capture d'écran (plein écran ou sélection de zone) utilisée par le flux "capture"
-- **`shared/.../theme_manager.py`** : thème sombre/clair/auto.
+L’instance unique repose sur un mutex nommé, `Local\SuperMenuSingleInstance`
+(`CreateMutexW`), propre à la session Windows. Un `QLocalServer` nommé avec
+l’identifiant de session sert seulement au message « show » envoyé par une
+seconde instance. Si l’instance existante ne répond pas (redémarrage ou mise à
+jour en cours), la nouvelle attend jusqu’à cinq secondes que le mutex soit
+libéré. Si le mutex est inutilisable, le démarrage n’est jamais bloqué. À la
+fermeture, le mutex est libéré juste après les raccourcis, pour qu’une
+instance relancée les retrouve libres.
 
-### 3. Utilitaires (src/utils/)
+### Interface
 
-- **context_menu.py** : Gestion du menu contextuel
-- **hotkey_manager.py** : Enregistrement et gestion des raccourcis clavier
-- **logger.py** : Système de journalisation
-- **`shared/.../loading_indicator.py`** : indicateur non bloquant commun.
+- `src/ui/main_window.py` : fenêtre de configuration (onglets Prompts, Voix,
+  Réglages, À propos), icône de la zone de notification, mises à jour. Les
+  pages communes viennent de `supermenu_core.ui` (`ConfigurationShell`,
+  `SettingsPanel`, `TextPromptForm`, `VoicePromptEditor`,
+  `SpeechSettingsWidget`, `ApplicationSettings`, `FeatureModeSettings`,
+  `AboutPage`…).
+- `src/ui/foundry_settings.py` : réglages Foundry Local du moteur de texte.
+- `src/ui/response_window.py` : ajoute à la fenêtre de réponse commune la
+  présentation Win32 et l’insertion native. La fenêtre s’affiche d’abord avec
+  Qt, puis un renforcement Win32 (`ShowWindow`, `SetWindowPos`,
+  `BringWindowToTop`, `SetForegroundWindow`) la ramène au premier plan ; un
+  échec Win32 reste sans conséquence.
+- `src/ui/screen_capture.py` : capture plein écran ou de zone.
+- Le thème (sombre, clair, automatique) est appliqué à toute l’application par
+  `supermenu_core.ui.theme_manager.ThemeManager` ; les fenêtres ne définissent
+  pas de styles locaux.
 
-#### Hotkeys (Windows)
+### Configuration
 
-Le module `src/utils/hotkey_manager.py` implémente les raccourcis globaux via l'API Win32 :
+`src/config/settings.py` (`Settings`) persiste les réglages dans un fichier INI
+via `QSettings` (`%USERPROFILE%\SuperMenu.ini`). La clé OpenAI et le jeton
+d’endpoint sont stockés séparément avec `keyring`, dans le Gestionnaire
+d’identification Windows. `Settings` valide et migre les modèles, les
+prompts, les raccourcis, les réglages vocaux et le délai de déchargement des
+modèles locaux, et porte les interrupteurs des fonctions avancées et
+expérimentales.
 
-- Enregistrement/désenregistrement des hotkeys avec `RegisterHotKey` / `UnregisterHotKey`
-- Réception des événements via `WM_HOTKEY`
-- Intégration Qt via un `QAbstractNativeEventFilter` installé sur l'application (`QCoreApplication.installNativeEventFilter`)
+Les collections de prompts passent par le schéma partagé
+(`supermenu_core.config.prompts`). En lecture, une entrée invalide est
+réparée ou écartée sans effacer les autres, et la valeur brute est copiée
+dans `prompts_backups` ou `voice_prompts_backups` (cinq copies au plus). En
+écriture et à l’import, la validation est stricte. `reset_to_defaults` garde
+aussi une copie des deux bibliothèques. `src/config/foundry_models.py` déclare
+le catalogue Foundry (`FOUNDRY_MODELS`) et l’enregistre dans le cœur avec
+`register_foundry_models()`.
 
-Contraintes :
+## Fonctions avancées et expérimentales
 
-- Les modificateurs autorisés sont `Ctrl`, `Alt`, `Shift`
-- `Shift` seul n'est accepté qu'avec `F1` à `F24` : `RegisterHotKey` réserve la combinaison dans tout le système, donc `Shift+K` empêcherait de taper un K majuscule ailleurs
-- La touche `Win` n'est pas autorisée
-- Sur une disposition sans `²`, `Ctrl+²` et `Ctrl+Alt+²` utilisent la touche physique située sous Échap
-- Les raccourcis à une seule touche ne sont pas supportés
-- Les touches de fonction Windows `F1` à `F24` sont traduites directement vers leurs codes virtuels Win32
+Les interrupteurs `advanced_features_enabled` et
+`experimental_features_enabled` sont définis dans
+`shared/supermenu_core/config/feature_modes.py` (`FeatureModesSettingsMixin`,
+hérité par `Settings`).
 
-Le dialogue d'enregistrement d'un raccourci (`HotkeyRecorderDialog`) capture les touches via les événements Qt (pas de hook clavier global).
+- **Création** : `Settings.__init__` appelle `has_saved_preferences()` avant
+  d’écrire le moindre défaut. Si le fichier INI contient déjà un réglage d’une
+  version précédente (`hotkey`, `prompts`, `model`, `theme` ou
+  `update_channel`), les deux interrupteurs sont créés activés ; sinon,
+  désactivés. Un choix existant n’est jamais remplacé, et `reset_to_defaults`
+  ne les modifie pas.
+- **Règle** : lire au moment de l’usage, filtrer à l’enregistrement, ne jamais
+  supprimer. Les fonctions `advanced_enabled()`, `experimental_enabled()`,
+  `effective_model_target()`, `effective_text_idle_seconds()` et
+  `effective_speech_idle_seconds()` relisent le réglage à chaque appel. Aucun
+  réglage stocké n’est réécrit à cause d’un interrupteur.
 
-### 4. Configuration
+Points de contrôle :
 
-- **`src/config/settings.py`** : persistance via QSettings et stockage sécurisé.
-- **`shared/supermenu_core/config`** : catalogue OpenAI, options fournisseur et
-  validation/migration des collections de prompts.
+- `HotkeyManager.register_hotkey` ne réserve pas les raccourcis du menu vocal,
+  de la capture et de la dictée instantanée sans les fonctions
+  expérimentales. C’est un succès sans erreur : aucun « raccourci inactif »
+  n’est signalé. `PromptHotkeyManager.refresh_hotkeys` n’enregistre aucun
+  raccourci de prompt sans les fonctions avancées.
+- `ContextMenuManager` vérifie l’interrupteur à chaque point d’entrée (menu
+  vocal, actions vocales, dictée instantanée, capture, raccourci de prompt) :
+  un `WM_HOTKEY` déjà en file après la désactivation est ignoré, et
+  **Réessayer** refuse une ancienne requête d’image. `_send_request` applique
+  `effective_model_target` : sans les fonctions avancées, chaque prompt
+  utilise le client des réglages Texte.
+- `FoundrySettingsWidget`, `FoundryClient` et `create_speech_backend`
+  appliquent `effective_text_idle_seconds` et `effective_speech_idle_seconds`
+  (cinq minutes sans les fonctions avancées).
+- `MainWindow._apply_feature_visibility` masque l’onglet Voix, la rubrique
+  Dictée, les raccourcis expérimentaux, le groupe Capture d’écran, les lignes
+  de modèle et de raccourci des prompts et la mémoire des modèles, sans
+  jamais retirer de widget : les index restent stables.
+- `MainWindow.apply_feature_modes`, relié à `FeatureModeSettings.modes_changed`
+  et déclenché par **Appliquer**, libère les raccourcis de prompts,
+  réenregistre les raccourcis expérimentaux si leur interrupteur a changé,
+  puis les raccourcis de prompts, dans l’ordre du démarrage. Il applique les
+  délais de déchargement aux services en cours et, à la désactivation des
+  fonctions expérimentales, arrête la vérification vocale et le test du micro
+  et décharge le modèle vocal inactif. Les raccourcis qui ne peuvent pas être
+  repris sont listés dans l’alerte **Raccourcis inactifs**.
 
-## Flux de données
+L’import et l’export des prompts conservent toujours tous les champs, que les
+fonctions soient actives ou non.
 
-### Menu contextuel
+## Raccourcis globaux
 
-1. L'utilisateur sélectionne du texte dans une application
-2. L'utilisateur appuie sur le raccourci clavier (par défaut: Ctrl+²)
-3. `HotkeyManager` détecte le raccourci et déclenche `show_context_menu()`
-4. `ContextMenuManager` attend le relâchement de Shift, Ctrl, Alt et Win (2 s au plus), puis récupère le texte sélectionné via diverses méthodes
-5. `ContextMenuManager` affiche le menu contextuel avec les prompts configurés
-6. L'utilisateur sélectionne une action
-7. Le texte et le prompt sont envoyés à l'API OpenAI via `OpenAIClient`
-8. La réponse est affichée dans `ResponseWindow` ou insérée directement
+`src/utils/hotkey_manager.py` implémente les raccourcis avec l’API Win32 :
+
+- `RegisterHotKey` / `UnregisterHotKey`, réception de `WM_HOTKEY` par un
+  `QAbstractNativeEventFilter` installé sur l’application ;
+- un `HotkeyManager` par raccourci principal (menu, mode personnalisé, menu
+  vocal, capture, dictée instantanée) et un `PromptHotkeyManager` pour les
+  raccourcis des prompts ;
+- `HotkeyRecorderDialog` capture la combinaison avec les événements Qt, sans
+  hook clavier global. Pendant l’enregistrement, tous les raccourcis de
+  SuperMenu sont libérés, puis réenregistrés avant d’appliquer le nouveau :
+  un conflit avec un autre raccourci de SuperMenu est donc refusé.
+
+Règles de `_parse_hotkey_to_win32` :
+
+- modificateurs `Ctrl`, `Alt` et `Shift` ; `Win` est refusé, comme un
+  raccourci sans modificateur ;
+- `Shift` seul n’est accepté qu’avec `F1` à `F24` : `RegisterHotKey` réserve
+  la combinaison dans tout le système, et `Shift+K` empêcherait de taper un K
+  majuscule ailleurs ;
+- une lettre majuscule n’ajoute pas `Shift` ;
+- un caractère est converti en touche virtuelle par `VkKeyScanW` dans la
+  disposition active, et les modificateurs qu’il exige sont ajoutés (`&` en
+  QWERTY donne `Shift+7`).
+
+Repli pour `²` : quand la disposition active n’a pas de `²`, ou ne l’obtient
+qu’avec AltGr alors que le raccourci ne contient pas déjà `Ctrl+Alt`, le
+raccourci utilise la touche physique située sous Échap (code de balayage
+`0x29`, converti par `MapVirtualKeyW` et limité aux touches `VK_OEM_*`). Ainsi
+`Ctrl+²` devient ``Ctrl+` `` en QWERTY et `Ctrl+^` en QWERTZ, au lieu de
+`Ctrl+Alt+2` qui entrerait en conflit avec le raccourci vocal. Un `Ctrl+Alt+²`
+garde son sens sur QWERTZ (`Ctrl+Alt+2`, soit AltGr+2). Sur AZERTY, rien ne
+change. Le libellé enregistré reste `²` et le journal nomme la touche
+réellement réservée.
+
+Chaque `HotkeyManager` expose `last_error`, `feature_name` et le signal
+`registration_failed`. Au démarrage, `_report_hotkey_failures` affiche une
+notification listant les raccourcis principaux inactifs et le nombre de
+raccourcis de prompts concernés. L’onglet Raccourcis affiche « (inactif) »
+avec la raison en infobulle.
+
+## Flux principaux
+
+### Menu des prompts
+
+1. `HotkeyManager` reçoit le raccourci et appelle `ContextMenuManager.show_menu()`.
+2. `PasteTarget.capture()` mémorise la fenêtre au premier plan, son processus
+   et le contrôle qui a le focus. Une fenêtre de SuperMenu n’est jamais prise
+   pour cible.
+3. `_when_hotkey_released` attend le relâchement de Shift, Alt et Win (aussi
+   Ctrl pour un raccourci de prompt), en sondant toutes les 20 ms pendant
+   deux secondes au plus, sans bloquer la boucle Qt. Si la fenêtre active
+   change pendant l’attente, rien n’est lu ; un nouveau raccourci remplace
+   celui en attente.
+4. `_try_get_selected_text` copie la sélection (voir plus bas) puis
+   `populate_prompt_menu` construit le menu ; les prompts sont désactivés si
+   aucun texte n’a été lu.
+5. Le prompt choisi est envoyé au client IA avec un `request_id`.
+6. La réponse s’affiche dans `ResponseWindow` ou est insérée directement.
+
+Le menu est un `QMenu` natif ouvert par `exec()`. Les événements de
+désactivation n’étant pas fiables depuis un raccourci global, un watchdog
+(`QTimer` d’environ 200 ms) le ferme si la fenêtre au premier plan n’appartient
+ni à l’application d’origine ni à SuperMenu, ou si un clic gauche survient hors
+du menu (`GetAsyncKeyState`), après une période de grâce d’environ 250 ms.
 
 ### Raccourcis directs par prompt
 
-Chaque prompt textuel peut porter un champ `hotkey`. `PromptHotkeyManager` enregistre dynamiquement toutes les combinaisons après les raccourcis principaux de l'application et émet l'identifiant du prompt concerné. `ContextMenuManager` capture alors la cible et la sélection, puis envoie la requête sans ouvrir de menu. Le champ `insert_directly` du prompt reste l'unique source de vérité : s'il est actif, `TextInserter` remplace la sélection uniquement si la fenêtre cible est toujours valide et un `SimpleLoadingIndicator` non activable signale l'envoi et la fin ; sinon, `ResponseWindow` est préparée et affichée normalement.
+Chaque prompt textuel peut porter un champ `hotkey`. `PromptHotkeyManager`
+enregistre ces combinaisons après les raccourcis principaux et émet
+l’identifiant du prompt. `ContextMenuManager.run_prompt_hotkey` capture la
+cible et la sélection, puis envoie la requête sans menu. Le champ
+`insert_directly` du prompt décide de l’affichage. Les doublons entre prompts
+sont refusés par `Settings` ; un conflit Win32 annule la modification sans
+toucher aux autres réglages du prompt.
 
-Les doublons entre prompts sont refusés par `Settings`. Les conflits Win32 sont détectés lors du réenregistrement et la modification du prompt est annulée sans désactiver ses autres réglages.
+### Copie et collage synthétiques
 
-Copie et collage synthétiques :
+- Ctrl+C et Ctrl+V sont envoyés avec les codes virtuels `VK_C` et `VK_V`
+  (`KeyCode.from_vk`), indépendants de la disposition : pas de paquet
+  `KEYEVENTF_UNICODE` sur un clavier cyrillique, grec ou hébreu.
+- `_copy_shortcuts_for` choisit la copie selon la classe de la fenêtre :
+  `ConsoleWindowClass` et `CASCADIA_HOSTING_WINDOW_CLASS` (Windows Terminal)
+  reçoivent Ctrl+Insert puis Ctrl+Shift+C ; mintty, PuTTY, KiTTY et WezTerm ne
+  reçoivent que Ctrl+Insert ; les autres fenêtres reçoivent Ctrl+C. ConEmu et
+  Cmder copient une sélection avec Ctrl+C et restent donc dans le cas
+  général. Le terminal intégré de VS Code ne se distingue pas de l’éditeur
+  (`Chrome_WidgetWin_1`).
+- Quand SuperMenu est lui-même au premier plan, la lecture de sélection ne
+  touche pas au presse-papiers.
+- `ClipboardManager.capture_snapshot` clone tous les formats annoncés, images
+  comprises (via `imageData()` pour `application/x-qt-image`), et
+  `restore_if_unchanged` ne restaure que si le presse-papiers contient encore
+  la valeur écrite par SuperMenu.
+- Les écritures internes (sentinelle de copie, réponse à coller) passent par
+  `set_text(..., transient=True)`, qui ajoute
+  `ExcludeClipboardContentFromMonitorProcessing`,
+  `CanIncludeInClipboardHistory` et `CanUploadToCloudClipboard` à 0 : elles
+  n’entrent ni dans l’historique `Win+V` ni dans le presse-papiers cloud. Le
+  contenu de l’utilisateur est restauré tel qu’il a été capturé.
+- `PasteTarget.is_remote_session()` reconnaît Bureau à distance
+  (`TscShellContainerClass`, `RAIL_WINDOW`), Citrix et VMware : la restauration
+  attend alors `CLIPBOARD_REMOTE_RESTORE_DELAY` (1,5 s) au lieu du délai
+  normal. Les délais sont définis dans `src/utils/clipboard_config.py`.
 
-- Le menu principal, le mode personnalisé et les raccourcis de prompt attendent le relâchement de Shift, Ctrl, Alt et Win (2 s au plus) avant d'envoyer la copie. Sinon, l'application cible recevrait une autre combinaison, par exemple Ctrl+Alt+C. Si la fenêtre active change pendant l'attente, rien n'est lu.
-- Ctrl+C et Ctrl+V passent par les codes virtuels `VK_C` et `VK_V`, indépendants de la disposition clavier.
-- Les consoles Windows et Windows Terminal reçoivent Ctrl+Insert, puis Ctrl+Shift+C. Les terminaux autonomes connus (mintty, PuTTY, KiTTY, ConEmu, WezTerm) ne reçoivent que Ctrl+Insert, pour ne jamais interrompre le programme en cours.
-- Une insertion directe refusée (cible changée ou absente) ne perd pas la réponse : elle est affichée dans `ResponseWindow`, ou copiée dans le presse-papiers si cette fenêtre attend déjà une autre réponse.
-- Les écritures internes du presse-papiers (sentinelle de copie, réponse à coller) sont exclues de l'historique Win+V et de la synchronisation cloud.
-- La restauration du presse-papiers attend plus longtemps lorsque la cible est un client Bureau à distance, Citrix ou VMware, qui lit le presse-papiers à la demande.
+### Insertion
 
-#### Affichage et fermeture automatique des menus
+`TextInserter` colle la réponse dans la cible capturée.
+`PasteTarget.activate_and_verify()` réactive la fenêtre, puis exige le même
+processus et le même contrôle focalisé qu’au lancement ; sinon l’insertion est
+annulée. Pour une insertion directe :
 
-Les menus utilisent le `QMenu` natif sans drapeaux translucides ou sans bordure ajoutés. Ils sont ouverts avec `QMenu.exec()` depuis un raccourci global. Les événements Qt de type "deactivate" pouvant être non fiables dans ce contexte, la fermeture automatique est complétée par un watchdog périodique côté `ContextMenuManager` :
+- sans cible capturée au lancement, rien n’est collé : la réponse est affichée
+  avec le message « Aucune fenêtre cible n’était disponible au lancement » ;
+- une insertion refusée passe par `_keep_refused_direct_response`, qui
+  affiche la réponse dans `ResponseWindow` avec le prompt, le contenu, le
+  modèle et le raisonnement d’origine (**Réessayer** et **Insérer le texte**
+  fonctionnent), ou la copie dans le presse-papiers si la fenêtre attend
+  déjà une autre réponse.
 
-- **Timer** : `QTimer` (intervalle ~200ms)
-- **Suivi de focus Windows** : lecture du PID de la fenêtre au premier plan (`GetForegroundWindow` / `GetWindowThreadProcessId`)
-- **PID owner** : PID capturé au moment de l'ouverture (application "propriétaire")
-- **Période de grâce** : ~250ms après l'ouverture pour éviter une fermeture immédiate due aux changements de focus induits par le hotkey
-- **Clic global** : détection du clic gauche via `GetAsyncKeyState(VK_LBUTTON)` et fermeture si clic extérieur au `menu.geometry()`
+Seul le bouton **Insérer le texte** peut capturer la fenêtre active au
+moment du clic quand aucune cible n’est connue.
 
-Le menu est fermé si :
+### Requêtes et clients IA
 
-- le PID au premier plan n'est ni celui de l'application propriétaire, ni celui de SuperMenu
-- un clic gauche survient en dehors de la géométrie du menu (après la période de grâce)
+`ContextMenuManager` crée le client IA à partir des `Settings`
+(`_create_api_client`) et le recrée quand les réglages changent
+(`update_client_config`, qui vide aussi le cache partagé des capacités des
+modèles). L’ancien client est retiré dès qu’il n’a plus de requête en cours.
+Un prompt qui choisit son propre modèle reçoit un client dédié. Les requêtes
+sont suivies par `request_id` avec des signaux scopés ; `send_request_sync`,
+`process_request` et les signaux non scopés ne sont gardés que pour
+compatibilité.
 
-La fenêtre de résultat n'expose plus plusieurs moteurs expérimentaux. `ResponseWindow.present()` affiche d'abord la fenêtre avec Qt, puis tente un renforcement Win32 (`ShowWindow`, `SetWindowPos`, `BringWindowToTop`, `SetForegroundWindow`). Une erreur Win32 reste non bloquante puisque l'affichage Qt a déjà eu lieu.
+Le client commun (`supermenu_core.api.openai_client.OpenAIClient`) gère le
+raisonnement, les reprises, la détection des réponses tronquées pour tous les
+fournisseurs et le masquage des blocs de raisonnement. L’adaptateur
+`src/api/openai_client.py` active les images pour la capture d’écran ; un
+chemin de fichier présent dans la sélection reste du texte. Foundry Local
+passe par `src/api/foundry_client.py` (`FoundryService`, `FoundryClient`) et
+un worker dans un processus enfant (`src/api/foundry_worker.py`), décrits dans
+[foundry-local.md](foundry-local.md).
 
-### Reconnaissance vocale
+Une erreur de requête appelle `ResponseWindow.set_error` : statut d’échec,
+**Insérer le texte** désactivé, **Copier** et **Réessayer** disponibles.
 
-1. L'utilisateur appuie sur le raccourci vocal (par défaut: Ctrl+Alt+²)
-2. `ContextMenuManager` crée directement le `DictationSession` de `shared/supermenu_core/audio`, également utilisé sur Mac
-3. La fenêtre partagée `RecordingDialog` indique la préparation du moteur ; le microphone ne démarre qu'une fois celui-ci prêt
-4. `Microphone` capture via Qt Multimedia et convertit le flux en PCM mono : 24 kHz pour OpenAI GPT Live Transcribe, 16 kHz pour Foundry Local Nemotron
-5. Les fragments audio sont transmis au moteur au fur et à mesure, sans fichier audio sur disque ; les signaux actualisent la transcription en direct
-6. **Terminer**, ou la limite de cinq minutes de capture, arrête le microphone et finalise la transcription. **Annuler** libère la capture et ignore tout résultat tardif
-7. L'action **Dicter** transmet le texte final à une `ResponseWindow` autonome, puis laisse l'utilisateur choisir **Copier** ou **Écrire**
-8. Un prompt vocal combine la transcription avec son instruction et respecte son option `insert_directly`
-9. Le service partagé `ResidentSpeechService` conserve le moteur local entre les dictées, avec une session distincte pour chacune et un déchargement après cinq minutes d'inactivité par défaut. Le délai est configurable ; le microphone reste fermé entre les dictées
+### Voix et dictée
 
-`src/audio` contient uniquement les moteurs propres à Windows. Les délais de
-copie et de collage résident dans `src/utils/clipboard_config.py`. Le microphone
-est identifié par son ID Qt (`speech_microphone`) ; l'ancien index PortAudio est
-retiré du fichier de configuration sans toucher aux préférences vocales actuelles.
+1. Le raccourci vocal ouvre le menu vocal commun (`populate_voice_menu`) :
+   **Dicter du texte…**, prompts vocaux, **Prompt vocal personnalisé…**.
+2. `ContextMenuManager` crée un `DictationSession` du cœur partagé, également
+   utilisé sur macOS, ou un `PlainDictationSession` pour la dictée simple.
+3. `RecordingDialog` affiche la préparation ; le microphone ne s’ouvre qu’une
+   fois le moteur prêt.
+4. `Microphone` capture avec Qt Multimedia et convertit le flux en PCM mono :
+   24 kHz pour OpenAI GPT Live Transcribe, 16 kHz pour Nemotron. Les fragments
+   sont transmis au fil de l’eau, sans fichier audio.
+5. **Terminer** ou la limite de cinq minutes arrête le microphone et finalise ;
+   **Annuler** libère la capture et ignore tout résultat tardif.
+6. La dictée simple garde son texte dans la même fenêtre (**Copier**,
+   **Insérer**), avec correction facultative par le moteur de texte. Le mode
+   de raisonnement de la correction est lu à l’insertion dans le prompt
+   « Corriger ». Un prompt vocal combine la transcription avec son instruction
+   et respecte son option `insert_directly`.
+7. `ResidentSpeechService` garde le moteur local entre les dictées, avec une
+   session distincte pour chacune, et le décharge après le délai choisi. Le
+   délai de préparation est réarmé à chaque progression, pour ne jamais
+   couper un téléchargement ou l’activation du GPU.
 
-La bibliothèque et l’éditeur des prompts vocaux utilisent désormais
-`shared/supermenu_core/config/voice_prompts.py` et
-`shared/supermenu_core/ui/voice_prompt_editor.py`, également utilisés sur Mac.
-Les six ordres d’assemblage et l’inclusion facultative de la sélection gardent
-leur format existant. L’import/export JSON est commun aux deux plateformes,
-tandis que la capture de sélection et l’insertion restent dans `win32/src`.
+`src/audio/speech_backend.py` crée le moteur (OpenAI ou Nemotron) et
+`src/audio/foundry_speech_worker.py` exécute Nemotron dans un processus
+enfant. Le microphone est identifié par son ID Qt (`speech_microphone`).
+La bibliothèque et l’éditeur des prompts vocaux
+(`supermenu_core.config.voice_prompts`, `supermenu_core.ui.voice_prompt_editor`)
+sont partagés avec macOS ; la capture de sélection et l’insertion restent dans
+`win32/src`.
 
-### Capture d'écran
+### Capture d’écran
 
-1. L'utilisateur appuie sur le raccourci de capture (par défaut: Ctrl+Alt+&)
-2. `ContextMenuManager` détermine le mode de capture via `Settings` :
-   - `fullscreen`
-   - `region`
-   - `ask` (demande à chaque capture)
-3. Si le mode est `ask`, un `QMenu` (même style que les autres menus) est affiché au curseur pour choisir le type de capture
-4. `ContextMenuManager` déclenche la capture via `src/ui/screen_capture.py`
-3. L'image est convertie en **data URL** (`data:image/...;base64,...`) puis le fichier temporaire est supprimé
-4. Le prompt personnalisé est demandé via `PromptDialog`
-5. La requête est envoyée à l'API (texte + image)
-6. La réponse est affichée dans `ResponseWindow` (et le retry réutilise la data URL)
+1. Le raccourci de capture déclenche `ContextMenuManager`, qui lit le mode :
+   `fullscreen`, `region` ou `ask` (menu au curseur).
+2. `ResponseWindow` est masquée pendant la capture ; un filtre d’événements
+   empêche de réafficher une fenêtre fermée entre-temps.
+3. `screen_capture.py` capture l’écran principal (`ImageGrab.grab()`) ou la
+   zone choisie. La sélection de zone s’affiche sur l’écran du curseur et la
+   zone est capturée par `QScreen.grabWindow` sur cet écran : l’image est en
+   pixels physiques, exacte à toutes les mises à l’échelle et sur un écran
+   secondaire de coordonnées négatives.
+4. L’image est convertie en data URL (`data:image/...;base64,...`), puis le
+   fichier temporaire est supprimé.
+5. `PromptDialog` demande l’instruction, la requête (texte et image) est
+   envoyée, et la réponse s’affiche ; **Réessayer** réutilise la data URL.
 
-## Gestion des paramètres
+## Mises à jour
 
-La classe `Settings` dans `src/config/settings.py` gère tous les paramètres de l'application :
+`src/utils/updater.py` lit d’abord le manifeste `update-stable.json` de la
+dernière release Stable ou `update-beta.json` du tag roulant `beta`. Ces
+fichiers sont des assets de release : ils ne consomment pas le quota de l’API
+REST GitHub. Le manifeste est strictement validé (schéma, canal, version,
+type de release, tag, nom de l’asset et empreinte `sha256`). S’il est absent
+ou illisible, l’updater interroge l’API GitHub (`/releases/latest` pour
+Stable, le tag `beta` pour Bêta) ; un quota épuisé produit un message avec
+l’heure de réinitialisation.
 
-- Stockage des paramètres dans un fichier INI via `QSettings`
-- Stockage sécurisé de la clé API via `keyring`
-- Gestion des prompts textuels et vocaux
-- Configuration des raccourcis clavier
-- Moteur vocal, ID Qt du microphone, langues, contexte et délai de déchargement du modèle local
-- Thème de l'application
-- Interrupteurs `advanced_features_enabled` et `experimental_features_enabled`
-  (`shared/supermenu_core/config/feature_modes.py`)
+Téléchargement et lancement :
 
-### Fonctions avancées et expérimentales
+- `download_verified_installer` supprime les dossiers de téléchargements
+  précédents, télécharge dans un dossier `tempfile.mkdtemp` au nom
+  imprévisible, protégé contre les chemins relatifs, et calcule le SHA-256 au
+  fil du flux. Une divergence supprime le dossier et lève
+  `UpdateIntegrityError`, ou `UpdateSupersededError` si une nouvelle Bêta a
+  été publiée entre-temps. Un ancien manifeste sans empreinte est accepté,
+  avec un avertissement dans le journal.
+- `verify_installer_sha256` revérifie le fichier juste avant `ShellExecuteW`,
+  ce qui ferme la fenêtre entre la confirmation et l’exécution.
+- L’installateur est lancé avec le verbe `open`, pas `runas` : le chargeur
+  Inno Setup demande lui-même l’élévation et l’entrée `postinstall` relance
+  SuperMenu avec les droits de l’utilisateur. Un refus (`SE_ERR_ACCESSDENIED`)
+  laisse SuperMenu ouvert, sans seconde invite.
+- La version portable (`_is_portable_build`) n’est jamais notifiée en
+  arrière-plan ; une vérification manuelle propose la page des
+  téléchargements.
+- Les workers de vérification et de téléchargement héritent de
+  `_BackgroundWorker` : un `QObject` dont `run()` s’exécute dans un
+  `threading.Thread` démon. Quitter pendant une requête ne provoque plus
+  d’arrêt brutal.
 
-Les deux interrupteurs sont créés au premier lancement : désactivés pour une
-nouvelle installation, activés quand le fichier INI contient déjà des réglages
-d'une version précédente. `reset_to_defaults` ne les modifie pas.
+Le canal est conservé dans `QSettings` ; un build Bêta neuf sélectionne Bêta,
+un build Stable sélectionne Stable. La version comparée est celle de
+l’exécutable (`APP_VERSION`), ou celle du registre pour une exécution depuis
+les sources.
 
-Règle : lire au moment de l'usage, filtrer à l'enregistrement, ne jamais
-supprimer. Aucun réglage stocké n'est réécrit à cause d'un interrupteur.
+## Journalisation et diagnostic
 
-- `HotkeyManager.register_hotkey` ne réserve pas les raccourcis vocal, capture
-  et dictée sans les fonctions expérimentales (succès sans erreur, donc aucun
-  « raccourci inactif » signalé) ; `PromptHotkeyManager.refresh_hotkeys`
-  n'enregistre aucun raccourci de prompt sans les fonctions avancées.
-- `ContextMenuManager` vérifie l'interrupteur à chaque point d'entrée (menu
-  vocal, actions vocales, dictée instantanée, capture, raccourci de prompt) :
-  un `WM_HOTKEY` déjà en file après la désactivation est ignoré.
-  `_send_request` applique `effective_model_target` : sans les fonctions
-  avancées, chaque prompt utilise le client des réglages Texte.
-- `FoundrySettingsWidget`, `FoundryClient` et `create_speech_backend`
-  appliquent `effective_text_idle_seconds` / `effective_speech_idle_seconds`
-  (cinq minutes sans les fonctions avancées).
-- `MainWindow._apply_feature_visibility` masque onglets, rubriques et lignes
-  sans jamais les retirer (index stables). `MainWindow.apply_feature_modes`,
-  relié à `FeatureModeSettings.modes_changed` et déclenché par **Appliquer**,
-  libère les raccourcis de prompt, réenregistre les raccourcis expérimentaux
-  si leur interrupteur a changé, puis les raccourcis de prompt (même priorité
-  qu'au démarrage), applique les délais de déchargement aux services en cours
-  et, à la désactivation des fonctions expérimentales, arrête la vérification
-  vocale, le test du micro et décharge le modèle vocal inactif.
+`src/utils/logger.py` écrit dans `%LOCALAPPDATA%\SuperMenu\logs\supermenu.log`
+pour un exécutable, ou `win32/logs/supermenu.log` depuis les sources, avec une
+rotation de 1 Mo et trois archives. Depuis les sources, la variable
+`SUPERMENU_LOG_DIR` remplace ce dossier : `tests/conftest.py` la fait pointer
+vers un dossier temporaire. `install_crash_reporting()` pose
+`sys.excepthook` et `threading.excepthook`, pour que les exceptions des slots
+Qt et des threads arrivent dans le journal sans arrêter l’application. Aucune
+sortie console n’est créée quand `sys.stderr` vaut `None` (exécutable
+fenêtré). Le texte sélectionné, les instructions saisies et les
+transcriptions ne sont jamais journalisés, même en DEBUG : seule leur longueur
+l’est.
 
-Emplacements par défaut :
+## Distribution
 
-- **Configuration** : `%USERPROFILE%\SuperMenu.ini`
-- **Logs** : `%LOCALAPPDATA%\SuperMenu\logs\supermenu.log`
+- `SuperMenu.spec` construit `dist\SuperMenu.exe` et appelle
+  `tools/collect_third_party_licenses.py`, qui écrit
+  `dist\third_party_licenses\` (avec `INDEX.txt`). Un composant sans fichier de
+  licence produit un avertissement, jamais un échec. Les DLL ICU trouvées dans
+  le `PATH` sont écartées, ainsi que des fichiers collectés par les hooks Qt
+  mais jamais utilisés : Qt Virtual Keyboard (GPL-3.0 ou licence
+  commerciale), Qt Pdf et `opengl32sw.dll` (Mesa).
+- `setup_supermenu.iss` installe dans `Program Files\SuperMenu` l’exécutable,
+  `LICENSE.txt`, `THIRD_PARTY_NOTICES.md`, `licenses\` et
+  `third_party_licenses\`, avec l’éditeur LFPoulain. Les tâches facultatives
+  créent un raccourci sur le Bureau et un démarrage avec Windows. La
+  désinstallation ferme SuperMenu et peut supprimer
+  `%LOCALAPPDATA%\SuperMenu`, `%USERPROFILE%\SuperMenu.ini` et les clés
+  enregistrées (`CredDeleteW` sur les entrées créées par `keyring`).
+- `src/config/build_info.py` reçoit la version et le canal injectés par les
+  workflows avant le packaging.
 
-## Système de thèmes
+## CI, versions et canaux
 
-Le système de thèmes commun est implémenté via
-`shared/supermenu_core/ui/theme_manager.py` :
+`win32/VERSION` contient la prochaine version Stable (`MAJOR.MINOR.PATCH`).
 
-1. Thèmes disponibles : `dark`, `light`, `auto`
-2. Application via `ThemeManager.apply_theme(app, theme)`
-3. Stockage du thème sélectionné dans les paramètres (`Settings`)
+- **CI** (`ci.yml`) : compilation, tests et lint critique pour Windows sous
+  Python 3.11 et 3.12, macOS sous Python 3.12, puis construction d’un DMG de
+  contrôle ; aucune publication.
+- **Bêta** (`beta-release.yml`) : après la réussite de la CI d’un push sur
+  `main` du dépôt, ou lancement manuel sur `main`. Version
+  `VERSION-beta.RUN_NUMBER`, tag roulant `beta`, prérelease GitHub,
+  `SuperMenu_Beta.exe`, `SuperMenu_Beta_Setup.exe`, manifestes et
+  `SHA256SUMS-beta.txt`. Les fichiers sont remplacés un par un, manifestes en
+  dernier.
+- **Stable** (`stable-release.yml`) : déclenchée uniquement par un tag
+  `vMAJOR.MINOR.PATCH` égal à `VERSION`, et seulement si
+  `.github/STABLE_NOTES.md` cite la version. La release est publiée une seule
+  fois, jamais réécrite par le workflow, et devient la release `Latest`.
 
-## Extensibilité
+Les workflows Bêta et Stable exécutent `SuperMenu.exe --smoke-test` et
+`--foundry-smoke-test` sur l’exécutable construit, avant de produire
+l’installateur. La procédure complète est décrite dans
+[docs/RELEASING.md](../../docs/RELEASING.md).
 
-L'architecture de SuperMenu a été conçue pour faciliter l'ajout de nouvelles fonctionnalités :
+## Tests
 
-- **Nouveaux prompts** : Facilement ajoutables via l'interface utilisateur
-- **Nouveaux thèmes** : Ajout possible en étendant `ThemeManager` (ou en ajoutant un nouveau gestionnaire)
-- **Nouveaux modèles d'IA** : Support de différents modèles OpenAI, extensible à d'autres fournisseurs
-- **Nouvelles actions** : Structure modulaire permettant l'ajout de nouvelles actions au menu contextuel
+Les tests vivent dans `win32/tests` et s’exécutent depuis `win32/`, après ceux
+du cœur (`python -m pytest ../shared/tests`, puis `python -m pytest tests`).
 
-## CI, versions et canaux de publication
+- Les noms de modules sont uniques entre `shared/tests`, `win32/tests` et
+  `macos/tests`. Un module Windows qui a un équivalent macOS se termine par
+  `_win.py`. `test_prompt_model_routing_win.py` et
+  `test_prompt_model_routing_mac.py` sont volontairement identiques et
+  doivent le rester.
+- `conftest.py` exécute les tests comme une installation mise à jour (les deux
+  interrupteurs actifs) ; les tests d’une nouvelle installation remettent
+  `feature_modes.NEW_INSTALL_ENABLED` à `False`.
+- Après chaque test, `conftest.py` lance le ramasse-miettes et détruit les
+  objets Qt en attente de `deleteLater()`. Un test qui crée une fenêtre de
+  configuration doit la fermer et appeler `deleteLater()`.
+- Un test ne contacte jamais de serveur réel. Par exemple, la provenance
+  LM Link (une connexion WebSocket au serveur LM Studio) est remplacée par un
+  faux `lmstudio_provenance.fetch_provenance` qui renvoie `([], [])`.
 
-Le fichier `VERSION` contient la prochaine version stable sous la forme `MAJOR.MINOR.PATCH`. Les workflows injectent la version et le canal dans `src/config/build_info.py` avant le packaging :
+## Règles d’évolution
 
-- **CI** (`ci.yml`) : tests Windows sur Python 3.11 et 3.12, tests macOS
-  sur Python 3.12 et construction d'un DMG de test pour les pull requests et
-  les pushs sur `main`; aucune publication.
-- **Beta** (`beta-release.yml`) : exécution après la réussite du workflow CI d'un push sur `main`, ou lancement manuel depuis `main`; version `VERSION-beta.RUN_NUMBER`, tag roulant `beta`, prérelease GitHub, installateur `SuperMenu_Beta_Setup.exe` et checksums SHA-256.
-- **Stable** (`stable-release.yml`) : déclenchement uniquement par un tag exact `vMAJOR.MINOR.PATCH`; le tag doit correspondre à `VERSION`, la release n'est jamais remplacée et devient la release GitHub `Latest`. Son texte vient de `.github/STABLE_NOTES.md`, à mettre à jour avant le tag en y citant la version (par exemple « ## Nouveautés de SuperMenu 1.2.2 ») : le workflow s'arrête dès la première minute si elle n'y figure pas.
+- Le métier commun va dans `shared/supermenu_core`, sans branchement
+  `sys.platform` ajouté ; les API Windows restent dans `win32/src`.
+- Une attente de focus ou de presse-papiers est bornée et ne bloque pas la
+  boucle Qt.
+- Toute insertion revalide sa `PasteTarget` ; une réponse refusée reste
+  accessible.
+- Une fonction soumise à un interrupteur est vérifiée au moment de l’usage et
+  ne supprime jamais de réglage.
+- Un nouvel asset de release a un nom déterministe, une entrée de manifeste et
+  une empreinte SHA-256.
 
-L'updater télécharge en priorité le manifeste `update-stable.json` de la dernière release Stable ou `update-beta.json` du tag roulant Beta. Ces fichiers sont servis comme des artefacts GitHub classiques et n'utilisent pas le quota de l'API REST. Le manifeste est strictement validé (schéma, canal, version, type de release et tag) avant de construire l'URL exacte de l'installateur. Il indique aussi le nom de l'installateur (`asset`) et son empreinte `sha256` : l'installateur est téléchargé dans un dossier temporaire privé (`tempfile.mkdtemp`), son empreinte est vérifiée puis revérifiée juste avant le lancement, et un fichier divergent est refusé. Les anciens manifestes sans empreinte restent acceptés, avec un avertissement dans les journaux. Si le manifeste est absent, illisible ou momentanément inaccessible, l'updater utilise l'API GitHub comme solution de secours : `/releases/latest` pour Stable et le tag `beta` pour Beta.
-
-Le choix du canal est conservé dans `QSettings`; un build beta neuf sélectionne Beta, tandis qu'un build stable sélectionne Stable. En cas de quota GitHub épuisé pendant le secours API, l'utilisateur reçoit un message compréhensible avec l'heure de réinitialisation et un lien vers les releases, au lieu de l'erreur HTTP brute.
-
-## Considérations techniques
-
-### Gestion des erreurs
-
-- Utilisation de blocs try/except pour capturer les erreurs
-- Journalisation des erreurs via le module `logging`
-- Messages d'erreur utilisateur via `QMessageBox`
-
-### Performance
-
-- Utilisation de `QTimer` pour les opérations asynchrones
-- Gestion efficace des ressources (fermeture des connexions, libération de la mémoire)
-- Optimisation des appels API (minimisation des requêtes)
-
-### Sécurité
-
-- Stockage sécurisé et séparé de la clé OpenAI et du jeton d'endpoint via
-  `keyring`
-- Aucun credential n'est loggé ni envoyé à un autre fournisseur
-- Nettoyage des fichiers temporaires SuperMenu (captures) limité au dossier temporaire
-
----
-
-Ce document est destiné aux développeurs souhaitant comprendre l'architecture de SuperMenu ou contribuer au projet. Pour des informations sur l'utilisation de l'application, consultez le [Guide d'utilisation](GUIDE_UTILISATION.md).
-
-- `OpenAIClient` (`shared/supermenu_core/api/openai_client.py`) : gère les
-  requêtes, le raisonnement, les retries et la normalisation des réponses. Le
-  mince adaptateur `src/api/openai_client.py` active les images pour la capture
-  Windows. La clé OpenAI n'est jamais transmise implicitement à un endpoint
-  personnalisé, qui peut recevoir son propre jeton explicitement configuré.
-- `openai_models.py` / `Settings` : le catalogue partagé porte la source unique
-  des modèles autorisés ; `Settings` valide, migre et persiste les choix propres
-  à Windows.
-- `ContextMenuManager` (`src/utils/context_menu.py`) : Orchestre l'affichage du menu contextuel, la récupération du texte sélectionné, l'appel à `OpenAIClient` et l'affichage de la `ResponseWindow`. Il crée le client IA à partir des `Settings` et le recrée lorsque ces réglages changent.
-
-### Flux de données (Exemple : Action sur Texte Sélectionné)
-
-1.  L'utilisateur sélectionne du texte dans une application et appuie sur le raccourci clavier configuré.
-2.  `HotkeyManager` détecte le raccourci et émet un signal.
-3.  `SuperMenu` (dans `main.py`) reçoit ce signal et demande à `ContextMenuManager` d'afficher le menu.
-4.  `ContextMenuManager` tente de récupérer le texte sélectionné.
-5.  L'utilisateur choisit une action (un prompt) dans le menu contextuel.
-6.  `ContextMenuManager` récupère le prompt correspondant depuis `Settings`.
-7.  `ContextMenuManager` utilise le client créé à partir des `Settings` actuels, ou un client dédié lorsque le prompt choisit son propre modèle.
-8.  `OpenAIClient` envoie la requête (texte sélectionné + prompt) à l'API OpenAI en utilisant le modèle configuré.
-9.  `OpenAIClient` reçoit la réponse et émet un signal.
-10. `ContextMenuManager` reçoit la réponse et l'affiche dans `ResponseWindow`.
-
-### Flux de données (Exemple : Changement de Modèle OpenAI)
-
- 1.  L'utilisateur ouvre la fenêtre `MainWindow` et va dans l'onglet "Modèles".
- 2.  L'utilisateur sélectionne un nouveau modèle et son effort de raisonnement (ou active un endpoint personnalisé) puis enregistre.
- 3.  `MainWindow` sauvegarde le modèle et les efforts OpenAI/local dans des réglages distincts. `Settings` valide le choix contre la matrice de capacités et migre les anciens identifiants par rôle.
- 4.  `MainWindow` appelle `context_menu_manager.update_client_config()`.
- 5.  `ContextMenuManager.update_client_config()` recrée le client via `_create_api_client()` ; l'ancien client est retiré dès qu'il n'a plus de requête en cours. `send_request_sync`, `process_request` et les signaux non scopés sont conservés uniquement pour compatibilité.
- 6.  Les requêtes suivantes utiliseront le nouveau modèle.
+Retour au [README Windows](../README.md) ou au
+[README principal](../../README.md).

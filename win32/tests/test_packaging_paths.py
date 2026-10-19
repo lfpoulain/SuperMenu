@@ -43,6 +43,50 @@ def test_installer_does_not_duplicate_one_file_resources():
     assert (Path(paths.application_base_dir()).parent / "LICENSE").is_file()
 
 
+def test_installer_ships_the_license_and_third_party_notices():
+    content = Path(paths.resource_path("setup_supermenu.iss")).read_text(
+        encoding="utf-8"
+    )
+    files = content.split("[Files]", 1)[1].split("\n[", 1)[0]
+
+    # The AppId identifies existing installations: it must never change.
+    assert "AppId={{C8F9E2A0-1F3A-4E5D-B6A9-D5C8E4E0F2A1}" in content
+    assert "DefaultDirName={autopf}\\{#MyAppName}" in content
+    assert '#define MyAppPublisher "LFPoulain"' in content
+    assert '#define MyAppURL "https://github.com/lfpoulain/SuperMenu"' in content
+    for directive in ("AppPublisherURL=", "AppSupportURL=", "AppUpdatesURL="):
+        assert f"{directive}{{#MyAppURL}}" in content
+    assert 'Source: "..\\LICENSE"; DestDir: "{app}"' in files
+    assert 'Source: "..\\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"' in files
+    assert 'Source: "..\\licenses\\*.txt"; DestDir: "{app}\\licenses"' in files
+    generated = next(
+        line for line in files.splitlines()
+        if line.startswith('Source: "dist\\third_party_licenses\\*"')
+    )
+    # The folder comes from the PyInstaller build: compiling the installer
+    # without it must still work.
+    assert "skipifsourcedoesntexist" in generated
+    assert "recursesubdirs" in generated
+    assert 'Type: filesandordirs; Name: "{app}\\third_party_licenses"' in content
+
+
+def test_windows_bundle_collects_the_license_files():
+    repository = Path(paths.application_base_dir()).parent
+    spec = (repository / "win32" / "SuperMenu.spec").read_text(encoding="utf-8")
+
+    for name in ("LICENSE", "THIRD_PARTY_NOTICES.md", "licenses"):
+        assert f"(str(repository_dir / '{name}'), " in spec
+        assert (repository / name).exists()
+    assert '"tools" / "collect_third_party_licenses.py"' in spec
+    assert "license_collector.pyinstaller_datas(" in spec
+    # Written next to the executable, where the installer picks it up.
+    assert 'Path(DISTPATH) / "third_party_licenses"' in spec
+    assert 'requirement_files=[project_dir / "requirements.txt"]' in spec
+    # Collected after Analysis (it needs its TOC) and before the executable.
+    assert spec.index("a = Analysis(") < spec.index("a.datas += license_collector")
+    assert spec.index("a.datas += license_collector") < spec.index("exe = EXE(")
+
+
 def test_pyinstaller_specs_include_the_shared_package_path():
     repository = Path(paths.application_base_dir()).parent
     windows_spec = (repository / "win32" / "SuperMenu.spec").read_text(encoding="utf-8")

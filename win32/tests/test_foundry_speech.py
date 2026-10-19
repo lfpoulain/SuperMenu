@@ -2,7 +2,13 @@ import io
 import json
 from types import SimpleNamespace
 
-from src.audio.foundry_speech_worker import run, select_speech_model
+import pytest
+
+from src.audio.foundry_speech_worker import (
+    UNEXPECTED_ERROR,
+    run,
+    select_speech_model,
+)
 
 
 class Session:
@@ -117,3 +123,61 @@ def test_model_is_loaded_once_for_two_isolated_sessions():
     assert [e["text"] for e in complete] == ["Bonjour, monde."] * 2
     assert sum(e.get("phase") == "load" for e in events) == 1
     assert sum(e.get("phase") == "reuse" for e in events) == 1
+
+
+# SDK failures in the Nemotron worker keep the dictation's session id.
+
+
+def failing_runtime(load):
+    model = SimpleNamespace(
+        id="nemotron-cpu:3",
+        info=SimpleNamespace(
+            runtime=SimpleNamespace(
+                execution_provider="CPUExecutionProvider", device_type="CPU"
+            ),
+            file_size_mb=756,
+        ),
+        is_cached=True,
+        load=load,
+        unload=lambda: None,
+    )
+    return SimpleNamespace(
+        prepare_hardware=lambda *_: None,
+        hardware_warning=None,
+        manager=SimpleNamespace(
+            catalog=SimpleNamespace(
+                get_model=lambda _: SimpleNamespace(variants=[model])
+            )
+        ),
+    )
+
+
+def test_model_load_failure_is_reported_to_its_session():
+    def load():
+        raise RuntimeError("Mémoire GPU insuffisante")
+
+    request = {"action": "start", "keep_alive": True, "session_id": "abc"}
+    events = []
+    with pytest.raises(RuntimeError):
+        run(
+            io.StringIO(json.dumps(request) + "\n"),
+            events.append,
+            failing_runtime(load),
+        )
+    assert events[-1] == {
+        "event": "error",
+        "message": UNEXPECTED_ERROR,
+        "session_id": "abc",
+    }
+
+
+def test_probe_failure_keeps_sessionless_error():
+    def prepare(*_args):
+        raise RuntimeError("SDK indisponible")
+
+    state = failing_runtime(lambda: None)
+    state.prepare_hardware = prepare
+    events = []
+    with pytest.raises(RuntimeError):
+        run(io.StringIO('{"action":"probe","device":"auto"}\n'), events.append, state)
+    assert events[-1] == {"event": "error", "message": UNEXPECTED_ERROR}

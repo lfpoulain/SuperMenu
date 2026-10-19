@@ -9,3 +9,7 @@
 *.sh text eol=lf
 # Parsed by codesign's AMFI reader, which is stricter than a normal XML parser.
 *.plist text eol=lf
+# Icons and images are never converted.
+*.png binary
+*.ico binary
+*.icns binary

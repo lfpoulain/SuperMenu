@@ -766,8 +766,6 @@ class ContextMenuManager(QObject):
             )
             return ""
             
-        # Ne pas afficher le texte sélectionné dans les logs pour éviter la duplication
-        # print(f"Texte sélectionné: {selected_text[:30]}...")
         return selected_text
     
     def run_prompt_hotkey(self, prompt_id):

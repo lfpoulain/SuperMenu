@@ -26,7 +26,9 @@ if getattr(sys, "frozen", False):
     LOG_DIR = os.path.join(local_app_data, "SuperMenu", "logs")
 else:
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    LOG_DIR = os.path.join(BASE_DIR, "..", "logs")
+    # SUPERMENU_LOG_DIR lets the tests keep their deliberate errors out of
+    # the journal of the application run from the sources.
+    LOG_DIR = os.getenv("SUPERMENU_LOG_DIR") or os.path.join(BASE_DIR, "..", "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, "supermenu.log")
 

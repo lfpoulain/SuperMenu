@@ -7,8 +7,8 @@
 #ifndef MyOutputBaseFilename
   #define MyOutputBaseFilename "SuperMenu_Setup"
 #endif
-#define MyAppPublisher "SuperMenu"
-#define MyAppURL ""
+#define MyAppPublisher "LFPoulain"
+#define MyAppURL "https://github.com/lfpoulain/SuperMenu"
 #define MyAppExeName "SuperMenu.exe"
 #define MyAppIcon "resources\icons\app_icon.ico"
 
@@ -20,8 +20,8 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
-AppSupportURL={#MyAppURL}
-AppUpdatesURL={#MyAppURL}
+AppSupportURL={#MyAppURL}/issues
+AppUpdatesURL={#MyAppURL}/releases
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 LicenseFile=..\LICENSE
@@ -52,6 +52,12 @@ Name: "startup"; Description: "Démarrer SuperMenu avec Windows"; GroupDescripti
 [Files]
 ; Le bundle PyInstaller one-file contient déjà les ressources.
 Source: "dist\SuperMenu.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Licence de SuperMenu et avis des composants tiers, lisibles sans lancer l'application.
+Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\licenses\*.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
+; Écrit par SuperMenu.spec à côté de l'exécutable pendant le build PyInstaller.
+Source: "dist\third_party_licenses\*"; DestDir: "{app}\third_party_licenses"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
@@ -71,6 +77,8 @@ Filename: "cmd.exe"; Parameters: "/c for /l %%i in (1,1,10) do (taskkill /F /IM 
 [InstallDelete]
 ; Nettoyer les anciens assets qui ont pu être installés hors du bundle one-file.
 Type: filesandordirs; Name: "{app}\bin"
+; Les licences tierces d'une version précédente ne doivent pas subsister.
+Type: filesandordirs; Name: "{app}\third_party_licenses"
 
 [UninstallDelete]
 
@@ -93,6 +101,37 @@ begin
   CredDelete('SuperMenu', CRED_TYPE_GENERIC, 0);
   CredDelete('openai_api_key@SuperMenu', CRED_TYPE_GENERIC, 0);
   CredDelete('custom_endpoint_api_key@SuperMenu', CRED_TYPE_GENERIC, 0);
+end;
+
+// Les composants Microsoft de Foundry Local ne sont pas couverts par la
+// licence de SuperMenu : Microsoft demande que l'utilisateur accepte leurs
+// conditions. Elles sont présentées juste après la licence de SuperMenu.
+procedure InitializeWizard();
+var
+  Page: TOutputMsgMemoWizardPage;
+begin
+  Page := CreateOutputMsgMemoPage(wpLicense,
+    'Composants Microsoft',
+    'Conditions des composants Microsoft inclus dans SuperMenu',
+    'En poursuivant l''installation, vous acceptez ces conditions pour ces composants.',
+    '');
+  // Le dernier paramètre est une chaîne ANSI : le texte accentué passe par Lines.
+  Page.RichEditViewer.Lines.Text :=
+    'SuperMenu pour Windows intègre Microsoft Foundry Local Core ' +
+    '(Microsoft.AI.Foundry.Local.Core.dll) et Microsoft Windows ML Runtime ' +
+    '(Microsoft.Windows.AI.MachineLearning.dll). Ces composants ne sont pas ' +
+    'couverts par la licence de SuperMenu : ils vous sont concédés sous les ' +
+    'Microsoft Software License Terms, copiées dans le sous-dossier licenses du ' +
+    'dossier d''installation (Microsoft-Foundry-Local-Core.txt et ' +
+    'Microsoft-Windows-ML-Runtime.txt).' + #13#10 + #13#10 +
+    'Vous ne pouvez notamment pas :' + #13#10 +
+    '- extraire ces composants de SuperMenu pour les distribuer séparément ;' + #13#10 +
+    '- en faire l''ingénierie inverse, les décompiler ou les désassembler, ' +
+    'sauf dans la mesure où la loi l''autorise ;' + #13#10 +
+    '- retirer ou modifier les mentions de Microsoft et de ses fournisseurs.' + #13#10 + #13#10 +
+    'Microsoft fournit ces composants « en l''état », sans garantie. ' +
+    'THIRD_PARTY_NOTICES.md, installé avec SuperMenu, détaille les licences ' +
+    'de tous les composants tiers.';
 end;
 
 function IsSuperMenuRunning(): Boolean;
@@ -135,7 +174,7 @@ begin
   KillSuperMenuBestEffort();
   if IsSuperMenuRunning() then
   begin
-    MsgBox('SuperMenu est encore en cours d''exécution.' + #13#10 + #13#10 + 'Ferme-le (ou termine le processus SuperMenu.exe), puis relance la désinstallation.', mbCriticalError, MB_OK);
+    MsgBox('SuperMenu est encore en cours d''exécution.' + #13#10 + #13#10 + 'Fermez-le (ou terminez le processus SuperMenu.exe), puis relancez la désinstallation.', mbCriticalError, MB_OK);
     Result := False;
     Exit;
   end;

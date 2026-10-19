@@ -24,6 +24,16 @@ if [[ -n "${MACOS_CODESIGN_IDENTITY:-}" ]]; then
 fi
 
 "${app_path}/Contents/MacOS/SuperMenu" --smoke-test
+
+# PyInstaller places collected data files in Contents/Resources. The license
+# and the third-party notices must travel with every copy of the app.
+for notice in LICENSE THIRD_PARTY_NOTICES.md licenses/LGPL-3.0.txt; do
+    if [[ ! -f "${app_path}/Contents/Resources/${notice}" ]]; then
+        echo "Fichier de licence absent de l'application : ${notice}" >&2
+        exit 1
+    fi
+done
+
 # os_unsupported is only accepted on a runner older than macOS 26.
 printf '%s\n' '{"action":"probe","language":"fr"}' | \
     "${app_path}/Contents/Frameworks/native/SuperMenuSpeech" | \

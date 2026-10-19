@@ -1,118 +1,114 @@
 # SuperMenu pour macOS
 
-[![macOS CI](https://github.com/lfpoulain/SuperMenu/actions/workflows/ci.yml/badge.svg)](https://github.com/lfpoulain/SuperMenu/actions/workflows/ci.yml)
+[![CI](https://github.com/lfpoulain/SuperMenu/actions/workflows/ci.yml/badge.svg)](https://github.com/lfpoulain/SuperMenu/actions/workflows/ci.yml)
 ![Apple Silicon](https://img.shields.io/badge/architecture-Apple%20Silicon-000000?logo=apple)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![Distribution](https://img.shields.io/badge/distribution-DMG%20notari%C3%A9-success)
+![Licence](https://img.shields.io/badge/licence-PolyForm%20Noncommercial%201.0.0-lightgrey)
 
-SuperMenu pour macOS est une application de barre des menus dédiée au travail
-sur du texte. Elle lit la sélection de l’application active, propose les
-prompts configurés, interroge OpenAI ou un endpoint local et peut réinsérer la
-réponse dans la cible d’origine. Sur macOS 26+, elle propose aussi le modèle
-local Apple Intelligence via Foundation Models.
+SuperMenu pour macOS vit dans la barre des menus et travaille sur le texte de
+n’importe quelle application. Sélectionnez un passage, appuyez sur un
+raccourci et choisissez un prompt : la réponse de l’IA s’affiche, se copie ou
+se réinsère dans l’application d’origine.
 
-Cette composition est indépendante de Windows : elle possède ses intégrations
-AppKit, ses permissions, son stockage, ses tests et son packaging. La logique
-métier et les composants Qt génériques proviennent de `../shared`.
+Ce dossier contient l’application macOS : intégrations AppKit, autorisations,
+stockage, composants natifs Swift, tests et packaging. Le client IA, les
+prompts et les composants d’interface communs viennent du cœur partagé avec
+Windows, [`shared/supermenu_core`](../shared/README.md).
 
-## Ce que propose la version macOS
+## Fonctionnalités
 
-- menu universel de prompts avec `Cmd+Shift+Space` par défaut ;
-- mode personnalisé avec `Cmd+Shift+M` ;
-- raccourcis globaux attribuables à des prompts individuels ;
-- lecture du texte sélectionné et restauration prudente du presse-papiers ;
-- réponse affichée, copiée ou réinsérée dans l’application d’origine ;
-- OpenAI, Ollama, LM Studio et Apple Intelligence local (macOS 26+) ;
-- prompts modifiables, réordonnables, importables et exportables ;
-- thèmes clair, sombre et automatique ;
-- mises à jour Stable/Beta dirigées vers le DMG Apple Silicon exact.
+**Toujours disponibles**
 
-La version macOS inclut la dictée en direct via OpenAI ou Apple Speech sur macOS 26+.
-Le moteur vocal se choisit indépendamment du moteur de texte, dans
-**Réglages > Dictée** : sélectionnez le moteur, vérifiez sa
-disponibilité, téléchargez le modèle de langue Apple si nécessaire puis enregistrez.
-Apple Speech est le framework de reconnaissance vocale ; Foundation Models reste
-le moteur de génération de texte. La dictée Apple fonctionne sur l’appareil.
-OpenAI utilise GPT Live Transcribe, une clé API et la facturation OpenAI.
+- menu des prompts avec `Cmd+Shift+Space`, mode personnalisé avec
+  `Cmd+Shift+M` ;
+- lecture de la sélection par Accessibilité, avec repli prudent par le
+  presse-papiers ;
+- fenêtre de réponse avec **Réessayer**, **Copier**, **Voir le raisonnement**
+  et **Insérer le texte**, ou insertion directe dans l’application d’origine ;
+- moteurs de texte : OpenAI, Ollama ou LM Studio (y compris les modèles
+  partagés par LM Link) et Apple Intelligence, local, sur macOS 26 ou plus
+  récent ;
+- prompts modifiables, réordonnables, importables et exportables, avec un
+  raisonnement réglable pour chacun ;
+- thèmes clair, sombre et automatique, mises à jour Stable ou Bêta vers le DMG
+  Apple Silicon.
 
-Les paramètres sont répartis en **Texte**, **Dictée**, **Raccourcis** et
-**Application**, avec les options avancées repliées. Dans Dictée, **Tester le
-micro** vérifie l’entrée choisie pendant cinq secondes sans conserver ni
-transmettre d’audio. La préparation distingue la vérification, le téléchargement
-éventuel et le chargement en mémoire du modèle installé.
+**Fonctions avancées**, à activer
 
-L’accès au microphone est demandé au lancement d’une dictée ou du test du micro.
+- modèle, fournisseur ou poste LM Link propre à chaque prompt ;
+- raccourci global propre à chaque prompt ;
+- durée de conservation en mémoire du modèle vocal Apple Speech.
 
-Le modèle Apple Speech reste en mémoire entre les dictées pendant **5 minutes
-d’inactivité** par défaut. Le délai se règle dans **Paramètres > Dictée > Options
-avancées** : après chaque dictée, après 1, 5, 15 ou 30 minutes, ou à la fermeture
-de SuperMenu. **Décharger maintenant** libère le moteur inactif sans supprimer
-les fichiers téléchargés. Le microphone s’arrête à chaque fin de dictée.
-Le composant Apple utilise la [conservation des modèles pendant la durée du
-processus](https://developer.apple.com/documentation/speech/speechanalyzer/options/modelretention-swift.enum/processlifetime)
-et crée une nouvelle session de transcription pour chaque dictée.
+**Fonctions expérimentales**, à activer
 
-Ouvrez **Dicter du texte…** dans le menu de barre des menus ou dans le menu des
-prompts. Le texte et le niveau du microphone apparaissent en direct. **Terminer**
-arrête le microphone et ouvre le résultat à copier ou à insérer ; **Annuler**
-interrompt la capture et le moteur. Durée maximale : cinq minutes par dictée.
-La composition macOS ne propose pas de capture d’écran.
+- prompts vocaux, sous-menu **Voix** du menu des prompts et entrée **Dicter du
+  texte…** de la barre des menus ;
+- dictée en direct avec OpenAI GPT Live Transcribe (clé API et facturation
+  OpenAI) ou Apple Speech, sur l’appareil, sous macOS 26 ou plus récent ;
+- dictée instantanée par raccourci et test du micro.
 
-## Installer l’application
+Les deux interrupteurs se trouvent dans **Réglages > Application > Fonctions**.
+Une nouvelle installation démarre avec les deux désactivés ; une mise à jour
+depuis une version précédente les active tous les deux, pour ne retirer aucune
+fonction déjà utilisée. Les désactiver masque ces fonctions sans supprimer
+aucun réglage. Voir le
+[guide d’utilisation](docs/GUIDE_UTILISATION.md#fonctions-avancées-et-expérimentales).
 
-1. Ouvrez les [releases SuperMenu](https://github.com/lfpoulain/SuperMenu/releases).
-2. Téléchargez `SuperMenu-macOS-arm64.dmg` pour Stable ou
-   `SuperMenu_Beta-macOS-arm64.dmg` pour Beta.
-3. Ouvrez le DMG et glissez `SuperMenu.app` dans `/Applications`.
+La capture d’écran est propre à Windows : SuperMenu ne demande pas
+l’autorisation Enregistrement de l’écran sur Mac.
+
+## Installation
+
+Configuration requise : Mac Apple Silicon sous macOS 13 Ventura ou plus
+récent. Les builds sont construits et testés sur macOS 14 et 15 ; Apple
+Intelligence et Apple Speech demandent macOS 26 ou plus récent.
+
+1. Ouvrez la [dernière release](https://github.com/lfpoulain/SuperMenu/releases/latest).
+2. Téléchargez `SuperMenu-macOS-arm64.dmg` (Stable) ou, dans la release
+   `beta`, `SuperMenu_Beta-macOS-arm64.dmg`.
+3. Ouvrez le DMG et glissez `SuperMenu.app` dans **Applications**.
 4. Lancez SuperMenu depuis `/Applications`.
-5. Cliquez sur **Configurer Accessibilité…** et acceptez le dialogue macOS.
+5. Cliquez sur **Configurer Accessibilité…** et acceptez le dialogue de macOS.
 
-Les DMG publiés sont signés avec Developer ID, notariés par Apple et destinés
-aux Mac Apple Silicon. Installer les versions suivantes au même emplacement
-permet à macOS de reconnaître la même application et de conserver normalement
-l’autorisation Accessibilité.
+Les DMG publiés sont signés avec un certificat Developer ID et notariés par
+Apple. Installez toujours les versions suivantes au même emplacement : macOS
+reconnaît ainsi la même application et conserve l’autorisation Accessibilité.
 
-Le [guide d’utilisation](docs/GUIDE_UTILISATION.md) détaille l’installation,
-les paramètres, les prompts, les mises à jour et le dépannage.
+## Autorisations
 
-## Autorisation macOS
-
-SuperMenu utilise **Accessibilité** pour :
+**Accessibilité** est la seule autorisation nécessaire au fonctionnement
+courant. SuperMenu l’utilise pour :
 
 - observer les raccourcis clavier globaux ;
-- lire la sélection via l’API d’accessibilité lorsqu’elle est disponible ;
-- émettre les commandes Copier/Coller nécessaires au chemin de repli.
+- lire la sélection quand l’application l’expose ;
+- envoyer `Cmd+C` et `Cmd+V` pour le repli par le presse-papiers et
+  l’insertion.
 
-Le premier clic sur **Configurer Accessibilité…** laisse macOS présenter son
-dialogue natif. Si l’accès n’est toujours pas accordé, le bouton devient
-**Ouvrir les réglages…**. Une fois la permission activée, SuperMenu recharge ses
-moniteurs sans exiger un redémarrage dans le fonctionnement normal.
+Le premier clic sur **Configurer Accessibilité…** laisse macOS afficher son
+dialogue. Si l’accès n’est toujours pas accordé, le bouton devient **Ouvrir
+les réglages…**. Une fois l’autorisation accordée, SuperMenu recharge ses
+raccourcis sans redémarrage, même si sa fenêtre a été fermée entre-temps.
 
-## Utilisation rapide
+Le **Microphone** n’est demandé qu’au lancement d’une dictée ou du test du
+micro. SuperMenu ne demande pas **Surveillance de l’entrée**.
 
-1. Sélectionnez du texte dans Mail, Notes, Safari, un éditeur ou une autre
-   application.
-2. Appuyez sur `Cmd+Shift+Space`.
-3. Choisissez un prompt.
-4. Dans la fenêtre de réponse, utilisez **Copier**, **Écrire** ou
-   **Réessayer**.
+## Premiers pas
 
-Un prompt peut aussi activer **Insérer directement la réponse dans
-l’application cible**. Dans ce cas, SuperMenu affiche un indicateur près du
-curseur et réinsère la réponse sans ouvrir la fenêtre de résultat.
+1. Cliquez sur l’icône de SuperMenu dans la barre des menus, puis sur
+   **Ouvrir SuperMenu**.
+2. Dans **Réglages > Texte**, choisissez le **Moteur de texte** : OpenAI avec
+   votre clé API, Ollama / LM Studio avec l’adresse du serveur, ou
+   **Apple Intelligence — local**. Cliquez sur **Enregistrer**.
+3. Sélectionnez du texte dans Mail, Notes, Safari ou une autre application,
+   appuyez sur `Cmd+Shift+Space` et choisissez un prompt.
 
-## Configuration et diagnostic
+L’icône de la barre des menus propose **Ouvrir SuperMenu**, **Afficher le
+menu des prompts**, **Dicter du texte…** (fonctions expérimentales),
+**Afficher la dernière réponse**, **Vérifier les mises à jour**,
+**Autorisations macOS…** et **Quitter**.
 
-La fenêtre de configuration contient quatre onglets :
-
-- **Prompts** : catalogue, ordre, instructions, insertion directe et raccourcis ;
-- **Voix** : prompts vocaux, instruction et assemblage avec la sélection ;
-- **Réglages** : fournisseurs texte et voix, modèles, raccourcis, permission, thème et
-  canal de mise à jour ;
-- **À propos** : version, mise à jour, dossier de configuration, journaux et
-  releases.
-
-Les fichiers utilisateur se trouvent ici :
+## Données et confidentialité
 
 ```text
 ~/Library/Application Support/SuperMenu/SuperMenu.ini
@@ -120,17 +116,25 @@ Les fichiers utilisateur se trouvent ici :
 ~/Library/Logs/SuperMenu/native-crash.log
 ```
 
-La configuration est limitée au compte utilisateur (`0600`). Les journaux ne
-contiennent ni clé API, ni texte sélectionné, ni contenu de prompt.
+- La configuration, clés API comprises, est lisible uniquement par votre
+  compte (`0600`). SuperMenu n’utilise pas le Trousseau.
+- Les journaux ne contiennent ni clé API, ni texte sélectionné, ni contenu de
+  prompt, ni touche tapée.
+- Avec Apple Intelligence et Apple Speech, le texte et la voix restent sur le
+  Mac. Aucun fichier audio n’est enregistré.
+- **Réglages > Application > Dossiers et diagnostic** ouvre le dossier de
+  configuration et celui des journaux.
 
 ## Développer sur un Mac
 
-Python 3.12 est la version de référence. Pour compiler le composant Apple ou un
-DMG, utilisez Xcode 26+ avec son SDK macOS 26+. Les autres fournisseurs restent
-utilisables sur les versions de macOS antérieures prises en charge.
+Python 3.12 est la version de référence. Les composants natifs Apple
+(Foundation Models et Apple Speech) se compilent avec Xcode 26 ou plus récent
+et son SDK macOS 26. Sans eux, l’application fonctionne avec OpenAI, Ollama et
+LM Studio.
 
 ```bash
-cd macos
+git clone https://github.com/lfpoulain/SuperMenu.git
+cd SuperMenu/macos
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -140,14 +144,14 @@ bash scripts/build_speech_helper.sh
 python run.py
 ```
 
-L’installation doit être lancée depuis `macos/`, car `requirements.txt`
-référence le package local `../shared`.
+Lancez l’installation depuis `macos/` : `requirements.txt` installe le cœur
+partagé `../shared` en mode éditable. En développement, macOS accorde
+Accessibilité au processus qui exécute l’application (Terminal ou Python, par
+exemple) ; un build installé l’accorde à `SuperMenu.app`.
 
-En développement, macOS autorise le processus qui exécute l’application — par
-exemple Terminal ou Python — tandis qu’un build installé autorise
-`SuperMenu.app`.
+### Tests et vérifications
 
-### Validation locale
+Les mêmes contrôles que la CI, depuis `macos/` :
 
 ```bash
 python -m compileall -q ../shared/supermenu_core src run.py
@@ -157,49 +161,58 @@ python -m flake8 ../shared/supermenu_core src tests run.py --select=F,E9
 python run.py --smoke-test
 ```
 
-### Construire un DMG de développement
+Les tests utilisent des doublures pour AppKit, Quartz et le presse-papiers :
+ils s’exécutent aussi hors macOS, certains étant alors ignorés. Les modules
+de test qui ont un équivalent Windows se terminent par `_mac.py`.
+
+### Construire un DMG
 
 ```bash
 bash scripts/build_dmg.sh
 ```
 
-Le résultat est écrit dans :
-
-```text
-dist/SuperMenu-<version>-macOS-arm64.dmg
-```
-
-Sans identité Developer ID, le script produit un paquet de développement. Les
-releases publiques exigent au contraire la signature, le Hardened Runtime, la
-notarisation et l’agrafage des tickets au `.app` puis au DMG. La procédure est
-documentée dans [SIGNING.md](SIGNING.md).
+Le script compile les composants natifs, construit l’application avec
+PyInstaller, exécute le smoke test, vérifie la présence des licences et
+écrit `dist/SuperMenu-<version>-macOS-arm64.dmg`. Sans identité Developer ID,
+il produit un paquet de développement, ni signé ni notarisé pour la
+distribution. Les releases publiques
+exigent la signature, le Hardened Runtime, la notarisation et l’agrafage des
+tickets : voir [SIGNING.md](SIGNING.md).
 
 ## Organisation
 
 ```text
 macos/
 ├── src/
-│   ├── api/          # adaptation texte du client IA partagé
-│   ├── config/       # réglages, versions et stockage macOS
-│   ├── ui/           # fenêtre de configuration et compositions Qt
-│   └── utils/        # AppKit, permissions, raccourcis, sélection et insertion
-├── docs/             # guides utilisateur et architecture
-├── resources/        # icônes et ressources du bundle
-├── scripts/          # build, signature et notarisation
-├── tests/            # tests fonctionnels et garde-fous de distribution
-├── run.py             # point d’entrée développement / bundle
+│   ├── api/          # client texte partagé et Apple Foundation Models
+│   ├── audio/        # moteurs de dictée (OpenAI, Apple Speech)
+│   ├── config/       # réglages, version et canal
+│   ├── ui/           # fenêtre de configuration, barre des menus, réponse
+│   └── utils/        # AppKit, Accessibilité, raccourcis, sélection, insertion
+├── native/           # composants Swift : Foundation Models et Apple Speech
+├── docs/             # guide d’utilisation et architecture
+├── resources/        # icônes
+├── scripts/          # composants natifs, DMG, signature et notarisation
+├── tests/
+├── entitlements.plist
+├── run.py            # point d’entrée (développement et bundle)
 └── SuperMenu-macos.spec
 ```
 
-Pour comprendre les flux AppKit, la cible d’insertion, les attentes
-asynchrones et les frontières avec le cœur partagé, consultez
-[l’architecture macOS](docs/ARCHITECTURE.md).
-
-## Documentation macOS
+## Documentation
 
 - [Guide d’utilisation](docs/GUIDE_UTILISATION.md)
 - [Architecture technique](docs/ARCHITECTURE.md)
 - [Signature et notarisation](SIGNING.md)
-- [Roadmap historique de la V1](ROADMAP.md)
+- [Cœur partagé](../shared/README.md)
+- [Contribuer](../CONTRIBUTING.md) et [publier une version](../docs/RELEASING.md)
+- [Journal des modifications](../CHANGELOG.md)
+- [README principal](../README.md)
 
-Retour au [README principal](../README.md).
+## Licence
+
+SuperMenu est distribué sous licence
+[PolyForm Noncommercial 1.0.0](../LICENSE), qui n’autorise que les usages non
+commerciaux ; le texte de la licence fait foi. Les composants tiers embarqués
+et leurs licences sont listés dans
+[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
