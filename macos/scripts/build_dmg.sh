@@ -15,11 +15,26 @@ bash "${script_dir}/build_foundation_helper.sh"
 bash "${script_dir}/build_speech_helper.sh"
 python -m PyInstaller --noconfirm --clean SuperMenu-macos.spec
 
+# Print what the build produced when the bundle cannot be verified: the
+# codesign error alone names only the bundle, not the missing item.
+describe_bundle() {
+    echo "Contenu de ${project_dir}/dist :" >&2
+    ls -la "${project_dir}/dist" >&2 || true
+    if [[ -d "${app_path}" ]]; then
+        ls -la "${app_path}/Contents" "${app_path}/Contents/MacOS" >&2 || true
+        echo "Liens symboliques cassés dans l'application :" >&2
+        find "${app_path}" -type l ! -exec test -e {} \; -print >&2 || true
+    fi
+}
+
 if [[ -n "${MACOS_CODESIGN_IDENTITY:-}" ]]; then
     # --deep is deprecated by Apple for both signing and verification.
     # PyInstaller already signs every nested Mach-O, so a strict top-level
     # verification is what actually needs to hold here.
-    codesign --verify --strict --verbose=4 "${app_path}"
+    codesign --verify --strict --verbose=4 "${app_path}" || {
+        describe_bundle
+        exit 1
+    }
     codesign --display --verbose=4 "${app_path}"
 fi
 
