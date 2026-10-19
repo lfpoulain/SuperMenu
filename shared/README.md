@@ -138,6 +138,14 @@ chaque application l’installe en mode éditable depuis son propre
   (`ChoiceBox`, `Menu`, `PlainTextEdit`, `populate_prompt_menu`),
   `loading_indicator.py`, `safe_dialogs.py`, `confirmations.py`,
   `verification_status.py`, `window_header.py`.
+- Requêtes : `request_coordinator.py` (`PromptRequestCoordinator`) porte le
+  cycle de vie des requêtes des deux menus contextuels : identifiant par
+  requête, client dédié aux prompts liés à un modèle, seule la dernière
+  requête met à jour la fenêtre de réponse, relance, changement de client et
+  fermeture. Chaque plateforme fournit sa fabrique de clients, son insertion
+  directe (collage natif, réponse conservée quand l’insertion est refusée),
+  le signalement d’un échec et ses libellés (`RequestFeedback`) ; capture,
+  menus et dictée restent dans son `ContextMenuManager`.
 
 Les textes venant d’un serveur ou d’un prompt sont affichés en texte brut :
 `SafeDialogs` force le format texte et tronque un message trop long,

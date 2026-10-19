@@ -3,28 +3,26 @@
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QCursor, QGuiApplication
-from PySide6.QtCore import QObject, Qt, QEvent, QTimer, QPoint
+from PySide6.QtCore import Qt, QEvent, QTimer, QPoint
 import os
 import tempfile
 import base64
 import time
 import logging
-import uuid
 import win32gui
 import win32process
 import win32api
 import win32con
 from pynput.keyboard import Controller, Key
 
-from supermenu_core.api.openai_client import clear_capabilities_cache
 from supermenu_core.config.feature_modes import (
     advanced_enabled,
-    effective_model_target,
     experimental_enabled,
 )
-from supermenu_core.config.model_target import ModelTargetSettings, settings_for_prompt
+from supermenu_core.config.model_target import settings_for_prompt
 from supermenu_core.ui.controls import Menu as QMenu, populate_prompt_menu, menu_contains_global_point
 from src.api.openai_client import OpenAIClient
+from supermenu_core.ui.request_coordinator import PromptRequestCoordinator, RequestFeedback
 from supermenu_core.ui.safe_dialogs import SafeDialogs
 from src.ui.response_window import ResponseWindow
 from src.ui.prompt_dialog import PromptDialog
@@ -74,24 +72,21 @@ def _copy_shortcuts_for(window_class):
     return ((Key.ctrl, VK_C),)
 
 
-class ContextMenuManager(QObject):
+class ContextMenuManager(PromptRequestCoordinator):
     """Manage the context menu for text operations"""
 
     MENU_STALE_SECONDS = 20
-    
+
+    REQUEST_FEEDBACK = RequestFeedback(
+        direct_pending="✅ Envoyé à l'IA — réponse en attente…",
+        response_error="Erreur: {error}",
+        send_error="Erreur: {error}",
+    )
+
     def __init__(self, settings):
-        super().__init__()
-        self.settings = settings
-        # Initialiser le client API avec les paramètres
-        # Ne pas passer le modèle ici, OpenAIClient le déterminera selon le type d'endpoint
-        self.api_client = self._create_api_client()
-        self.response_window = ResponseWindow()
+        super().__init__(settings, ResponseWindow)
         self.voice_recognition = None
-        self._pending_requests = {}
-        self._active_response_request_id = None
-        self._retired_clients = []
-        self._closed = False
-        
+
         # Créer un contrôleur de clavier réutilisable pour éviter les conflits
         self.keyboard = Controller()
 
@@ -114,11 +109,6 @@ class ContextMenuManager(QObject):
                 gui_app.applicationStateChanged.connect(self._on_application_state_changed)
         except Exception:
             pass
-        
-        self._connect_api_client(self.api_client)
-        
-        # Connecter le signal de retry
-        self.response_window.retry_requested.connect(self.on_retry_requested)
 
     def _create_api_client(self, settings=None):
         settings = settings or self.settings
@@ -128,128 +118,6 @@ class ContextMenuManager(QObject):
             from src.api.foundry_client import FoundryClient
             return FoundryClient(settings)
         return OpenAIClient(settings=settings, api_key=settings.get_api_key())
-
-    def _connect_api_client(self, client):
-        client.request_started_scoped.connect(self.on_request_started_scoped)
-        client.request_finished_scoped.connect(self.on_request_finished_scoped)
-        client.request_error_scoped.connect(self.on_request_error_scoped)
-        if hasattr(client, "request_progress_scoped"):
-            client.request_progress_scoped.connect(self.on_request_progress_scoped)
-
-    def _disconnect_api_client(self, client):
-        try:
-            client.request_started_scoped.disconnect(self.on_request_started_scoped)
-            client.request_finished_scoped.disconnect(self.on_request_finished_scoped)
-            client.request_error_scoped.disconnect(self.on_request_error_scoped)
-            if hasattr(client, "request_progress_scoped"):
-                client.request_progress_scoped.disconnect(self.on_request_progress_scoped)
-        except (TypeError, RuntimeError):
-            pass
-
-    def on_request_progress_scoped(self, request_id, details):
-        request = self._pending_requests.get(request_id)
-        if self._closed or request is None or not isinstance(details, dict):
-            return
-        stage = details.get("stage")
-        if not stage or "elapsed_seconds" in details:
-            return
-        indicator = request.get("indicator")
-        if indicator is not None:
-            indicator.set_message(stage)
-        elif request_id == self._active_response_request_id:
-            self.response_window.set_status(stage)
-
-    def _send_request(
-        self,
-        prompt,
-        content,
-        insert_directly=False,
-        *,
-        target=None,
-        include_reasoning=None,
-        direct_status=None,
-        reasoning_mode="default",
-        model_target=None,
-    ):
-        """Register request state before the client can emit synchronously."""
-        if self._closed:
-            return None
-        # Without the advanced features every prompt uses the Text settings;
-        # the prompt keeps its stored model for when they are turned back on.
-        model_target = effective_model_target(self.settings, model_target)
-
-        request_id = uuid.uuid4().hex
-        client = self.api_client
-        direct_indicator = None
-        if insert_directly:
-            direct_indicator = SimpleLoadingIndicator.show_near_cursor(
-                direct_status or "✅ Envoyé à l'IA — réponse en attente…"
-            )
-
-        self._pending_requests[request_id] = {
-            "client": client,
-            "insert_directly": bool(insert_directly),
-            "target": target,
-            "indicator": direct_indicator,
-        }
-        if insert_directly:
-            # Kept so that a refused insertion can still show and retry it.
-            self._pending_requests[request_id].update(
-                prompt=prompt,
-                content=content,
-                reasoning_mode=reasoning_mode,
-                model_target=model_target,
-            )
-        if not insert_directly:
-            self._active_response_request_id = request_id
-            self.response_window.last_reasoning_mode = reasoning_mode
-            self.response_window.last_model_target = dict(model_target or {})
-        try:
-            if model_target:
-                client = self._create_api_client(ModelTargetSettings(self.settings, model_target))
-                self._retired_clients.append(client)
-                self._connect_api_client(client)
-                self._pending_requests[request_id]["client"] = client
-            client.send_request(
-                prompt,
-                content,
-                insert_directly=insert_directly,
-                include_reasoning=include_reasoning,
-                request_id=request_id,
-                target=target,
-                **({"reasoning_mode": reasoning_mode} if reasoning_mode != "default" else {}),
-            )
-        except Exception as e:
-            self.on_request_error_scoped(request_id, f"Erreur: {e}")
-        return request_id
-
-    def _release_retired_client_if_idle(self, client):
-        if client is self.api_client:
-            return
-        if any(
-            request.get("client") is client
-            for request in self._pending_requests.values()
-        ):
-            return
-        self._disconnect_api_client(client)
-        client.close()
-        try:
-            self._retired_clients.remove(client)
-        except ValueError:
-            pass
-
-    def _present_response_window(self, force=False):
-        """Afficher la fenêtre avec la stratégie hybride Qt/Win32 unique."""
-        if self._closed:
-            return
-        self.response_window.present()
-
-    def show_response_window(self):
-        """Ouvrir manuellement la fenêtre de correction depuis l'interface."""
-        if self._closed:
-            return
-        self.response_window.set_trigger_position(None)
-        self._present_response_window(force=True)
 
     def _get_foreground_pid(self):
         try:
@@ -811,17 +679,11 @@ class ContextMenuManager(QObject):
         insert_directly = bool(prompt_data.get("insert_directly", False))
         
         if not insert_directly:
-            # Préparer la fenêtre de réponse en avance
-            self.response_window.set_status(prompt_data["status"])
-            # Définir la position de déclenchement à la position actuelle du curseur
-            self.response_window.set_trigger_position(QCursor.pos())
-            self.response_window.set_paste_target(target)
-            self._present_response_window()
-        
-        # Stocker la requête pour permettre un retry
-        if not insert_directly:
-            self.response_window.store_request(prompt_data["prompt"], selected_text)
-        
+            # Préparer la fenêtre de réponse en avance et garder la requête pour un retry
+            self._prepare_response_window(
+                prompt_data["status"], prompt_data["prompt"], selected_text, target
+            )
+
         # Lancer la requête API en arrière-plan
         self._send_request(
             prompt_data["prompt"],
@@ -841,39 +703,14 @@ class ContextMenuManager(QObject):
         """Gérer l'action GodMode"""
         if self._closed:
             return
-        if not selected_text:
-            # Ouvrir directement le dialogue de prompt personnalisé sans texte
-            custom_prompt = PromptDialog.show_prompt_dialog("")
-            
-            if custom_prompt:
-                # Préparer la fenêtre de réponse
-                self.response_window.set_status("Traitement en cours...")
-                # Définir la position de déclenchement à la position actuelle du curseur
-                self.response_window.set_trigger_position(QCursor.pos())
-                self.response_window.set_paste_target(target)
-                self._present_response_window()
-                
-                # Stocker la requête pour permettre un retry
-                self.response_window.store_request(custom_prompt, "")
-                
-                # Lancer la requête API en arrière-plan avec un texte vide
-                self._send_request(custom_prompt, "")
-            return
-            
-        # Afficher le dialogue de prompt personnalisé
+        # Sans sélection, le dialogue s'ouvre vide et la requête part sans texte
+        selected_text = selected_text or ""
         custom_prompt = PromptDialog.show_prompt_dialog(selected_text)
-        
+
         if custom_prompt:
-            # Préparer la fenêtre de réponse
-            self.response_window.set_status("Traitement en cours...")
-            # Définir la position de déclenchement à la position actuelle du curseur
-            self.response_window.set_trigger_position(QCursor.pos())
-            self.response_window.set_paste_target(target)
-            self._present_response_window()
-            
-            # Stocker la requête pour permettre un retry
-            self.response_window.store_request(custom_prompt, selected_text)
-            
+            self._prepare_response_window(
+                "Traitement en cours...", custom_prompt, selected_text, target
+            )
             # Lancer la requête API en arrière-plan
             self._send_request(custom_prompt, selected_text)
     
@@ -931,16 +768,15 @@ class ContextMenuManager(QObject):
                     except Exception as e:
                         log(f"Erreur lors de la préparation de l'image: {e}", logging.ERROR)
                     
-                    # Préparer la fenêtre de réponse
-                    self.response_window.set_status("Traitement de la capture d'écran...")
-                    # Définir la position de déclenchement à la position du curseur
-                    self.response_window.set_trigger_position(cursor_pos)
-                    self.response_window.set_paste_target(paste_target)
-                    self._present_response_window()
-                    
-                    # Stocker la requête pour permettre un retry
-                    self.response_window.store_request(prompt, content)
-                    
+                    # Préparer la fenêtre là où la capture a été demandée
+                    self._prepare_response_window(
+                        "Traitement de la capture d'écran...",
+                        prompt,
+                        content,
+                        paste_target,
+                        position=cursor_pos,
+                    )
+
                     # Lancer la requête API en arrière-plan
                     self._send_request(prompt, content)
                 else:
@@ -1050,16 +886,8 @@ class ContextMenuManager(QObject):
                             direct_status=f"✅ Envoyé à l'IA — {status}",
                         )
                     else:
-                        # Préparer la fenêtre de réponse
-                        self.response_window.set_status(status)
-                        # Définir la position de déclenchement à la position actuelle du curseur
-                        self.response_window.set_trigger_position(QCursor.pos())
-                        self.response_window.set_paste_target(target)
-                        self._present_response_window()
-                        
-                        # Stocker la requête pour permettre un retry
-                        self.response_window.store_request(full_prompt, "")
-                        
+                        self._prepare_response_window(status, full_prompt, "", target)
+
                         # Lancer la requête API en arrière-plan
                         self._send_request(full_prompt, "", reasoning_mode=prompt_data.get("reasoning_mode", "default"), model_target=prompt_data.get("model_target"))
             
@@ -1102,16 +930,10 @@ class ContextMenuManager(QObject):
                     # Construire le prompt complet avec le texte transcrit
                     full_prompt = compose_voice_prompt({"prompt": custom_prompt}, text)
                     
-                    # Préparer la fenêtre de réponse
-                    self.response_window.set_status("Traitement du prompt personnalisé...")
-                    # Définir la position de déclenchement à la position actuelle du curseur
-                    self.response_window.set_trigger_position(QCursor.pos())
-                    self.response_window.set_paste_target(target)
-                    self._present_response_window()
-                    
-                    # Stocker la requête pour permettre un retry
-                    self.response_window.store_request(full_prompt, "")
-                    
+                    self._prepare_response_window(
+                        "Traitement du prompt personnalisé...", full_prompt, "", target
+                    )
+
                     # Lancer la requête API en arrière-plan
                     self._send_request(full_prompt, "")
             
@@ -1159,84 +981,42 @@ class ContextMenuManager(QObject):
         except Exception as e:
             log(f"Erreur lors de la suppression de l'image: {e}", logging.ERROR)
     
-    def on_request_started(self):
-        """Handle request started signal"""
-        if self._closed:
-            return
-        self.response_window.set_loading(True)
-
-    def on_request_started_scoped(self, request_id, insert_directly):
-        if self._closed:
-            return
-        if (
-            not insert_directly
-            and request_id == self._active_response_request_id
-        ):
-            self.response_window.set_loading(True)
-    
-    def on_request_finished(self, response):
-        """Handle request finished signal"""
-        if self._closed:
-            return
-        self.response_window.set_response(response)
-        self.response_window.set_loading(False)
-
-    def on_request_finished_scoped(
-        self, request_id, response, insert_directly, target
-    ):
-        if self._closed:
-            return
-        request = self._pending_requests.pop(request_id, None)
-        if request is None:
-            return
-
-        client = request["client"]
-        if request["insert_directly"] or insert_directly:
-            safe_target = request.get("target") or target
-            # Sans cible capturée au lancement, coller viserait la fenêtre au
-            # premier plan à l'arrivée de la réponse, parfois bien plus tard.
-            inserted = safe_target is not None and TextInserter().insert_text(
-                response, target=safe_target
+    def _insert_directly(self, response, target, indicator, client, request=None):
+        # Sans cible capturée au lancement, coller viserait la fenêtre au
+        # premier plan à l'arrivée de la réponse, parfois bien plus tard.
+        inserted = target is not None and TextInserter().insert_text(
+            response, target=target
+        )
+        if not inserted:
+            kept_in = self._keep_refused_direct_response(
+                request or {}, response, target
             )
-            indicator = request.get("indicator")
-            if not inserted:
-                kept_in = self._keep_refused_direct_response(
-                    request, response, safe_target
-                )
-                if indicator is not None:
-                    indicator.set_message("⚠️ Insertion annulée")
-                    indicator.move_near_cursor()
-                    QTimer.singleShot(2200, indicator.close)
-                # Shown in the response window, the answer carries its own
-                # warning there: a box would end up below that topmost window.
-                if kept_in != "window":
-                    reason = (
-                        "La fenêtre ou le champ cible a changé."
-                        if safe_target is not None
-                        else "Aucune fenêtre cible n'était disponible au lancement."
-                    )
-                    outcome = (
-                        " Elle a été copiée dans le presse-papiers."
-                        if kept_in == "clipboard"
-                        else ""
-                    )
-                    SafeDialogs.show_information(
-                        "Insertion annulée",
-                        f"{reason} La réponse n'a pas été collée pour éviter une "
-                        f"insertion au mauvais endroit.{outcome}",
-                    )
-            elif indicator is not None:
-                indicator.set_message("✅ Réponse reçue et insérée")
+            if indicator is not None:
+                indicator.set_message("⚠️ Insertion annulée")
                 indicator.move_near_cursor()
-                QTimer.singleShot(1200, indicator.close)
-            self._release_retired_client_if_idle(client)
-            return
-
-        if request_id != self._active_response_request_id:
-            self._release_retired_client_if_idle(client)
-            return
-
-        self.on_request_finished(response)
+                QTimer.singleShot(2200, indicator.close)
+            # Shown in the response window, the answer carries its own
+            # warning there: a box would end up below that topmost window.
+            if kept_in != "window":
+                reason = (
+                    "La fenêtre ou le champ cible a changé."
+                    if target is not None
+                    else "Aucune fenêtre cible n'était disponible au lancement."
+                )
+                outcome = (
+                    " Elle a été copiée dans le presse-papiers."
+                    if kept_in == "clipboard"
+                    else ""
+                )
+                SafeDialogs.show_information(
+                    "Insertion annulée",
+                    f"{reason} La réponse n'a pas été collée pour éviter une "
+                    f"insertion au mauvais endroit.{outcome}",
+                )
+        elif indicator is not None:
+            indicator.set_message("✅ Réponse reçue et insérée")
+            indicator.move_near_cursor()
+            QTimer.singleShot(1200, indicator.close)
         self._release_retired_client_if_idle(client)
 
     def _keep_refused_direct_response(self, request, response, target):
@@ -1287,75 +1067,32 @@ class ContextMenuManager(QObject):
         except RuntimeError:
             return False
 
-    def on_request_error(self, error):
-        """Handle request error signal"""
-        if self._closed:
-            return
-        # An error is shown as such and can be copied, never inserted.
-        self.response_window.set_error(f"Erreur: {error}")
-        self.response_window.set_loading(False)
+    def _report_direct_failure(self, request, error):
+        indicator = request.get("indicator")
+        if indicator is not None:
+            indicator.set_message("❌ Échec du traitement")
+            indicator.move_near_cursor()
+            QTimer.singleShot(2200, indicator.close)
+        SafeDialogs.show_critical("Erreur de traitement", error)
 
-    def on_request_error_scoped(self, request_id, error):
-        if self._closed:
-            return
-        request = self._pending_requests.pop(request_id, None)
-        if request is None:
-            return
-
-        client = request["client"]
-        if (
-            not request["insert_directly"]
-            and request_id == self._active_response_request_id
-        ):
-            self.on_request_error(error)
-        elif request["insert_directly"]:
-            indicator = request.get("indicator")
-            if indicator is not None:
-                indicator.set_message("❌ Échec du traitement")
-                indicator.move_near_cursor()
-                QTimer.singleShot(2200, indicator.close)
-            SafeDialogs.show_critical("Erreur de traitement", error)
-
-        self._release_retired_client_if_idle(client)
-    
-    def on_retry_requested(self):
-        """Handle retry request from response window"""
-        if self._closed:
-            return
-        prompt, content = self.response_window.get_last_request()
-        if (
-            prompt is not None
-            and str(content or "").startswith("data:image/")
-            and not experimental_enabled(self.settings)
+    def _retry_refused(self, prompt, content):
+        if str(content or "").startswith("data:image/") and not experimental_enabled(
+            self.settings
         ):
             # Une capture d'écran n'est plus analysée une fois la fonction coupée.
             self.on_request_error(
                 "la capture et l’analyse d’écran sont désactivées "
                 "(Réglages > Application > Fonctions expérimentales)"
             )
-            return
-        if prompt is not None:
-            log("Retry de la dernière requête...", logging.INFO)
-            self._send_request(prompt, content if content else "", reasoning_mode=getattr(self.response_window, "last_reasoning_mode", "default"), model_target=getattr(self.response_window, "last_model_target", None))
+            return True
+        return False
 
     def update_client_config(self):
         """Met à jour la configuration du client API avec les paramètres actuels."""
         if self._closed:
             return
-        self.settings.sync()
-        # Another server may now answer at the same address: probe it again.
-        clear_capabilities_cache()
-        old_client = self.api_client
-        if old_client is not None:
-            self._retired_clients.append(old_client)
-        
-        # Recréer le client avec les nouveaux paramètres
-        # Le modèle sera automatiquement déterminé selon le type d'endpoint
-        self.api_client = self._create_api_client()
-        
-        self._connect_api_client(self.api_client)
-        self._release_retired_client_if_idle(old_client)
-            
+        super().update_client_config()
+
         provider = self.settings.get_ai_provider()
         endpoint_info = self.settings.get_custom_endpoint() if provider == "custom" else provider
         model_info = (self.settings.get_foundry_model() if provider == "foundry" else
@@ -1366,11 +1103,7 @@ class ContextMenuManager(QObject):
             logging.INFO,
         )
 
-    def close(self):
-        """Stop native/UI resources and reject late API completions."""
-        if self._closed:
-            return
-        self._closed = True
+    def _release_platform_resources(self):
         self._menu_watchdog.stop()
 
         if self._active_menu is not None:
@@ -1381,22 +1114,6 @@ class ContextMenuManager(QObject):
 
         self.stop_voice_recognition()
 
-        clients = {self.api_client, *self._retired_clients}
-        for request in self._pending_requests.values():
-            indicator = request.get("indicator")
-            if indicator is not None:
-                indicator.close()
-            clients.add(request.get("client"))
-        self._pending_requests.clear()
-        self._retired_clients.clear()
-
-        for client in clients:
-            if client is None:
-                continue
-            self._disconnect_api_client(client)
-            client.close()
-
         app = QApplication.instance()
         if app is not None:
             app.removeEventFilter(self)
-        self.response_window.close()

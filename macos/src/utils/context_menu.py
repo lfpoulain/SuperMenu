@@ -3,20 +3,17 @@
 from __future__ import annotations
 
 import logging
-import uuid
 
-from PySide6.QtCore import QObject, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QApplication
 
 
-from supermenu_core.api.openai_client import clear_capabilities_cache
 from supermenu_core.config.feature_modes import (
     advanced_enabled,
-    effective_model_target,
     experimental_enabled,
 )
-from supermenu_core.config.model_target import ModelTargetSettings, settings_for_prompt
+from supermenu_core.config.model_target import settings_for_prompt
 from supermenu_core.ui.controls import Menu as QMenu, populate_prompt_menu
 from supermenu_core.ui.voice_menu import populate_voice_menu
 from supermenu_core.config.voice_prompts import compose_voice_prompt
@@ -25,6 +22,7 @@ from src.ui.prompt_dialog import PromptDialog
 from src.ui.response_window import ResponseWindow
 from supermenu_core.ui.loading_indicator import SimpleLoadingIndicator
 from src.utils.logger import log, logger
+from supermenu_core.ui.request_coordinator import PromptRequestCoordinator, RequestFeedback
 from supermenu_core.ui.safe_dialogs import SafeDialogs
 from src.utils.selection import SelectionReader
 from src.utils.text_inserter import TextInserter
@@ -57,27 +55,24 @@ def _application_level(target):
         return target
 
 
-class ContextMenuManager(QObject):
+class ContextMenuManager(PromptRequestCoordinator):
     """Coordinate selection, prompt choice, API calls and response insertion."""
 
+    REQUEST_FEEDBACK = RequestFeedback(
+        direct_pending="Réponse en attente…",
+        response_error="Erreur : {error}",
+        send_error="{error}",
+    )
+
     def __init__(self, settings, selection_reader=None):
-        super().__init__()
-        self.settings = settings
+        super().__init__(settings, ResponseWindow)
         self.selection_reader = selection_reader or SelectionReader()
-        self.api_client = self._create_api_client()
-        self.response_window = ResponseWindow()
-        self.response_window.retry_requested.connect(self.on_retry_requested)
-        self._pending_requests = {}
-        self._active_response_request_id = None
-        self._retired_clients = []
         self._menu_open = False
         self._selection_pending = False
         self._active_inserters = []
         self._active_menu = None
         self._prompt_dialog = None
-        self._closed = False
         self._dictation = None
-        self._connect_api_client(self.api_client)
 
     def _create_api_client(self, settings=None):
         settings = settings or self.settings
@@ -91,19 +86,6 @@ class ContextMenuManager(QObject):
             settings=settings,
             api_key=settings.get_api_key(),
         )
-
-    def _connect_api_client(self, client) -> None:
-        client.request_started_scoped.connect(self.on_request_started_scoped)
-        client.request_finished_scoped.connect(self.on_request_finished_scoped)
-        client.request_error_scoped.connect(self.on_request_error_scoped)
-
-    def _disconnect_api_client(self, client) -> None:
-        try:
-            client.request_started_scoped.disconnect(self.on_request_started_scoped)
-            client.request_finished_scoped.disconnect(self.on_request_finished_scoped)
-            client.request_error_scoped.disconnect(self.on_request_error_scoped)
-        except (TypeError, RuntimeError):
-            pass
 
     def _capture_selection(self, on_ready, *, from_ui: bool = False) -> None:
         """Capture the frontmost app, then read its selection asynchronously."""
@@ -518,116 +500,8 @@ class ContextMenuManager(QObject):
         dialog.open()
         QTimer.singleShot(60, raise_prompt_dialog)
 
-    def _prepare_response_window(
-        self,
-        status: str,
-        prompt: str,
-        content: str,
-        target,
-    ) -> None:
-        self.response_window.set_status(status)
-        self.response_window.set_trigger_position(QCursor.pos())
-        self.response_window.set_paste_target(_application_level(target))
-        self.response_window.store_request(prompt, content)
-        self.response_window.present()
-
-    def show_response_window(self) -> None:
-        self.response_window.set_trigger_position(None)
-        self.response_window.present()
-
-    def _send_request(
-        self,
-        prompt,
-        content,
-        insert_directly=False,
-        *,
-        target=None,
-        include_reasoning=None,
-        direct_status=None,
-        reasoning_mode="default",
-        model_target=None,
-    ) -> str:
-        request_id = uuid.uuid4().hex
-        if self._closed:
-            return request_id
-        # Without the advanced features every prompt uses the Texte settings;
-        # its stored model is kept. Covers retries and kept answers too.
-        model_target = effective_model_target(self.settings, model_target)
-        client = self.api_client
-        indicator = None
-        if insert_directly:
-            indicator = SimpleLoadingIndicator.show_near_cursor(
-                direct_status or "Réponse en attente…"
-            )
-        self._pending_requests[request_id] = {
-            "client": client,
-            "insert_directly": bool(insert_directly),
-            "target": target,
-            "indicator": indicator,
-        }
-        if insert_directly:
-            # Kept so that a refused insertion can still show and retry it.
-            self._pending_requests[request_id].update(
-                prompt=prompt,
-                content=content,
-                reasoning_mode=reasoning_mode,
-                model_target=model_target,
-            )
-        if not insert_directly:
-            self._active_response_request_id = request_id
-            self.response_window.last_reasoning_mode = reasoning_mode
-            self.response_window.last_model_target = dict(model_target or {})
-        try:
-            if model_target:
-                client = self._create_api_client(ModelTargetSettings(self.settings, model_target))
-                self._retired_clients.append(client)
-                self._connect_api_client(client)
-                self._pending_requests[request_id]["client"] = client
-            client.send_request(
-                prompt,
-                content,
-                insert_directly=insert_directly,
-                include_reasoning=include_reasoning,
-                request_id=request_id,
-                target=target,
-                **({"reasoning_mode": reasoning_mode} if reasoning_mode != "default" else {}),
-            )
-        except Exception as exc:
-            self.on_request_error_scoped(request_id, str(exc))
-        return request_id
-
-    def on_request_started_scoped(self, request_id, insert_directly) -> None:
-        if self._closed:
-            return
-        if not insert_directly and request_id == self._active_response_request_id:
-            self.response_window.set_loading(True)
-
-    def on_request_finished_scoped(
-        self,
-        request_id,
-        response,
-        insert_directly,
-        target,
-    ) -> None:
-        if self._closed:
-            return
-        request = self._pending_requests.pop(request_id, None)
-        if request is None:
-            return
-        client = request["client"]
-        if request["insert_directly"] or insert_directly:
-            self._insert_directly(
-                response,
-                request.get("target") or target,
-                request.get("indicator"),
-                client,
-                request=request,
-            )
-            return
-        if request_id == self._active_response_request_id:
-            self.response_window.set_response(response)
-            self.response_window.set_loading(False)
-        self._release_retired_client_if_idle(client)
+    def _response_window_target(self, target):
+        return _application_level(target)
 
     def _insert_directly(self, response, target, indicator, client, request=None) -> None:
         """Paste the answer without blocking the run loop that drives focus.
@@ -723,40 +597,22 @@ class ContextMenuManager(QObject):
             logger.exception("Copie de la réponse non insérée impossible")
             return False
 
-    def on_request_error_scoped(self, request_id, error) -> None:
-        if self._closed:
-            return
-        request = self._pending_requests.pop(request_id, None)
-        if request is None:
-            return
-        if (
-            not request["insert_directly"]
-            and request_id == self._active_response_request_id
-        ):
-            # An error is shown as such and can be copied, never inserted.
-            self.response_window.set_error(f"Erreur : {error}")
-            self.response_window.set_loading(False)
-        elif request["insert_directly"]:
-            indicator = request.get("indicator")
-            if indicator is not None:
-                indicator.set_message("Échec du traitement")
-                QTimer.singleShot(1800, indicator.close)
-            target = request.get("target")
-            if target is not None and not self._user_moved_elsewhere(target):
-                # The box activates SuperMenu: give the foreground back to the
-                # user's application once the error has been read.
-                SafeDialogs.show_critical(
-                    "Erreur de traitement",
-                    str(error),
-                    on_closed=target.request_activation,
-                )
-            else:
-                SafeDialogs.show_critical("Erreur de traitement", str(error))
+    def _report_direct_failure(self, request, error) -> None:
+        indicator = request.get("indicator")
+        if indicator is not None:
+            indicator.set_message("Échec du traitement")
+            QTimer.singleShot(1800, indicator.close)
+        target = request.get("target")
+        if target is not None and not self._user_moved_elsewhere(target):
+            # The box activates SuperMenu: give the foreground back to the
+            # user's application once the error has been read.
+            SafeDialogs.show_critical(
+                "Erreur de traitement",
+                str(error),
+                on_closed=target.request_activation,
+            )
         else:
-            # A newer prompt already owns the response window: the late
-            # failure of the request it replaced concerns nothing on screen.
-            log("Erreur ignorée : la requête a été remplacée par une plus récente")
-        self._release_retired_client_if_idle(request["client"])
+            SafeDialogs.show_critical("Erreur de traitement", str(error))
 
     @staticmethod
     def _user_moved_elsewhere(target) -> bool:
@@ -773,42 +629,7 @@ class ContextMenuManager(QObject):
         except Exception:
             return False
 
-    def on_retry_requested(self) -> None:
-        if self._closed:
-            return
-        prompt, content = self.response_window.get_last_request()
-        if prompt is not None:
-            self._send_request(prompt, content or "", reasoning_mode=getattr(self.response_window, "last_reasoning_mode", "default"), model_target=getattr(self.response_window, "last_model_target", None))
-
-    def _release_retired_client_if_idle(self, client) -> None:
-        if client is self.api_client:
-            return
-        if any(
-            request.get("client") is client
-            for request in self._pending_requests.values()
-        ):
-            return
-        self._disconnect_api_client(client)
-        client.close()
-        try:
-            self._retired_clients.remove(client)
-        except ValueError:
-            pass
-
-    def update_client_config(self) -> None:
-        self.settings.sync()
-        # Another server may now answer at the same address: probe it again.
-        clear_capabilities_cache()
-        previous = self.api_client
-        self._retired_clients.append(previous)
-        self.api_client = self._create_api_client()
-        self._connect_api_client(self.api_client)
-        self._release_retired_client_if_idle(previous)
-
-    def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
+    def _release_platform_resources(self) -> None:
         if self._dictation is not None:
             self._dictation.cleanup()
         if self._active_menu is not None:
@@ -819,17 +640,3 @@ class ContextMenuManager(QObject):
         if self._prompt_dialog is not None:
             self._prompt_dialog.reject()
             self._prompt_dialog = None
-        clients = {self.api_client, *self._retired_clients}
-        for request in self._pending_requests.values():
-            indicator = request.get("indicator")
-            if indicator is not None:
-                indicator.close()
-            clients.add(request.get("client"))
-        self._pending_requests.clear()
-        self._retired_clients.clear()
-        for client in clients:
-            if client is None:
-                continue
-            self._disconnect_api_client(client)
-            client.close()
-        self.response_window.close()
