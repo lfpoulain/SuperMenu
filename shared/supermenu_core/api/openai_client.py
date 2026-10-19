@@ -26,14 +26,9 @@ from supermenu_core.api.model_capabilities import (
     choose_reasoning_option,
     parse_lmstudio_model_catalog,
 )
+from supermenu_core.api.providers import common
+from supermenu_core.api.providers.common import log, logger  # noqa: F401 - logger is part of this module's API.
 from supermenu_core.utils.thinking import split_inline_thinking
-
-logger = logging.getLogger("SuperMenu.core.api")
-
-
-def log(message, level=logging.INFO):
-    """Log without coupling the shared core to a platform logger."""
-    logger.log(level, message)
 
 
 # One pooled session for the whole process. Without it every prompt paid a
@@ -102,40 +97,8 @@ def _looks_like_ollama_endpoint(endpoint_url):
     return port == 11434 or "ollama" in host or path.startswith("/api")
 
 
-def _models_base_url(endpoint_url, is_ollama, lmstudio=False):
-    base = (endpoint_url or "").rstrip("/")
-    if is_ollama:
-        if base.endswith("/api/chat"):
-            return base[: -len("/api/chat")]
-        if base.endswith("/api"):
-            return base[: -len("/api")]
-        return base
-
-    if lmstudio:
-        # Longest suffixes first: ".../api/v1" also ends with "/v1", which
-        # used to leave ".../api" as the server root.
-        suffixes = (
-            "/api/v1/chat",
-            "/api/v1/models",
-            "/api/v1",
-            "/v1/chat/completions",
-            "/v1/models",
-            "/v1",
-        )
-    else:
-        # Generic OpenAI-compatible servers may legitimately live under
-        # "/api/v1" (their catalog is then ".../api/v1/models").
-        suffixes = (
-            "/api/v1/chat",
-            "/api/v1/models",
-            "/v1/chat/completions",
-            "/v1/models",
-            "/v1",
-        )
-    for suffix in suffixes:
-        if base.endswith(suffix):
-            return base[: -len(suffix)]
-    return base
+# Historical module-level name; OpenAIClient._models_base_url delegates to it.
+_models_base_url = common.models_base_url
 
 
 class OpenAIClient(QObject):
@@ -356,9 +319,7 @@ class OpenAIClient(QObject):
             default=self._lmstudio_reasoning_default,
         )
 
-    @staticmethod
-    def _is_gpt_oss_model(model_name):
-        return "gpt-oss" in str(model_name or "").lower()
+    _is_gpt_oss_model = staticmethod(common.is_gpt_oss_model)
 
     def _ensure_ollama_model_capabilities(self, timeout=10):
         """Cache Ollama's advertised capabilities for the selected model."""
@@ -460,125 +421,19 @@ class OpenAIClient(QObject):
         # documented boolean switch. Effort strings are GPT-OSS-specific.
         return True if effort in CUSTOM_REASONING_EFFORTS else False
 
-    @staticmethod
-    def _combine_thinking(content, thinking):
-        """Combine le raisonnement et la réponse pour l'affichage."""
-        parts = []
-        if thinking:
-            parts.append(f"<think>{thinking}</think>")
-        if content:
-            parts.append(content)
-
-        if not parts:
-            return content or thinking or ""
-
-        return "\n\n".join(parts)
-
-    @staticmethod
-    def _strip_inline_thinking(text):
-        """Supprime les blocs de raisonnement inclus dans le contenu final."""
-        visible, _reasoning = OpenAIClient._split_inline_thinking(text)
-        return visible
+    # Provider-neutral response helpers, kept as static methods for callers.
+    _combine_thinking = staticmethod(common.combine_thinking)
+    _strip_inline_thinking = staticmethod(common.strip_inline_thinking)
 
     @staticmethod
     def _split_inline_thinking(text):
         """Separate inline think blocks, including an unclosed final block."""
         return split_inline_thinking(text)
 
-    @staticmethod
-    def _normalize_response_parts(content, reasoning):
-        """Normalize provider quirks and keep a usable answer when only one channel exists."""
-        visible_content, inline_reasoning = OpenAIClient._split_inline_thinking(content)
-        reasoning_parts = []
-        for part in (reasoning, inline_reasoning):
-            part = part.strip() if isinstance(part, str) else ""
-            if part and part not in reasoning_parts:
-                reasoning_parts.append(part)
-        normalized_reasoning = "\n\n".join(reasoning_parts)
-
-        # Some local model templates put their useful answer in the reasoning
-        # channel and leave the final channel empty. Treat the only available
-        # text as the answer instead of displaying a false "no final answer".
-        if not visible_content and normalized_reasoning:
-            return normalized_reasoning, ""
-
-        return visible_content, normalized_reasoning
-
-    @staticmethod
-    def _content_to_text(content):
-        """Convertit les formats de contenu OpenAI-compatible en texte."""
-        if isinstance(content, str):
-            return content
-
-        if isinstance(content, list):
-            parts = []
-            for item in content:
-                if isinstance(item, str):
-                    parts.append(item)
-                elif isinstance(item, dict):
-                    text = item.get("text") or item.get("content")
-                    if isinstance(text, str):
-                        parts.append(text)
-            return "\n".join(part for part in parts if part)
-
-        return ""
-
-    @staticmethod
-    def _reasoning_value_to_text(value):
-        """Normalise un champ de raisonnement qui peut etre str, dict ou list."""
-        if isinstance(value, str):
-            return value.strip()
-
-        if isinstance(value, dict):
-            for nested_key in (
-                "text",
-                "content",
-                "summary",
-                "reasoning_content",
-                "value",
-            ):
-                nested_value = OpenAIClient._reasoning_value_to_text(
-                    value.get(nested_key)
-                )
-                if nested_value:
-                    return nested_value
-            return ""
-
-        if isinstance(value, list):
-            parts = []
-            for item in value:
-                item_text = OpenAIClient._reasoning_value_to_text(item)
-                if item_text:
-                    parts.append(item_text)
-            return "\n\n".join(parts)
-
-        return ""
-
-    @staticmethod
-    def _extract_reasoning_text(response_data):
-        """Extrait le texte de raisonnement depuis une réponse OpenAI-compatible."""
-        if not isinstance(response_data, dict):
-            return ""
-
-        candidates = [response_data]
-
-        choices = response_data.get("choices", [])
-        if choices and isinstance(choices[0], dict):
-            candidates.append(choices[0])
-            message = choices[0].get("message", {})
-            if isinstance(message, dict):
-                candidates.append(message)
-
-        for item in candidates:
-            if not isinstance(item, dict):
-                continue
-
-            for key in ("reasoning_content", "reasoning", "thinking"):
-                value = OpenAIClient._reasoning_value_to_text(item.get(key))
-                if value:
-                    return value
-
-        return ""
+    _normalize_response_parts = staticmethod(common.normalize_response_parts)
+    _content_to_text = staticmethod(common.content_to_text)
+    _reasoning_value_to_text = staticmethod(common.reasoning_value_to_text)
+    _extract_reasoning_text = staticmethod(common.extract_reasoning_text)
 
     def _extract_response_parts(self, response_data):
         """Extrait la reponse finale et le raisonnement expose par le fournisseur."""
@@ -1012,38 +867,7 @@ class OpenAIClient(QObject):
             )
         return response
 
-    @staticmethod
-    def _response_was_truncated(response_data):
-        """Detect explicit server-side token/context cutoffs."""
-        if not isinstance(response_data, dict):
-            return False
-
-        reasons = [
-            response_data.get("finish_reason"),
-            response_data.get("stop_reason"),
-            # Ollama's native /api/chat reports its cutoff here.
-            response_data.get("done_reason"),
-        ]
-        choices = response_data.get("choices", [])
-        if isinstance(choices, list):
-            reasons.extend(
-                choice.get("finish_reason")
-                for choice in choices
-                if isinstance(choice, dict)
-            )
-        stats = response_data.get("stats", {})
-        if isinstance(stats, dict):
-            reasons.extend((stats.get("finish_reason"), stats.get("stop_reason")))
-        incomplete = response_data.get("incomplete_details")
-        if isinstance(incomplete, dict):
-            reasons.append(incomplete.get("reason"))
-
-        cutoff_markers = ("length", "max_token", "max_output", "context")
-        return any(
-            any(marker in str(reason).lower() for marker in cutoff_markers)
-            for reason in reasons
-            if reason
-        )
+    _response_was_truncated = staticmethod(common.response_was_truncated)
 
     def _truncation_message(self):
         """Explain a server-side cutoff in terms of what the user can change."""
