@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import uuid
 from pathlib import Path
 
 from PySide6.QtCore import QSettings
@@ -13,15 +12,11 @@ from supermenu_core.audio.settings import SpeechSettingsMixin
 from supermenu_core.config.model_memory import TextMemorySettingsMixin
 from supermenu_core.config.feature_modes import FeatureModesSettingsMixin
 from supermenu_core.config.voice_prompts import VoicePromptSettingsMixin
+from supermenu_core.config.text_prompts import TextPromptSettingsMixin
 from supermenu_core.config.prompt_transfer import export_prompt_bundle, import_prompt_bundle
-from supermenu_core.config.prompt_restore import backup_prompt_library
 
 from supermenu_core.api.model_capabilities import normalize_reasoning_option
-from supermenu_core.config.prompts import (
-    default_text_prompts,
-    normalize_prompt_collection,
-    repair_prompt_collection,
-)
+from supermenu_core.config.prompts import default_text_prompts
 from supermenu_core.config.provider_settings import normalize_update_channel
 from src.config.build_info import BUILD_CHANNEL
 from supermenu_core.config.openai_models import (
@@ -41,25 +36,17 @@ CUSTOM_ENDPOINT_API_KEY_SETTING = "custom_endpoint_api_key"
 _normalize_update_channel = normalize_update_channel
 
 
-def _read_prompts(value) -> tuple[dict[str, dict], list[str]]:
-    """Return the usable prompts of a stored library and what was wrong."""
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except json.JSONDecodeError:
-            return {}, ["Configuration de prompts illisible."]
-    try:
-        return repair_prompt_collection(value)
-    except (TypeError, ValueError) as exc:
-        return {}, [str(exc)]
+class Settings(
+    ModelTargetSettingsMixin,
+    SpeechSettingsMixin,
+    TextPromptSettingsMixin,
+    VoicePromptSettingsMixin,
+    TextMemorySettingsMixin,
+    FeatureModesSettingsMixin,
+):
+    # Deleting the last text prompt brings the default library back.
+    TEXT_PROMPTS_FALL_BACK_TO_DEFAULTS = True
 
-
-def _normalize_prompts(value) -> dict[str, dict]:
-    # One invalid entry is repaired or left out instead of emptying the library.
-    return _read_prompts(value)[0]
-
-
-class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettingsMixin, FeatureModesSettingsMixin):
     def __init__(self, config_path: str | None = None):
         self.config_path = str(config_path or settings_file())
         Path(self.config_path).parent.mkdir(parents=True, exist_ok=True)
@@ -248,100 +235,6 @@ class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSetting
 
     def set_update_channel(self, channel: str) -> None:
         self.settings.setValue("update_channel", _normalize_update_channel(channel))
-
-    def get_prompts(self) -> dict[str, dict]:
-        stored = self.settings.value("prompts", "{}")
-        prompts, problems = _read_prompts(stored)
-        # The stored value is left untouched until the next edit, which would
-        # replace it: keep a copy first instead of losing personal prompts.
-        if problems and backup_prompt_library(self, "prompts", stored, "repair"):
-            log(
-                f"{len(problems)} anomalie(s) dans les prompts : prompts réparés "
-                "ou ignorés, copie conservée dans prompts_backups",
-                logging.WARNING,
-            )
-        return prompts or _normalize_prompts(self.default_prompts)
-
-    def get_prompt(self, prompt_id: str):
-        return self.get_prompts().get(prompt_id)
-
-    def set_prompts(self, prompts: dict[str, dict]) -> None:
-        if isinstance(prompts, str):
-            prompts = json.loads(prompts)
-        # Invalid data and shared hotkeys are refused instead of being saved as
-        # an empty library or silently clearing another prompt's hotkey.
-        normalized = normalize_prompt_collection(
-            prompts, reject_duplicate_hotkeys=True
-        )
-        self.settings.setValue(
-            "prompts",
-            json.dumps(normalized, ensure_ascii=False),
-        )
-
-    def update_prompt(
-        self,
-        prompt_id: str,
-        name: str,
-        prompt: str,
-        status: str,
-        insert_directly: bool = False,
-        position: int | None = None,
-        hotkey: str = "",
-        reasoning_mode: str | None = None,
-        model_target=None,
-    ) -> None:
-        prompts = self.get_prompts()
-        if prompt_id not in prompts:
-            raise KeyError(prompt_id)
-        prompts[prompt_id] = {
-            "model_target": model_target if model_target is not None else prompts.get(prompt_id, {}).get("model_target", {}),
-            "reasoning_mode": reasoning_mode if reasoning_mode is not None else prompts.get(prompt_id, {}).get("reasoning_mode", "default"),
-            "name": str(name or prompt_id),
-            "prompt": str(prompt or ""),
-            "status": str(status or "Traitement en cours…"),
-            "insert_directly": bool(insert_directly),
-            "hotkey": str(hotkey or "").strip(),
-            "position": int(
-                position
-                if position is not None
-                else prompts[prompt_id].get("position", 999)
-            ),
-        }
-        self.set_prompts(prompts)
-
-    def add_prompt(
-        self,
-        prompt_id: str | None,
-        name: str,
-        prompt: str,
-        status: str,
-        insert_directly: bool = False,
-        position: int = 999,
-        hotkey: str = "",
-        reasoning_mode: str | None = None,
-        model_target=None,
-    ) -> str:
-        prompts = self.get_prompts()
-        identifier = str(prompt_id or uuid.uuid4().hex).strip()
-        if identifier in prompts:
-            raise ValueError("Cet identifiant de prompt existe déjà.")
-        prompts[identifier] = {
-            "model_target": model_target if model_target is not None else prompts.get(prompt_id, {}).get("model_target", {}),
-            "reasoning_mode": reasoning_mode if reasoning_mode is not None else prompts.get(prompt_id, {}).get("reasoning_mode", "default"),
-            "name": str(name or "Nouveau prompt"),
-            "prompt": str(prompt or ""),
-            "status": str(status or "Traitement en cours…"),
-            "insert_directly": bool(insert_directly),
-            "hotkey": str(hotkey or "").strip(),
-            "position": int(position),
-        }
-        self.set_prompts(prompts)
-        return identifier
-
-    def delete_prompt(self, prompt_id: str) -> None:
-        prompts = self.get_prompts()
-        prompts.pop(prompt_id, None)
-        self.set_prompts(prompts)
 
     def export_prompts(self, file_path: str) -> None:
         export_prompt_bundle(self, file_path)

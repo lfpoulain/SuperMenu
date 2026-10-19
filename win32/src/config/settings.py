@@ -12,8 +12,9 @@ from supermenu_core.audio.settings import SpeechSettingsMixin
 from supermenu_core.config.model_memory import TextMemorySettingsMixin
 from supermenu_core.config.feature_modes import FeatureModesSettingsMixin
 from supermenu_core.config.voice_prompts import VoicePromptSettingsMixin
+from supermenu_core.config.text_prompts import TextPromptSettingsMixin
 from supermenu_core.config.prompt_transfer import export_prompt_bundle, import_prompt_bundle
-from supermenu_core.config.prompt_restore import backup_prompt_library, keep_library_copy
+from supermenu_core.config.prompt_restore import keep_library_copy
 from src.config.build_info import BUILD_CHANNEL
 from src.config.foundry_models import DEFAULT_FOUNDRY_MODEL, normalize_foundry_model
 from supermenu_core.config.openai_models import (
@@ -27,8 +28,6 @@ from supermenu_core.config.prompts import (
     LEGACY_INSTANT_HOTKEY,
     default_text_prompts,
     default_voice_prompts,
-    normalize_prompt_collection,
-    repair_prompt_collection,
 )
 from supermenu_core.config.provider_settings import (
     CUSTOM_REASONING_EFFORTS,
@@ -37,10 +36,16 @@ from supermenu_core.config.provider_settings import (
 from src.utils.logger import log
 
 _normalize_update_channel = normalize_update_channel
-_normalize_prompt_collection = normalize_prompt_collection
 
 
-class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettingsMixin, FeatureModesSettingsMixin):
+class Settings(
+    ModelTargetSettingsMixin,
+    SpeechSettingsMixin,
+    TextPromptSettingsMixin,
+    VoicePromptSettingsMixin,
+    TextMemorySettingsMixin,
+    FeatureModesSettingsMixin,
+):
     """Manage application settings"""
     
     def __init__(self):
@@ -505,158 +510,19 @@ class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSetting
         else:
             log("Le thème spécifié n'est pas disponible.", logging.WARNING)
     
-    def get_prompts(self):
-        """Get all prompts"""
-        prompts_json = self.settings.value("prompts", "{}")
-        try:
-            raw_prompts = json.loads(prompts_json)
-            prompts, problems = repair_prompt_collection(raw_prompts)
-        except (json.JSONDecodeError, TypeError, ValueError) as e:
-            # Keep the unreadable value: the next edit replaces this key.
-            backup_prompt_library(self, "prompts", prompts_json, "repair")
-            log(f"Configuration de prompts invalide: {e}", logging.ERROR)
-            return {}
-        if problems:
-            # One invalid entry must not hide the whole library. The stored
-            # value is left untouched until the next edit and copied first.
-            if backup_prompt_library(self, "prompts", prompts_json, "repair"):
-                log(
-                    f"{len(problems)} anomalie(s) dans les prompts : prompts réparés "
-                    "ou ignorés, copie conservée dans prompts_backups",
-                    logging.WARNING,
-                )
-        elif prompts != raw_prompts:
-            self.set_prompts(prompts)
-        return prompts
-    
-    def get_prompt(self, prompt_id):
-        """Get a specific prompt"""
-        prompts = self.get_prompts()
-        prompt = prompts.get(prompt_id)
-        
-        # Assurer la compatibilité avec les anciens prompts
-        if prompt:
-            if "position" not in prompt:
-                prompt["position"] = 999
-            if "insert_directly" not in prompt:
-                prompt["insert_directly"] = False
-            if "hotkey" not in prompt:
-                prompt["hotkey"] = ""
-        
-        return prompt
-
-
-    def set_prompts(self, prompts):
-        """Set all prompts"""
-        self.settings.setValue("prompts", json.dumps(prompts))
-    
-    def update_prompt(
-        self,
-        prompt_id,
-        name,
-        prompt,
-        status,
-        insert_directly=False,
-        position=None,
-        hotkey="",
-        reasoning_mode=None,
-        model_target=None,
-    ):
-        """Update a specific prompt"""
-        prompts = self.get_prompts()
-        
-        # Si aucune position n'est fournie, conserver la position existante ou utiliser une valeur par défaut
-        if position is None:
-            position = prompts.get(prompt_id, {}).get("position", 999)
-            
-        normalized_hotkey = str(hotkey or "").strip()
+    def _check_prompt_hotkey(self, prompts, hotkey, prompt_id):
+        """Name the prompt that already uses this hotkey."""
         for existing_id, existing_prompt in prompts.items():
             if (
                 existing_id != prompt_id
-                and normalized_hotkey
+                and hotkey
                 and str(existing_prompt.get("hotkey", "")).strip().casefold()
-                == normalized_hotkey.casefold()
+                == hotkey.casefold()
             ):
                 raise ValueError(
-                    f"Le raccourci '{normalized_hotkey}' est déjà utilisé par "
+                    f"Le raccourci '{hotkey}' est déjà utilisé par "
                     f"le prompt '{existing_prompt.get('name', existing_id)}'."
                 )
-
-        prompts[prompt_id] = {
-            "model_target": model_target if model_target is not None else prompts.get(prompt_id, {}).get("model_target", {}),
-            "reasoning_mode": reasoning_mode if reasoning_mode is not None else prompts.get(prompt_id, {}).get("reasoning_mode", "default"),
-            "name": name,
-            "prompt": prompt,
-            "status": status,
-            "insert_directly": insert_directly,
-            "position": position,
-            "hotkey": normalized_hotkey,
-        }
-        self.set_prompts(prompts)
-    
-    def add_prompt(
-        self,
-        prompt_id,
-        name,
-        prompt,
-        status,
-        insert_directly=False,
-        position=999,
-        hotkey="",
-        reasoning_mode=None,
-        model_target=None,
-    ):
-        """Ajouter un nouveau prompt"""
-        prompts = self.get_prompts()
-        
-        # Vérifier si l'ID existe déjà
-        if prompt_id in prompts:
-            # Générer un nouvel ID unique
-            base_id = prompt_id
-            counter = 1
-            while f"{base_id}_{counter}" in prompts:
-                counter += 1
-            prompt_id = f"{base_id}_{counter}"
-        
-        # Ajouter le nouveau prompt
-        normalized_hotkey = str(hotkey or "").strip()
-        for existing_id, existing_prompt in prompts.items():
-            if (
-                normalized_hotkey
-                and str(existing_prompt.get("hotkey", "")).strip().casefold()
-                == normalized_hotkey.casefold()
-            ):
-                raise ValueError(
-                    f"Le raccourci '{normalized_hotkey}' est déjà utilisé par "
-                    f"le prompt '{existing_prompt.get('name', existing_id)}'."
-                )
-
-        prompts[prompt_id] = {
-            "model_target": model_target if model_target is not None else prompts.get(prompt_id, {}).get("model_target", {}),
-            "reasoning_mode": reasoning_mode if reasoning_mode is not None else prompts.get(prompt_id, {}).get("reasoning_mode", "default"),
-            "name": name,
-            "prompt": prompt,
-            "status": status,
-            "insert_directly": insert_directly,
-            "position": position,
-            "hotkey": normalized_hotkey,
-        }
-        
-        self.set_prompts(prompts)
-        return prompt_id
-    
-    def delete_prompt(self, prompt_id):
-        """Supprimer un prompt"""
-        prompts = self.get_prompts()
-        
-        # Vérifier si le prompt existe
-        if prompt_id in prompts:
-            del prompts[prompt_id]
-            self.set_prompts(prompts)
-            return True
-        
-        return False
-
 
     def export_prompts(self, file_path):
         try:

@@ -60,6 +60,17 @@ chaque application l’installe en mode éditable depuis son propre
   valeurs par défaut ou l’écarte, sans effacer les autres ; seule une racine
   qui n’est pas un objet JSON reste une erreur. L’écriture et l’import
   restent en validation stricte, avec des messages qui nomment le prompt.
+- `text_prompts.py` : `TextPromptSettingsMixin`, stockage des prompts texte
+  des deux applications (lecture réparée avec copie de sauvegarde, écriture
+  validée, raccourcis uniques, identifiants suffixés). Sur Mac,
+  `TEXT_PROMPTS_FALL_BACK_TO_DEFAULTS` rétablit le catalogue par défaut quand
+  la bibliothèque est vide ; Windows nomme en plus le prompt qui détient déjà
+  un raccourci. L’import/export garde les retours propres à chaque plateforme.
+- `settings_contract.py` : `CoreSettings` (`typing.Protocol`) décrit tout ce
+  que le cœur appelle sur l’objet `Settings` d’une plateforme.
+  `contract_violations()` est vérifié par les suites Windows et macOS sur
+  leur vraie classe, et un test partagé échoue si le cœur appelle un membre
+  absent du contrat.
 - `prompt_restore.py` : restauration des prompts d’origine et copies de
   sauvegarde. Les cinq dernières copies de chaque bibliothèque sont gardées
   dans `prompts_backups` et `voice_prompts_backups`, avec leur date et leur
