@@ -7,6 +7,6 @@ keyring==25.7.0
 pywin32==311
 Pillow==12.2.0
 pynput==1.8.2
-openai==2.37.0
+openai==3.29.0
 pyqtdarktheme==0.1.7
 foundry-local-sdk-winml==1.2.4
