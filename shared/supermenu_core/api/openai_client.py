@@ -12,13 +12,9 @@ import time
 import logging
 import uuid
 from PySide6.QtCore import QObject, Signal, Slot
-from supermenu_core.config.openai_models import (
-    get_openai_model_capabilities,
-    normalize_openai_model,
-    normalize_reasoning_effort,
-)
+from supermenu_core.config.openai_models import normalize_openai_model
 from supermenu_core.api.model_capabilities import parse_lmstudio_model_catalog
-from supermenu_core.api.providers import common, lmstudio, ollama
+from supermenu_core.api.providers import common, lmstudio, ollama, openai_compatible
 from supermenu_core.api.providers.common import log, logger  # noqa: F401 - logger is part of this module's API.
 from supermenu_core.utils.thinking import split_inline_thinking
 
@@ -41,12 +37,9 @@ def _session():
 DEFAULT_API_TIMEOUT = 180
 LMSTUDIO_API_TIMEOUT = 300
 CONNECT_TIMEOUT = 10
-# Generic OpenAI-compatible servers reject prompt + max_tokens above their
-# context window, so their cap stays conservative.
-DEFAULT_MAX_TOKENS = 2048
-# OpenAI's max_completion_tokens also counts reasoning tokens: 2048 was spent
-# by the reasoning alone at the default effort, leaving an empty or cut answer.
-OPENAI_MAX_COMPLETION_TOKENS = 16384
+# Output caps, defined with the chat-completions payloads.
+DEFAULT_MAX_TOKENS = openai_compatible.DEFAULT_MAX_TOKENS
+OPENAI_MAX_COMPLETION_TOKENS = openai_compatible.OPENAI_MAX_COMPLETION_TOKENS
 
 # Model capabilities rarely change, while clients created for one prompt are
 # short-lived: share a successful probe across clients for a while.
@@ -390,46 +383,7 @@ class OpenAIClient(QObject):
         if self.use_lmstudio_api:
             return lmstudio.extract_response_parts(response_data)
 
-        if isinstance(response_data, dict) and response_data.get("output_text"):
-            return self._normalize_response_parts(
-                self._content_to_text(response_data.get("output_text")),
-                self._extract_reasoning_text(response_data),
-            )
-
-        if isinstance(response_data, dict) and isinstance(
-            response_data.get("output"), list
-        ):
-            parts = []
-            for output_item in response_data.get("output", []):
-                if not isinstance(output_item, dict):
-                    continue
-                for content_item in output_item.get("content", []) or []:
-                    if isinstance(content_item, dict):
-                        text = content_item.get("text") or content_item.get("content")
-                        if isinstance(text, str):
-                            parts.append(text)
-            return self._normalize_response_parts(
-                "\n".join(parts),
-                self._extract_reasoning_text(response_data),
-            )
-
-        choices = (
-            response_data.get("choices", []) if isinstance(response_data, dict) else []
-        )
-        if not choices:
-            return self._normalize_response_parts(
-                "",
-                self._extract_reasoning_text(response_data),
-            )
-
-        message = choices[0].get("message", {}) if isinstance(choices[0], dict) else {}
-        content = (
-            self._content_to_text(message.get("content", ""))
-            if isinstance(message, dict)
-            else ""
-        )
-        reasoning = self._extract_reasoning_text(response_data)
-        return self._normalize_response_parts(content, reasoning)
+        return openai_compatible.extract_response_parts(response_data)
 
     def _extract_response_text(self, response_data, include_reasoning=True):
         content, reasoning = self._extract_response_parts(response_data)
@@ -726,20 +680,8 @@ class OpenAIClient(QObject):
         if self.use_ollama_api:
             return ollama.TRUNCATION_MESSAGE
         if self.use_custom_endpoint:
-            # The cap is SuperMenu's own (see DEFAULT_MAX_TOKENS), and servers
-            # that expose a reasoning trace count it in the same budget.
-            return (
-                "Le serveur a interrompu la réponse avant la fin : SuperMenu "
-                f"limite la réponse à {DEFAULT_MAX_TOKENS} tokens sur ce type "
-                "de serveur, raisonnement du modèle compris (ou le contexte du "
-                "modèle est plein). Réduisez le texte ou utilisez un modèle "
-                "sans raisonnement, puis réessayez."
-            )
-        return (
-            "La réponse a été interrompue avant la fin (limite de longueur "
-            "atteinte). Réduisez le texte ou le niveau de raisonnement, "
-            "puis réessayez."
-        )
+            return openai_compatible.custom_truncation_message()
+        return openai_compatible.OPENAI_TRUNCATION_MESSAGE
 
     def _process_request_thread(
         self,
@@ -932,45 +874,23 @@ class OpenAIClient(QObject):
             )
             return data, image_path
 
-        if image_data_url:
-            data = {
-                "model": self.model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": image_data_url},
-                            },
-                        ],
-                    }
-                ],
-            }
-        else:
-            data = {
-                "model": self.model,
-                "messages": [{"role": "user", "content": full_prompt}],
-            }
-
         if not self.use_custom_endpoint:
-            capabilities = get_openai_model_capabilities(self.model)
-            if capabilities is None:
-                raise ValueError(f"Modèle OpenAI non supporté: {self.model}")
-
-            data[capabilities.max_tokens_parameter] = (
-                OPENAI_MAX_COMPLETION_TOKENS
-                if capabilities.max_tokens_parameter == "max_completion_tokens"
-                else DEFAULT_MAX_TOKENS
-            )
-            effort = normalize_reasoning_effort(
+            # The effort is read only once the model is known to be
+            # supported (reading it may store a normalized value).
+            data = openai_compatible.build_openai_payload(
                 self.model,
-                self._get_provider_reasoning_effort(reasoning_mode),
+                prompt,
+                full_prompt,
+                image_data_url,
+                lambda: self._get_provider_reasoning_effort(reasoning_mode),
             )
-            data["reasoning_effort"] = effort
         else:
-            data["max_tokens"] = DEFAULT_MAX_TOKENS
+            data = openai_compatible.build_custom_payload(
+                self.model,
+                prompt,
+                full_prompt,
+                image_data_url,
+            )
 
         return data, image_path
 
