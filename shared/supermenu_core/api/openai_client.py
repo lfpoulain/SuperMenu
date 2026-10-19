@@ -11,12 +11,7 @@ import tempfile
 import time
 import logging
 import uuid
-from urllib.parse import urlparse
 from PySide6.QtCore import QObject, Signal, Slot
-from supermenu_core.config.provider_settings import (
-    CUSTOM_REASONING_EFFORTS,
-    OLLAMA_GPT_OSS_THINK_EFFORTS,
-)
 from supermenu_core.config.openai_models import (
     get_openai_model_capabilities,
     normalize_openai_model,
@@ -26,7 +21,7 @@ from supermenu_core.api.model_capabilities import (
     choose_reasoning_option,
     parse_lmstudio_model_catalog,
 )
-from supermenu_core.api.providers import common
+from supermenu_core.api.providers import common, ollama
 from supermenu_core.api.providers.common import log, logger  # noqa: F401 - logger is part of this module's API.
 from supermenu_core.utils.thinking import split_inline_thinking
 
@@ -89,12 +84,8 @@ def clear_capabilities_cache():
         _CAPABILITIES_CACHE.clear()
 
 
-def _looks_like_ollama_endpoint(endpoint_url):
-    parsed = urlparse(endpoint_url or "")
-    host = (parsed.hostname or "").lower()
-    port = parsed.port
-    path = (parsed.path or "").lower()
-    return port == 11434 or "ollama" in host or path.startswith("/api")
+# Historical module-level name of the Ollama endpoint heuristic.
+_looks_like_ollama_endpoint = ollama.looks_like_ollama_endpoint
 
 
 # Historical module-level name; OpenAIClient._models_base_url delegates to it.
@@ -338,32 +329,25 @@ class OpenAIClient(QObject):
                 self._ollama_capabilities_checked = True
                 return
             try:
-                response = _session().post(
-                    f"{base_url}/api/show",
-                    headers=self._build_headers(),
-                    data=json.dumps({"model": self.model, "verbose": False}),
-                    timeout=timeout,
+                payload = ollama.request_model_details(
+                    _session(),
+                    base_url,
+                    self._build_headers(),
+                    self.model,
+                    timeout,
                 )
-                if response.status_code != 200:
+                if payload is None:
                     # Ollama not started yet or model still being pulled:
                     # probe again on a later request rather than sending
                     # think blindly for the whole lifetime of the client.
                     self._ollama_probe_failed_at = time.monotonic()
                     return
 
-                payload = response.json()
-                if not isinstance(payload, dict):
-                    self._ollama_probe_failed_at = time.monotonic()
-                    return
                 self._ollama_capabilities_checked = True
                 self._ollama_probe_failed_at = None
-                capabilities = payload.get("capabilities", [])
-                if isinstance(capabilities, list):
-                    self._ollama_capabilities = {
-                        str(capability).strip().lower()
-                        for capability in capabilities
-                        if str(capability).strip()
-                    }
+                capabilities = ollama.parse_capabilities(payload)
+                if capabilities is not None:
+                    self._ollama_capabilities = capabilities
                     _remember_capabilities(
                         cache_key, frozenset(self._ollama_capabilities)
                     )
@@ -397,29 +381,11 @@ class OpenAIClient(QObject):
 
     def _build_ollama_think_value(self, reasoning_mode="default"):
         """Construit la valeur du paramètre think pour Ollama."""
-        effort = (self._get_provider_reasoning_effort(reasoning_mode) or "none").strip().lower()
-        if self._is_gpt_oss_model(self.model):
-            if effort in OLLAMA_GPT_OSS_THINK_EFFORTS:
-                return effort
-            # GPT-OSS cannot disable its trace; low is the documented
-            # latency-minimizing fallback when the UI asks for "none".
-            return "low"
-
-        if (
-            self._ollama_capabilities is not None
-            and "thinking" not in self._ollama_capabilities
-        ):
-            return None
-
-        if effort in {"none", "off"}:
-            return False
-
-        if effort == "on":
-            return True
-
-        # Qwen 3, DeepSeek R1/v3.1 and other Ollama thinking models use the
-        # documented boolean switch. Effort strings are GPT-OSS-specific.
-        return True if effort in CUSTOM_REASONING_EFFORTS else False
+        return ollama.build_think_value(
+            self._get_provider_reasoning_effort(reasoning_mode),
+            self.model,
+            self._ollama_capabilities,
+        )
 
     # Provider-neutral response helpers, kept as static methods for callers.
     _combine_thinking = staticmethod(common.combine_thinking)
@@ -438,22 +404,7 @@ class OpenAIClient(QObject):
     def _extract_response_parts(self, response_data):
         """Extrait la reponse finale et le raisonnement expose par le fournisseur."""
         if self.use_ollama_api:
-            message = (
-                response_data.get("message", {})
-                if isinstance(response_data, dict)
-                else {}
-            )
-            content = (
-                self._content_to_text(message.get("content", ""))
-                if isinstance(message, dict)
-                else ""
-            )
-            thinking = (
-                self._reasoning_value_to_text(message.get("thinking", ""))
-                if isinstance(message, dict)
-                else ""
-            )
-            return self._normalize_response_parts(content, thinking)
+            return ollama.extract_response_parts(response_data)
 
         if self.use_lmstudio_api:
             output = (
@@ -878,11 +829,7 @@ class OpenAIClient(QObject):
                 "un Context Length plus élevé, puis réessayez."
             )
         if self.use_ollama_api:
-            return (
-                "Ollama a interrompu la réponse avant la fin (limite de "
-                "longueur ou de contexte du modèle atteinte). Réduisez le "
-                "texte ou augmentez le contexte du modèle, puis réessayez."
-            )
+            return ollama.TRUNCATION_MESSAGE
         if self.use_custom_endpoint:
             # The cap is SuperMenu's own (see DEFAULT_MAX_TOKENS), and servers
             # that expose a reasoning trace count it in the same budget.
@@ -1072,17 +1019,12 @@ class OpenAIClient(QObject):
         )
 
         if self.use_ollama_api:
-            message = {"role": "user", "content": full_prompt}
-            if image_base64:
-                message["images"] = [image_base64]
-            data = {
-                "model": self.model,
-                "messages": [message],
-                "stream": False,
-            }
-            think_value = self._build_ollama_think_value(reasoning_mode)
-            if think_value is not None:
-                data["think"] = think_value
+            data = ollama.build_payload(
+                self.model,
+                full_prompt,
+                image_base64,
+                self._build_ollama_think_value(reasoning_mode),
+            )
             return data, image_path
 
         if self.use_lmstudio_api:
