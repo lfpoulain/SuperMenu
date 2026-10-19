@@ -131,8 +131,8 @@ For voice and, on Windows, the screen. These features may still change.
   and vocabulary, and a 5-second **microphone test** that neither records nor
   sends any audio.
 - **Screen capture and analysis** (Windows only, `Ctrl+Alt+&`): full screen,
-  a selected area, or a choice between the two at each capture. The analysis
-  needs a model that can
+  a selected area, or **Demander à chaque capture** (Ask at each capture),
+  which lets you choose each time. The analysis needs a model that can
   read images; Foundry Local does not support them.
 
 ### Turning these features on or off
@@ -290,7 +290,7 @@ grep SuperMenu-macOS-arm64.dmg SHA256SUMS.txt | shasum -a 256 -c
 ```
 
 The fingerprint proves the file is intact. To also check that it was built by
-this repository's workflows, every published file comes with a build
+this repository’s workflows, every published file comes with a build
 provenance attestation signed by GitHub (releases published since the
 attestation was added). With [GitHub CLI](https://cli.github.com/) signed in
 (`gh auth login`):
@@ -463,14 +463,16 @@ bash scripts/build_dmg.sh
 ```
 
 Without a Developer ID identity, the script produces an unsigned development
-DMG. Signing and notarization are described in
-[macos/SIGNING.md](macos/SIGNING.md) (in French).
+DMG. Published DMGs are signed with Developer ID and notarized by the
+repository’s release workflows.
 
 </details>
 
 CI tests Windows with Python 3.11 and 3.12 and macOS with Python 3.12, and
-builds a test DMG for every pull request. Before proposing a change, read the
-[contribution guide](CONTRIBUTING.md) (in French).
+builds a test DMG for every pull request. Releases are built and published by
+the repository’s GitHub Actions workflows: a rolling beta after each change to
+`main`, and a Stable release on a `vX.Y.Z` tag. Before proposing a change,
+read the [contribution guide](CONTRIBUTING.md) (in French).
 
 ## Repository layout
 
@@ -489,7 +491,7 @@ SuperMenu/
 │   ├── native/              # Swift components for Apple Intelligence and Apple Speech
 │   ├── scripts/             # build, signing and notarization
 │   └── SuperMenu-macos.spec
-├── docs/                    # release procedure, README images
+├── docs/                    # README images
 ├── licenses/                # third-party license texts (LGPL, GPL, Apache, Microsoft…)
 ├── tools/                   # release checks and third-party license collection
 └── .github/                 # CI, beta, Stable releases, issue templates
@@ -508,7 +510,7 @@ The project documentation is written in French.
 | Overview | [win32/README.md](win32/README.md) | [macos/README.md](macos/README.md) |
 | User guide | [Windows guide](win32/docs/GUIDE_UTILISATION.md) | [macOS guide](macos/docs/GUIDE_UTILISATION.md) |
 | Technical architecture | [Windows architecture](win32/docs/ARCHITECTURE.md) | [macOS architecture](macos/docs/ARCHITECTURE.md) |
-| Platform specifics | [Foundry Local](win32/docs/foundry-local.md) | [Signing and notarization](macos/SIGNING.md) |
+| Platform specifics | [Foundry Local](win32/docs/foundry-local.md) | [Packaging and notarization](macos/docs/ARCHITECTURE.md#packaging-et-notarisation) |
 
 | Project | Contents |
 |---|---|
@@ -517,7 +519,6 @@ The project documentation is written in French.
 | [Security](SECURITY.md) | supported versions, private vulnerability reporting |
 | [Code of conduct](CODE_OF_CONDUCT.md) | rules for project discussions |
 | [Changelog](CHANGELOG.md) | what changed in each version |
-| [Releasing](docs/RELEASING.md) | CI, rolling beta and Stable releases |
 | [Third-party components](THIRD_PARTY_NOTICES.md) | bundled libraries and their licenses |
 
 ## License

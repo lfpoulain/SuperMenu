@@ -22,11 +22,6 @@ Utilisez le signalement privé de GitHub : onglet **Security** du dépôt, puis
 ([lien direct](https://github.com/lfpoulain/SuperMenu/security/advisories/new)).
 Seul le mainteneur voit votre rapport.
 
-Cette fonction doit être activée par le propriétaire du dépôt. Si le bouton
-n’apparaît pas encore dans l’onglet **Security**, ne publiez aucun détail :
-contactez le mainteneur via son profil GitHub,
-[@lfpoulain](https://github.com/lfpoulain), pour convenir d’un échange privé.
-
 Un rapport utile indique :
 
 - la plateforme (Windows ou macOS), la version de SuperMenu et son canal ;

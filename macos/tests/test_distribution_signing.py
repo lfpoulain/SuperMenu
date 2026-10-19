@@ -62,7 +62,7 @@ def test_entitlements_stay_parseable_by_codesign():
     contained "--options=runtime" and a double hyphen is illegal inside an XML
     comment. plistlib fails on the same line, so parsing the file is enough to
     catch it. Keeping the plist comment-free removes the class of problem, and
-    the rationale for each key lives in SIGNING.md.
+    the rationale for each key lives in docs/ARCHITECTURE.md.
     """
     raw = (MACOS_ROOT / "entitlements.plist").read_bytes()
 
@@ -199,17 +199,20 @@ def test_the_app_bundle_is_stapled_before_it_is_packaged():
 
 
 def test_stapling_retries_a_transient_apple_failure():
-    """An Accepted notarization can still fail to staple (stapler error 68)
-    while Apple's ticket service catches up: retry before failing."""
+    """An Accepted notarization can still fail to staple or validate
+    (stapler error 68, "network connection was lost") while Apple's ticket
+    service catches up: retry both before failing."""
     notarize = _commands(_script("scripts", "notarize.sh"))
 
     assert "for attempt in 1 2 3; do" in notarize
-    assert 'if xcrun stapler staple "${artifact_path}"; then' in notarize
+    assert 'if xcrun stapler staple "${artifact_path}"' in notarize
     assert "sleep $((attempt * 15))" in notarize
     retry = notarize.index("for attempt in 1 2 3; do")
+    leave = notarize.index("break", retry)
     assert notarize.index("xcrun notarytool submit") < retry
-    assert retry < notarize.index("xcrun stapler validate")
+    assert retry < notarize.index("xcrun stapler validate") < leave
     assert notarize.count("xcrun stapler staple") == 1
+    assert notarize.count("xcrun stapler validate") == 1
 
 
 def test_ci_builds_an_unsigned_dmg_without_apple_credentials():

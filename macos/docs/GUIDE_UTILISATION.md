@@ -56,7 +56,7 @@ rapide, consultez le [README macOS](../README.md).
 5. Lancez l’application depuis `/Applications`.
 
 Les releases publiques sont signées avec un certificat Developer ID et
-notariées par Apple : Gatekeeper reconnaît l’éditeur sans exiger **Ouvrir
+notarisées par Apple : Gatekeeper reconnaît l’éditeur sans exiger **Ouvrir
 quand même**.
 
 Pour les mises à jour, remplacez toujours l’application au même

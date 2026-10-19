@@ -10,7 +10,9 @@ numéro, indiqué à côté. Les bêtas roulantes ne sont pas détaillées une p
 
 ## [Non publié]
 
-Prochaine Stable : 1.3.0, pour Windows comme pour macOS.
+## [1.3.0] - 2026-10-19
+
+macOS : 1.3.0.
 
 ### Nouveautés
 
@@ -101,7 +103,7 @@ Prochaine Stable : 1.3.0, pour Windows comme pour macOS.
 - macOS : l’application déclare macOS 13 comme version minimale, celle qu’exige Qt 6.11.
 - Les applications n’incluent plus Qt Virtual Keyboard, Qt Pdf ni, sous Windows, le rendu OpenGL logiciel de Mesa, que SuperMenu n’utilise pas.
 - La rubrique **À propos** indique la licence et renvoie vers la liste des composants tiers. Les applications et l’installateur Windows incluent la licence, les avis des composants tiers et leurs textes de licence ; l’installateur présente aussi les conditions des composants Microsoft de Foundry Local.
-- Documentation réécrite : README en français et en anglais, guides d’utilisation et d’architecture Windows et macOS, guide de contribution, politique de sécurité, code de conduite et procédure de publication.
+- Documentation réécrite : README en français et en anglais, guides d’utilisation et d’architecture Windows et macOS, guide de contribution, politique de sécurité et code de conduite.
 
 ### Interne
 
@@ -151,6 +153,7 @@ sont pas détaillées ici.
 - Clé API conservée dans le stockage sécurisé de Windows.
 - Canaux de mise à jour Stable et Bêta via GitHub Releases, avec migration des installations de l’ancien canal « nightly » vers Stable.
 
-[Non publié]: https://github.com/lfpoulain/SuperMenu/commits/main
+[Non publié]: https://github.com/lfpoulain/SuperMenu/compare/v1.3.0...main
+[1.3.0]: https://github.com/lfpoulain/SuperMenu/releases/tag/v1.3.0
 [1.2.1]: https://github.com/lfpoulain/SuperMenu/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/lfpoulain/SuperMenu/releases/tag/v1.2.0

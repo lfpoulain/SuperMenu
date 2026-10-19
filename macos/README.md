@@ -3,7 +3,7 @@
 [![CI](https://github.com/lfpoulain/SuperMenu/actions/workflows/ci.yml/badge.svg)](https://github.com/lfpoulain/SuperMenu/actions/workflows/ci.yml)
 ![Apple Silicon](https://img.shields.io/badge/architecture-Apple%20Silicon-000000?logo=apple)
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
-![Distribution](https://img.shields.io/badge/distribution-DMG%20notari%C3%A9-success)
+![Distribution](https://img.shields.io/badge/distribution-DMG%20notaris%C3%A9-success)
 ![Licence](https://img.shields.io/badge/licence-PolyForm%20Noncommercial%201.0.0-lightgrey)
 
 SuperMenu pour macOS vit dans la barre des menus et travaille sur le texte de
@@ -71,7 +71,7 @@ Intelligence et Apple Speech demandent macOS 26 ou plus récent.
 4. Lancez SuperMenu depuis `/Applications`.
 5. Cliquez sur **Configurer Accessibilité…** et acceptez le dialogue de macOS.
 
-Les DMG publiés sont signés avec un certificat Developer ID et notariés par
+Les DMG publiés sont signés avec un certificat Developer ID et notarisés par
 Apple. Installez toujours les versions suivantes au même emplacement : macOS
 reconnaît ainsi la même application et conserve l’autorisation Accessibilité.
 
@@ -178,7 +178,8 @@ le smoke test, vérifie la présence des licences et écrit
 il produit un paquet de développement, ni signé ni notarisé pour la
 distribution. Les releases publiques
 exigent la signature, le Hardened Runtime, la notarisation et l’agrafage des
-tickets : voir [SIGNING.md](SIGNING.md).
+tickets, assurés par les workflows de publication du dépôt : voir
+[Packaging et notarisation](docs/ARCHITECTURE.md#packaging-et-notarisation).
 
 ## Organisation
 
@@ -204,9 +205,8 @@ macos/
 
 - [Guide d’utilisation](docs/GUIDE_UTILISATION.md)
 - [Architecture technique](docs/ARCHITECTURE.md)
-- [Signature et notarisation](SIGNING.md)
 - [Cœur partagé](../shared/README.md)
-- [Contribuer](../CONTRIBUTING.md) et [publier une version](../docs/RELEASING.md)
+- [Contribuer](../CONTRIBUTING.md)
 - [Journal des modifications](../CHANGELOG.md)
 - [README principal](../README.md)
 

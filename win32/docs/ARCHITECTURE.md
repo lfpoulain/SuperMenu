@@ -476,8 +476,7 @@ l’est.
 
 Les workflows Bêta et Stable exécutent `SuperMenu.exe --smoke-test` et
 `--foundry-smoke-test` sur l’exécutable construit, avant de produire
-l’installateur. La procédure complète est décrite dans
-[docs/RELEASING.md](../../docs/RELEASING.md).
+l’installateur.
 
 ## Tests
 

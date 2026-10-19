@@ -123,7 +123,8 @@ Pour construire un exécutable localement :
   `(Start-Process -FilePath dist\SuperMenu.exe -ArgumentList "--smoke-test" -Wait -PassThru).ExitCode`,
   qui doit afficher `0` ;
 - macOS : `bash scripts/build_dmg.sh` produit un DMG de développement non
-  signé (voir [macos/SIGNING.md](macos/SIGNING.md) pour la signature).
+  signé ; seuls les workflows de publication du dépôt signent et notarisent
+  les DMG publiés.
 
 ## Style et règles de code
 
@@ -170,7 +171,7 @@ Pour construire un exécutable localement :
    l’utilisateur.
 6. Ne modifiez ni `win32/VERSION`, ni `macos/VERSION`, ni les notes de release
    (`.github/BETA_NOTES.md`, `.github/STABLE_NOTES.md`) : le mainteneur s’en
-   charge au moment de publier (voir [docs/RELEASING.md](docs/RELEASING.md)).
+   charge au moment de publier.
 7. Ouvrez la pull request en remplissant le modèle proposé, puis attendez que
    la CI soit verte.
 

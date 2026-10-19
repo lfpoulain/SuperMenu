@@ -465,14 +465,17 @@ bash scripts/build_dmg.sh
 ```
 
 Sans identité Developer ID, le script produit un DMG de développement non
-signé. La signature et la notarisation sont décrites dans
-[macos/SIGNING.md](macos/SIGNING.md).
+signé. Les DMG publiés sont signés Developer ID et notarisés par les workflows
+de publication du dépôt.
 
 </details>
 
 La CI teste Windows avec Python 3.11 et 3.12, macOS avec Python 3.12, et
-construit un DMG de contrôle sur chaque pull request. Avant de proposer une
-modification, lisez le [guide de contribution](CONTRIBUTING.md).
+construit un DMG de contrôle sur chaque pull request. Les versions sont
+construites et publiées par les workflows GitHub Actions du dépôt : bêta
+roulante après chaque modification de `main`, Stable sur un tag `vX.Y.Z`.
+Avant de proposer une modification, lisez le
+[guide de contribution](CONTRIBUTING.md).
 
 ## Organisation du dépôt
 
@@ -491,7 +494,7 @@ SuperMenu/
 │   ├── native/              # composants Swift Apple Intelligence et Apple Speech
 │   ├── scripts/             # build, signature et notarisation
 │   └── SuperMenu-macos.spec
-├── docs/                    # procédure de publication, images du README
+├── docs/                    # images du README
 ├── licenses/                # textes des licences tierces (LGPL, GPL, Apache, Microsoft…)
 ├── tools/                   # contrôles de publication et collecte des licences tierces
 └── .github/                 # CI, bêta, releases Stable, modèles d’issues
@@ -508,7 +511,7 @@ permissions, stockage et packaging restent dans chaque plateforme.
 | Présentation | [win32/README.md](win32/README.md) | [macos/README.md](macos/README.md) |
 | Guide d’utilisation | [Guide Windows](win32/docs/GUIDE_UTILISATION.md) | [Guide macOS](macos/docs/GUIDE_UTILISATION.md) |
 | Architecture technique | [Architecture Windows](win32/docs/ARCHITECTURE.md) | [Architecture macOS](macos/docs/ARCHITECTURE.md) |
-| Spécificités | [Foundry Local](win32/docs/foundry-local.md) | [Signature et notarisation](macos/SIGNING.md) |
+| Spécificités | [Foundry Local](win32/docs/foundry-local.md) | [Packaging et notarisation](macos/docs/ARCHITECTURE.md#packaging-et-notarisation) |
 
 | Projet | Contenu |
 |---|---|
@@ -517,7 +520,6 @@ permissions, stockage et packaging restent dans chaque plateforme.
 | [Sécurité](SECURITY.md) | versions prises en charge, signalement privé d’une faille |
 | [Code de conduite](CODE_OF_CONDUCT.md) | règles des échanges sur le projet |
 | [Journal des modifications](CHANGELOG.md) | nouveautés de chaque version |
-| [Publier une version](docs/RELEASING.md) | CI, bêta roulante et releases Stable |
 | [Composants tiers](THIRD_PARTY_NOTICES.md) | bibliothèques incluses et leurs licences |
 
 ## Licence

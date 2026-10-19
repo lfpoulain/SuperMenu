@@ -47,9 +47,11 @@ xcrun notarytool submit "${upload_path}" \
     --timeout 20m
 
 # Apple's ticket CDN can lag behind the Accepted verdict or drop a request
-# (stapler error 68): retry before failing a notarization that succeeded.
+# (stapler error 68). Both staple and validate query it, so retry them
+# together before failing a notarization that succeeded.
 for attempt in 1 2 3; do
-    if xcrun stapler staple "${artifact_path}"; then
+    if xcrun stapler staple "${artifact_path}" \
+        && xcrun stapler validate "${artifact_path}"; then
         break
     fi
     if [[ "${attempt}" -eq 3 ]]; then
@@ -58,7 +60,6 @@ for attempt in 1 2 3; do
     fi
     sleep $((attempt * 15))
 done
-xcrun stapler validate "${artifact_path}"
 spctl --assess \
     "${assess_args[@]}" \
     --verbose=2 \

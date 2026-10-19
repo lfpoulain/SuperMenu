@@ -207,10 +207,10 @@ dans `win32/`, avec la version lue dans `VERSION`.
 
 La CI (`.github/workflows/ci.yml`) teste le cœur partagé et Windows avec
 Python 3.11 et 3.12, puis macOS avec Python 3.12 ; elle ne publie rien. La
-Bêta roulante et les releases Stable sont produites par
-`beta-release.yml` et `stable-release.yml`. La procédure complète, réservée
-au mainteneur, est décrite dans [docs/RELEASING.md](../docs/RELEASING.md).
-Pour contribuer, lisez [CONTRIBUTING.md](../CONTRIBUTING.md).
+Bêta roulante, reconstruite après chaque modification de `main`, et les
+releases Stable, publiées sur un tag `vX.Y.Z`, sont produites par
+`beta-release.yml` et `stable-release.yml`. Pour contribuer, lisez
+[CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Documentation
 

@@ -518,8 +518,25 @@ symboliques que PyInstaller crée vers eux.
 
 Les entitlements autorisent les mécanismes dynamiques requis par
 PyObjC/libffi : sans eux, le runtime durci tue le processus à la création des
-callbacks Objective-C des moniteurs globaux. Leur justification est détaillée
-dans [SIGNING.md](../SIGNING.md).
+callbacks Objective-C des moniteurs globaux. `entitlements.plist` déclare
+l’accès au microphone et lève trois exceptions du runtime durci :
+
+| Clé | Raison |
+|---|---|
+| `com.apple.security.device.audio-input` | sous Hardened Runtime, l’accès au microphone doit être déclaré pour la dictée et le test du micro. |
+| `com.apple.security.cs.allow-unsigned-executable-memory` | PyObjC transforme les callables Python en blocs Objective-C par des fermetures libffi, dont les gestionnaires du moniteur clavier global ; sans cette clé, le processus est tué au lieu de lever une exception. |
+| `com.apple.security.cs.allow-jit` | même besoin, pour les allocations marquées `MAP_JIT`. |
+| `com.apple.security.cs.disable-library-validation` | le bundle charge les modules d’extension Python et les plugins Qt collectés par PyInstaller, résolus dynamiquement. |
+
+Le fichier ne contient volontairement aucun commentaire : un double tiret,
+comme dans `--options=runtime`, est interdit dans un commentaire XML, et
+`codesign` rejette alors le fichier avec un simple
+`AMFIUnserializeXML: syntax error`. Le test
+`test_entitlements_stay_parseable_by_codesign` le relit avec `plistlib`, qui
+échoue sur la même ligne. Réduire ces exceptions, en particulier
+`disable-library-validation`, demande de valider un build signé et notarisé
+sur un vrai Mac Apple Silicon (raccourcis globaux, microphone, composants
+Apple) : les doublures des tests ne le prouvent pas.
 
 `scripts/build_dmg.sh` :
 
@@ -533,13 +550,14 @@ dans [SIGNING.md](../SIGNING.md).
    `licenses/LGPL-3.0.txt` dans l’application ;
 6. interroge les deux composants Swift embarqués avec
    `scripts/check_native_helper.py` ;
-7. notarie et agrafe `SuperMenu.app` si les secrets sont présents ;
+7. notarise et agrafe `SuperMenu.app` si une identité Developer ID et des
+   identifiants de notarisation Apple sont fournis ;
 8. copie le bundle avec `ditto` dans un volume avec un lien vers
    Applications ;
 9. crée le DMG (trois tentatives au plus) et le signe si une identité est
    fournie.
 
-Le `.app` est notarié avant d’entrer dans le DMG, car le ticket du volume ne
+Le `.app` est notarisé avant d’entrer dans le DMG, car le ticket du volume ne
 suit pas l’application une fois déplacée. `notarize_dmg.sh` soumet ensuite le
 volume, agrafe son ticket et le valide.
 
@@ -562,21 +580,20 @@ seulement sur un système antérieur à macOS 26.
 - **Bêta** (`beta-release.yml`) : après une CI réussie d’un push sur `main` du
   dépôt, Windows et macOS sont construits en parallèle. La publication attend
   les deux plateformes et contient les exécutables Windows, le DMG signé et
-  notarié, les manifestes et les empreintes SHA-256. Les cinq secrets Apple
-  sont exigés : un secret absent fait échouer le job macOS, et rien n’est
-  publié.
+  notarisé, les manifestes et les empreintes SHA-256. La signature Developer ID
+  et la notarisation sont obligatoires : sans les identifiants Apple du dépôt,
+  le job macOS échoue et rien n’est publié.
 - **Stable** (`stable-release.yml`) : un tag `vMAJOR.MINOR.PATCH` égal à
   `win32/VERSION` et pointant sur un commit de `main` déclenche la release,
-  avec les mêmes secrets Apple obligatoires. Elle est publiée une seule fois,
-  jamais réécrite par le workflow, et ne prend le badge « Latest » que si elle
-  est plus récente que la release « Latest » actuelle. `macos/VERSION` est
-  indépendant, figure dans le manifeste macOS et doit dépasser la version
-  macOS de la Stable publiée.
+  avec les mêmes exigences de signature et de notarisation. Elle est publiée
+  une seule fois, jamais réécrite par le workflow, et ne prend le badge
+  « Latest » que si elle est plus récente que la release « Latest » actuelle.
+  `macos/VERSION` est indépendant, figure dans le manifeste macOS et doit
+  dépasser la version macOS de la Stable publiée.
 
 Les tests s’exécutent avant l’injection des métadonnées de packaging dans
 `build_info.py` : ils ne confondent jamais la version du dépôt avec une
-version Bêta générée. La procédure complète est décrite dans
-[docs/RELEASING.md](../../docs/RELEASING.md).
+version Bêta générée.
 
 ## Stratégie de tests
 
@@ -616,6 +633,8 @@ plutôt qu’une exception Python.
   ne supprime jamais de réglage.
 - Le packaging conserve le smoke test, la signature stricte et l’agrafage du
   `.app`.
+- L’identifiant de bundle `com.supermenu.macos` ne change pas : macOS s’en sert
+  pour reconnaître les mises à jour et conserver l’autorisation Accessibilité.
 - Un nouvel asset a un nom déterministe, une entrée de manifeste et une
   empreinte SHA-256.
 
