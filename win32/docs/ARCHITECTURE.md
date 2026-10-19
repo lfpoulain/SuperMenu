@@ -77,11 +77,15 @@ instance relancée les retrouve libres.
 ### Interface
 
 - `src/ui/main_window.py` : fenêtre de configuration (onglets Prompts, Voix,
-  Réglages, À propos), icône de la zone de notification, mises à jour. Les
-  pages communes viennent de `supermenu_core.ui` (`ConfigurationShell`,
-  `SettingsPanel`, `TextPromptForm`, `VoicePromptEditor`,
-  `SpeechSettingsWidget`, `ApplicationSettings`, `FeatureModeSettings`,
-  `AboutPage`…).
+  Réglages, À propos), icône de la zone de notification, page Application
+  (thème, fonctions avancées et expérimentales), réinitialisation et mises à
+  jour. Ses rubriques sont des mixins : `main_window_prompts.py` (prompts
+  texte et vocaux), `main_window_settings.py` (fournisseur, modèles, capture)
+  et `main_window_hotkeys.py` (raccourcis). `background_worker.py` exécute les
+  requêtes bloquantes hors du thread Qt. Les pages communes viennent de
+  `supermenu_core.ui` (`ConfigurationShell`, `SettingsPanel`,
+  `TextPromptForm`, `VoicePromptEditor`, `SpeechSettingsWidget`,
+  `ApplicationSettings`, `FeatureModeSettings`, `AboutPage`…).
 - `src/ui/foundry_settings.py` : réglages Foundry Local du moteur de texte.
 - `src/ui/response_window.py` : ajoute à la fenêtre de réponse commune la
   présentation Win32 et l’insertion native. La fenêtre s’affiche d’abord avec
@@ -289,6 +293,13 @@ moment du clic quand aucune cible n’est connue.
 
 ### Requêtes et clients IA
 
+Le cycle de vie des requêtes est commun aux deux plateformes :
+`ContextMenuManager` hérite de
+`supermenu_core.ui.request_coordinator.PromptRequestCoordinator` et ne
+fournit que la fabrique de clients, l’insertion directe (collage natif,
+réponse conservée quand l’insertion est refusée), le signalement d’un échec
+et ses libellés.
+
 `ContextMenuManager` crée le client IA à partir des `Settings`
 (`_create_api_client`) et le recrée quand les réglages changent
 (`update_client_config`, qui vide aussi le cache partagé des capacités des
@@ -300,7 +311,9 @@ compatibilité.
 
 Le client commun (`supermenu_core.api.openai_client.OpenAIClient`) gère le
 raisonnement, les reprises, la détection des réponses tronquées pour tous les
-fournisseurs et le masquage des blocs de raisonnement. L’adaptateur
+fournisseurs et le masquage des blocs de raisonnement ; les charges utiles
+et la lecture des réponses de chaque fournisseur sont dans
+`supermenu_core.api.providers`. L’adaptateur
 `src/api/openai_client.py` active les images pour la capture d’écran ; un
 chemin de fichier présent dans la sélection reste du texte. Foundry Local
 passe par `src/api/foundry_client.py` (`FoundryService`, `FoundryClient`) et

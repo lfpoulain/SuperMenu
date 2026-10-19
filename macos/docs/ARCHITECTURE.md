@@ -66,7 +66,12 @@ macos/
 │   │   ├── build_info.py           # version et canal du package
 │   │   └── settings.py             # QSettings, prompts, migrations
 │   ├── ui/
-│   │   ├── main_window.py          # configuration, mises à jour, autorisations
+│   │   ├── main_window.py          # configuration, autorisations, barre des menus
+│   │   ├── main_window_prompts.py  # page des prompts texte
+│   │   ├── main_window_settings.py # fournisseur, modèles, application
+│   │   ├── main_window_hotkeys.py  # enregistrement des raccourcis
+│   │   ├── main_window_updates.py  # vérification des mises à jour
+│   │   ├── background_worker.py    # requêtes bloquantes hors du thread Qt
 │   │   ├── status_item.py          # barre des menus AppKit (NSStatusItem)
 │   │   ├── prompt_dialog.py        # dialogue partagé
 │   │   └── response_window.py      # présentation et insertion macOS
@@ -105,7 +110,10 @@ macos/
 - la capture microphone Qt, `DictationSession` et le service des modèles
   vocaux résidents ;
 - le dialogue de prompt, la fenêtre de réponse de base, les pages de réglages,
-  les thèmes, les indicateurs et les dialogues sûrs.
+  les thèmes, les indicateurs et les dialogues sûrs ;
+- le cycle de vie des requêtes (`PromptRequestCoordinator`, dont hérite
+  `ContextMenuManager`), le stockage des prompts texte et le contrat
+  `Settings` vérifié sur la classe macOS.
 
 La composition macOS possède :
 
@@ -193,7 +201,8 @@ s’ouvre à la place.
 
 ### Workers d’arrière-plan
 
-`UpdateCheckWorker` et `CustomModelsWorker` héritent de `_BackgroundWorker` :
+`UpdateCheckWorker` et `CustomModelsWorker` héritent de `_BackgroundWorker`
+(`src/ui/background_worker.py`) :
 un `QObject` dont `run()` s’exécute dans un `threading.Thread` démon et dont
 les signaux arrivent sur le thread Qt. Quitter pendant une requête bloquée ne
 provoque plus d’arrêt brutal.

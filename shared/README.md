@@ -44,6 +44,12 @@ chaque application l’installe en mode éditable depuis son propre
   auprès d’Ollama et de LM Studio sont partagées entre clients pendant 300 s
   (`clear_capabilities_cache()`) et sondées de nouveau 30 s après un échec.
   Un texte sélectionné n’est jamais lu comme un chemin de fichier.
+- `providers/` : charges utiles, sondes de capacités et lecture des réponses
+  de chaque fournisseur (`openai_compatible.py` pour OpenAI et les serveurs
+  compatibles, `ollama.py`, `lmstudio.py`), aides communes (`common.py`) et
+  découverte des modèles (`catalog.py`). `OpenAIClient` garde les threads, les
+  reprises, les signaux et les replis ; tous les appels HTTP passent par sa
+  session.
 - `lmstudio_transport.py` : exécution explicite sur le poste local ou sur un
   poste LM Link.
 - `lmstudio_provenance.py` : lecture seule des métadonnées LM Link (WebSocket
@@ -172,6 +178,13 @@ par `set_ui_property` pour repeindre immédiatement.
   phrase reste du texte.
 - `validators.py` : validation des URL (noms sans point, IPv6, domaines
   `.internal`, ports) et des noms de modèles.
+- `updates.py` : règles de mise à jour communes (format et ordre des versions,
+  canaux, adresse, lecture et empreinte SHA-256 des manifestes). Assets,
+  validation du manifeste et transport HTTP restent propres à chaque
+  updater.
+- `jsonl.py` : découpage JSON-lines des échanges avec les workers locaux
+  (voix et Foundry Local) ; chaque superviseur garde ses limites et ses
+  messages.
 
 ## Fonctions avancées et expérimentales
 
