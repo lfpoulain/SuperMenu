@@ -13,8 +13,13 @@ import logging
 import uuid
 from PySide6.QtCore import QObject, Signal, Slot
 from supermenu_core.config.openai_models import normalize_openai_model
-from supermenu_core.api.model_capabilities import parse_lmstudio_model_catalog
-from supermenu_core.api.providers import common, lmstudio, ollama, openai_compatible
+from supermenu_core.api.providers import (
+    catalog,
+    common,
+    lmstudio,
+    ollama,
+    openai_compatible,
+)
 from supermenu_core.api.providers.common import log, logger  # noqa: F401 - logger is part of this module's API.
 from supermenu_core.utils.thinking import split_inline_thinking
 
@@ -996,104 +1001,12 @@ class OpenAIClient(QObject):
         endpoint_url, api_key=None, timeout=10, endpoint_type=None
     ):
         """Fetch a catalog with an optional custom-endpoint credential."""
-        try:
-            headers = {"Content-Type": "application/json"}
-            endpoint_api_key = str(api_key or "").strip()
-            if endpoint_api_key:
-                headers["Authorization"] = f"Bearer {endpoint_api_key}"
-            endpoint_type = (endpoint_type or "").strip().lower()
-            is_ollama = endpoint_type == "ollama" or (
-                endpoint_type != "lmstudio"
-                and _looks_like_ollama_endpoint(endpoint_url)
-            )
-            candidates = []
-            base_url = _models_base_url(
-                endpoint_url, is_ollama, lmstudio=endpoint_type == "lmstudio"
-            )
-            if is_ollama:
-                candidates.append(f"{base_url}/api/tags")
-            elif endpoint_type == "lmstudio":
-                candidates.append(f"{base_url}/api/v1/models")
-            candidates.append(f"{base_url}/v1/models")
-            if not is_ollama:
-                candidates.append(f"{base_url}/api/tags")
+        return catalog.fetch_model_details(
+            _session(),
+            endpoint_url,
+            api_key=api_key,
+            timeout=timeout,
+            endpoint_type=endpoint_type,
+        )
 
-            last_error = None
-            for models_url in candidates:
-                response = _session().get(
-                    models_url, headers=headers, timeout=timeout
-                )
-
-                if response.status_code != 200:
-                    last_error = f"Erreur {response.status_code}: {response.text}"
-                    continue
-
-                data = response.json()
-                model_details = []
-
-                if models_url.endswith("/api/v1/models"):
-                    model_details = parse_lmstudio_model_catalog(data)
-
-                if (
-                    not model_details
-                    and "data" in data
-                    and isinstance(data["data"], list)
-                ):
-                    for model_info in data["data"]:
-                        if isinstance(model_info, dict):
-                            model_id = model_info.get("id") or model_info.get("name")
-                            if model_id:
-                                model_details.append(
-                                    OpenAIClient._basic_model_details(model_id)
-                                )
-
-                if (
-                    not model_details
-                    and "models" in data
-                    and isinstance(data["models"], list)
-                ):
-                    for model_info in data["models"]:
-                        if isinstance(model_info, dict):
-                            model_id = (
-                                model_info.get("key")
-                                or model_info.get("name")
-                                or model_info.get("id")
-                            )
-                            if model_id:
-                                model_details.append(
-                                    OpenAIClient._basic_model_details(model_id)
-                                )
-
-                if model_details:
-                    if endpoint_type == "lmstudio":
-                        from .lmstudio_provenance import (
-                            enrich_provenance, fetch_provenance,
-                        )
-                        available, loaded = fetch_provenance(
-                            base_url, endpoint_api_key or None, timeout=timeout,
-                        )
-                        enrich_provenance(model_details, available, loaded)
-                    model_ids = [model["id"] for model in model_details]
-                    log(f"Modèles récupérés avec succès: {model_ids}", logging.INFO)
-                    return True, model_details
-
-                last_error = "Aucun modèle trouvé dans la réponse de l'API"
-
-            return False, last_error or "Aucun modèle trouvé dans la réponse de l'API"
-
-        except requests.exceptions.Timeout:
-            return False, "Timeout lors de la connexion au serveur"
-        except requests.exceptions.ConnectionError:
-            return False, "Impossible de se connecter au serveur"
-        except Exception as e:
-            return False, f"Erreur: {str(e)}"
-
-    @staticmethod
-    def _basic_model_details(model_id):
-        return {
-            "id": model_id,
-            "identifiers": [model_id],
-            "reasoning_supported": None,
-            "reasoning_options": [],
-            "reasoning_default": None,
-        }
+    _basic_model_details = staticmethod(catalog.basic_model_details)
