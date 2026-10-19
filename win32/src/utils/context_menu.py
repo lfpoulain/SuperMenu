@@ -17,6 +17,11 @@ import win32con
 from pynput.keyboard import Controller, Key
 
 from supermenu_core.api.openai_client import clear_capabilities_cache
+from supermenu_core.config.feature_modes import (
+    advanced_enabled,
+    effective_model_target,
+    experimental_enabled,
+)
 from supermenu_core.config.model_target import ModelTargetSettings, settings_for_prompt
 from supermenu_core.ui.controls import Menu as QMenu, populate_prompt_menu, menu_contains_global_point
 from src.api.openai_client import OpenAIClient
@@ -169,6 +174,9 @@ class ContextMenuManager(QObject):
         """Register request state before the client can emit synchronously."""
         if self._closed:
             return None
+        # Without the advanced features every prompt uses the Text settings;
+        # the prompt keeps its stored model for when they are turned back on.
+        model_target = effective_model_target(self.settings, model_target)
 
         request_id = uuid.uuid4().hex
         client = self.api_client
@@ -595,7 +603,7 @@ class ContextMenuManager(QObject):
     
     def show_voice_menu(self):
         """Show only the voice interaction menu at the current cursor position"""
-        if self._closed:
+        if self._closed or not experimental_enabled(self.settings):
             return
         paste_target = PasteTarget.capture()
         owner_pid = (
@@ -764,7 +772,8 @@ class ContextMenuManager(QObject):
     
     def run_prompt_hotkey(self, prompt_id):
         """Run one prompt without opening the menu, honoring its display mode."""
-        if self._closed:
+        # A shortcut already queued when the advanced features were turned off.
+        if self._closed or not advanced_enabled(self.settings):
             return
         target = PasteTarget.capture()
 
@@ -872,7 +881,7 @@ class ContextMenuManager(QObject):
     
     def _handle_screenshot_action(self):
         """Gérer l'action de capture d'écran"""
-        if self._closed:
+        if self._closed or not experimental_enabled(self.settings):
             return
         log("Démarrage de la capture d'écran...", logging.DEBUG)
         paste_target = PasteTarget.capture()
@@ -945,7 +954,7 @@ class ContextMenuManager(QObject):
     
     def _handle_voice_action(self, target=None):
         """Keep ordinary dictation and its delivery actions in one window."""
-        if self._closed:
+        if self._closed or not experimental_enabled(self.settings):
             return
         from supermenu_core.audio.dictation_flow import PlainDictationSession
         self.stop_voice_recognition()
@@ -982,6 +991,9 @@ class ContextMenuManager(QObject):
             SafeDialogs.show_information("Réglages de dictée", str(exc))
 
     def start_instant_dictation(self):
+        # Checked first: an older session must never become the instant one.
+        if not experimental_enabled(self.settings):
+            return
         self._instant_session = None
         session = self.voice_recognition
         if session and (session.is_recording or session.is_processing or getattr(session, "_delivery_busy", False)):
@@ -997,7 +1009,7 @@ class ContextMenuManager(QObject):
 
     def _handle_voice_prompt_action(self, prompt_id, target=None):
         """Gérer l'action d'un prompt vocal spécifique"""
-        if self._closed:
+        if self._closed or not experimental_enabled(self.settings):
             return
         try:
             # Récupérer les données du prompt vocal
@@ -1069,7 +1081,7 @@ class ContextMenuManager(QObject):
     
     def _handle_voice_godmode_action(self, target=None):
         """Gérer l'action de prompt vocal personnalisé (GodMode vocal)"""
-        if self._closed:
+        if self._closed or not experimental_enabled(self.settings):
             return
         try:
             # Afficher une boîte de dialogue pour saisir le prompt personnalisé
@@ -1313,6 +1325,17 @@ class ContextMenuManager(QObject):
         if self._closed:
             return
         prompt, content = self.response_window.get_last_request()
+        if (
+            prompt is not None
+            and str(content or "").startswith("data:image/")
+            and not experimental_enabled(self.settings)
+        ):
+            # Une capture d'écran n'est plus analysée une fois la fonction coupée.
+            self.on_request_error(
+                "la capture et l’analyse d’écran sont désactivées "
+                "(Réglages > Application > Fonctions expérimentales)"
+            )
+            return
         if prompt is not None:
             log("Retry de la dernière requête...", logging.INFO)
             self._send_request(prompt, content if content else "", reasoning_mode=getattr(self.response_window, "last_reasoning_mode", "default"), model_target=getattr(self.response_window, "last_model_target", None))

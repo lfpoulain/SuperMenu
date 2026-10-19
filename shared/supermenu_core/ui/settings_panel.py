@@ -136,5 +136,19 @@ class SettingsPanel(QWidget):
     def select_page(self, key):
         self.navigation.setCurrentRow(self.keys.index(key))
 
+    def set_page_visible(self, key, visible):
+        """Show or hide a page's navigation entry; keys and indexes never move."""
+        row = self.keys.index(key)
+        item = self.navigation.item(row)
+        if not visible and self.navigation.currentRow() == row:
+            for other in range(self.navigation.count()):
+                if other != row and not self.navigation.item(other).isHidden():
+                    self.navigation.setCurrentRow(other)
+                    break
+        item.setHidden(not visible)
+
+    def is_page_visible(self, key):
+        return not self.navigation.item(self.keys.index(key)).isHidden()
+
     def set_footer(self, key, widget):
         self.page_layouts[key].addWidget(widget)

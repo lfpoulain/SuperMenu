@@ -156,6 +156,33 @@ Les adaptateurs restent minces : le client macOS désactive les images, le
 dialogue de prompt réexporte le composant commun et la fenêtre de réponse
 fournit `TextInserter` à sa base partagée.
 
+### Fonctions avancées et expérimentales
+
+Les deux interrupteurs vivent dans `supermenu_core.config.feature_modes`
+(`FeatureModesSettingsMixin` dans `Settings`). Règle : lire au moment de
+l’usage, filtrer à l’enregistrement, ne jamais supprimer.
+
+- `Settings.__init__` détecte une installation existante avant d’écrire le
+  moindre défaut ; `reset_to_defaults()` conserve les interrupteurs.
+- `HotkeyManager.register_hotkey()` laisse la dictée instantanée non liée sans
+  les fonctions expérimentales ; `PromptHotkeyManager.refresh_hotkeys()` lie
+  une table vide et `validate_prompts()` accepte tout sans les fonctions
+  avancées.
+- `ContextMenuManager` ne construit le sous-menu **Voix** qu’avec les fonctions
+  expérimentales et protège ses points de passage (`start_dictation`,
+  `start_instant_dictation`, `_start_voice_session`, `run_voice_prompt`,
+  `run_prompt_hotkey`), car un raccourci déjà mis en file peut arriver après
+  la désactivation. `_send_request` applique `effective_model_target()`.
+- `create_speech_backend()` transmet `effective_speech_idle_seconds()` au
+  modèle vocal résident.
+- `MainWindow._apply_feature_visibility()` masque sans les retirer l’onglet
+  Voix, la rubrique Dictée, le groupe de dictée instantanée, les lignes de
+  modèle et de raccourci des prompts, la rétention vocale et l’entrée
+  `DICTATION_MENU_ENTRY` de `NativeStatusItem.set_entry_visible()`.
+  `apply_feature_modes()`, relié à `FeatureModeSettings.modes_changed`, libère
+  les raccourcis de prompts, réenregistre la dictée instantanée si besoin, puis
+  rebinde les prompts : la priorité des raccourcis reste celle du démarrage.
+
 ## Amorçage et cycle de vie
 
 `run.py` propose l’exécution normale et `--smoke-test`. Le smoke test vérifie

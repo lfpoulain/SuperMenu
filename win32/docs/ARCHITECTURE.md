@@ -181,6 +181,38 @@ La classe `Settings` dans `src/config/settings.py` gère tous les paramètres de
 - Configuration des raccourcis clavier
 - Moteur vocal, ID Qt du microphone, langues, contexte et délai de déchargement du modèle local
 - Thème de l'application
+- Interrupteurs `advanced_features_enabled` et `experimental_features_enabled`
+  (`shared/supermenu_core/config/feature_modes.py`)
+
+### Fonctions avancées et expérimentales
+
+Les deux interrupteurs sont créés au premier lancement : désactivés pour une
+nouvelle installation, activés quand le fichier INI contient déjà des réglages
+d'une version précédente. `reset_to_defaults` ne les modifie pas.
+
+Règle : lire au moment de l'usage, filtrer à l'enregistrement, ne jamais
+supprimer. Aucun réglage stocké n'est réécrit à cause d'un interrupteur.
+
+- `HotkeyManager.register_hotkey` ne réserve pas les raccourcis vocal, capture
+  et dictée sans les fonctions expérimentales (succès sans erreur, donc aucun
+  « raccourci inactif » signalé) ; `PromptHotkeyManager.refresh_hotkeys`
+  n'enregistre aucun raccourci de prompt sans les fonctions avancées.
+- `ContextMenuManager` vérifie l'interrupteur à chaque point d'entrée (menu
+  vocal, actions vocales, dictée instantanée, capture, raccourci de prompt) :
+  un `WM_HOTKEY` déjà en file après la désactivation est ignoré.
+  `_send_request` applique `effective_model_target` : sans les fonctions
+  avancées, chaque prompt utilise le client des réglages Texte.
+- `FoundrySettingsWidget`, `FoundryClient` et `create_speech_backend`
+  appliquent `effective_text_idle_seconds` / `effective_speech_idle_seconds`
+  (cinq minutes sans les fonctions avancées).
+- `MainWindow._apply_feature_visibility` masque onglets, rubriques et lignes
+  sans jamais les retirer (index stables). `MainWindow.apply_feature_modes`,
+  relié à `FeatureModeSettings.modes_changed` et déclenché par **Appliquer**,
+  libère les raccourcis de prompt, réenregistre les raccourcis expérimentaux
+  si leur interrupteur a changé, puis les raccourcis de prompt (même priorité
+  qu'au démarrage), applique les délais de déchargement aux services en cours
+  et, à la désactivation des fonctions expérimentales, arrête la vérification
+  vocale, le test du micro et décharge le modèle vocal inactif.
 
 Emplacements par défaut :
 

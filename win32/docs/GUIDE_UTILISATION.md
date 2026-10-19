@@ -83,22 +83,23 @@ Lors du premier lancement de SuperMenu, ou en accédant aux paramètres via l'ic
 
 3.  **Raccourcis Clavier** :
     *   **Raccourci Principal** : Pour afficher le menu contextuel après avoir sélectionné du texte (par défaut : `Ctrl+²`). Sur un clavier non AZERTY, `²` correspond à la touche située sous Échap (par exemple ``Ctrl+` `` en QWERTY ou `Ctrl+^` en QWERTZ).
-    *   **Raccourci Capture d'Écran** : Pour lancer l'outil de capture d'écran (par défaut : `Ctrl+Alt+&`).
-    *   **Raccourci Vocal** : Pour ouvrir le menu vocal (par défaut : `Ctrl+Alt+²`).
+    *   **Raccourci Capture d'Écran** : Pour lancer l'outil de capture d'écran (par défaut : `Ctrl+Alt+&`). Disponible avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales).
+    *   **Raccourci Vocal** : Pour ouvrir le menu vocal (par défaut : `Ctrl+Alt+²`). Disponible avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales).
     *   Règles : les raccourcis doivent contenir au moins un modificateur (`Ctrl`, `Alt` ou `Shift`). Les touches de fonction `F1` à `F24` sont prises en charge. `Shift` seul ne convient qu'aux touches `F1` à `F24` : une lettre, un chiffre, un symbole, Espace, Entrée ou une flèche doit être combiné avec `Ctrl` ou `Alt`, car Windows réserve la combinaison à SuperMenu dans toutes les applications (`Shift+K` empêcherait de taper un K majuscule). La touche `Win` n'est pas autorisée et les raccourcis à une seule touche ne sont pas supportés.
 
 4. **Dictée et transcription** :
+   * Disponible avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales).
    * Dans **Réglages > Dictée**, choisissez OpenAI ou Foundry Local avec Nemotron. Ce choix est indépendant du moteur de texte.
    * Sélectionnez le microphone puis utilisez **Tester le micro** : le niveau s'affiche pendant cinq secondes, sans sauvegarde ni envoi d'audio.
    * Choisissez la langue. OpenAI accepte plusieurs langues attendues ; Nemotron accepte une langue ou la détection automatique.
    * Avec Foundry Local, **Vérifier** indique si les composants et le modèle sont disponibles. Téléchargez-les si nécessaire ; le chargement en mémoire intervient ensuite pour dicter.
-   * Dans **Options avancées**, ajustez le vocabulaire, le contexte et le délai de déchargement du modèle local. Par défaut, il reste en mémoire cinq minutes après la dernière dictée. **Décharger maintenant** libère la mémoire sans supprimer les fichiers téléchargés.
+   * Dans **Options avancées**, ajustez le vocabulaire, le contexte et le délai de déchargement du modèle local. Par défaut, il reste en mémoire cinq minutes après la dernière dictée. **Décharger maintenant** libère la mémoire sans supprimer les fichiers téléchargés. Le délai et **Décharger maintenant** n'apparaissent qu'avec les [fonctions avancées](#fonctions-avancées-et-expérimentales).
    * Enregistrez les réglages avant de lancer une dictée.
    * La dictée simple affiche son texte final dans la même fenêtre, avec **Copier** et **Insérer**. Vous pouvez retoucher le texte avant l’insertion.
    * Dans **Après la dictée**, **Coller automatiquement** et **Corriger avec le moteur de texte avant d’insérer** sont deux options indépendantes. Une correction utilise le moteur choisi dans **Texte**. Un échec conserve votre dictée sans rien coller. Les prompts vocaux conservent leur fonctionnement propre.
    * Dans **Réglages > Raccourcis > Dictée instantanée**, définissez un raccourci facultatif, sans passer par le menu. Choisissez **Appuyer une fois** (arrêt avec **Terminer**) ou **Maintenir pour parler** (arrêt au relâchement). Attendez **À l’écoute** avant de parler ; un relâchement pendant le chargement annule le démarrage.
 
-5. **Mémoire du modèle texte Foundry** : dans **Texte > Foundry Local > Matériel et mémoire du modèle**, choisissez un déchargement après chaque requête, après 1/5/15/30 minutes d’inactivité, ou à la fermeture. Le délai par défaut est de cinq minutes. **Décharger maintenant** libère la RAM/VRAM quand aucune requête n’est en cours ; les modèles restent téléchargés.
+5. **Mémoire du modèle texte Foundry** : disponible avec les [fonctions avancées](#fonctions-avancées-et-expérimentales). Dans **Texte > Foundry Local > Matériel et mémoire du modèle**, choisissez un déchargement après chaque requête, après 1/5/15/30 minutes d’inactivité, ou à la fermeture. Le délai par défaut est de cinq minutes. **Décharger maintenant** libère la RAM/VRAM quand aucune requête n’est en cours ; les modèles restent téléchargés. Sans les fonctions avancées, ce volet s’appelle **Matériel du modèle** et ne propose ni délai ni **Décharger maintenant** : le modèle se décharge après cinq minutes d’inactivité.
 
 ### Configuration de l'API
 
@@ -112,8 +113,8 @@ Lors du premier lancement de SuperMenu, ou en accédant aux paramètres via l'ic
 
 Par défaut, SuperMenu utilise les raccourcis suivants :
 - **Ctrl+²** : Menu contextuel pour le texte sélectionné
-- **Ctrl+Alt+&** : Capture d'écran
-- **Ctrl+Alt+²** : Reconnaissance vocale
+- **Ctrl+Alt+&** : Capture d'écran (avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales))
+- **Ctrl+Alt+²** : Reconnaissance vocale (avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales))
 
 Vous pouvez les modifier dans l'onglet "Réglages" des paramètres.
 
@@ -122,6 +123,17 @@ Notes importantes :
 - Si un raccourci est déjà utilisé par une autre application, SuperMenu ne pourra pas l'enregistrer.
 - Certaines touches dépendent de la disposition clavier (ex : `²`, `&` en AZERTY). Si vous changez de layout, ajustez le raccourci.
 - Sur un clavier non AZERTY, `Ctrl+²` et `Ctrl+Alt+²` utilisent la touche située sous Échap (par exemple ``Ctrl+` `` en QWERTY ou `Ctrl+^` en QWERTZ).
+
+### Fonctions avancées et expérimentales
+
+SuperMenu affiche l’essentiel par défaut. Dans **Réglages > Application > Fonctions**, deux interrupteurs indépendants ajoutent des fonctions. Cochez ou décochez, puis cliquez sur **Appliquer** : le changement est immédiat, sans redémarrage.
+
+- **Fonctions avancées** : modèle, fournisseur ou poste LM Link choisi pour chaque prompt, texte ou vocal ; raccourci direct par prompt ; durée de conservation en mémoire des modèles locaux (modèle texte Foundry Local et modèle vocal). Désactivées, chaque prompt utilise le moteur et le modèle des réglages **Texte**, éventuellement en ligne, les raccourcis par prompt sont inactifs et les modèles locaux se déchargent après cinq minutes d’inactivité. Le raisonnement par prompt reste toujours disponible.
+- **Fonctions expérimentales** : prompts vocaux (onglet **Voix**, menu vocal et son raccourci), dictée instantanée, rubrique **Dictée** (moteur, micro et test du micro), capture et analyse d’écran (raccourci et mode de capture). Désactivées, leurs raccourcis ne sont pas réservés auprès de Windows.
+
+Une nouvelle installation démarre avec les deux interrupteurs désactivés. Une mise à jour depuis une version précédente les active tous les deux : aucune fonction déjà utilisée ne disparaît.
+
+Désactiver une fonction ne supprime rien. Prompts vocaux, raccourcis, modèles choisis par prompt et délais de déchargement sont conservés, restent dans l’export des prompts et réapparaissent tels quels à la réactivation. Si des prompts ont leur propre modèle, SuperMenu demande confirmation avant de désactiver les fonctions avancées. **Réinitialiser tous les paramètres** garde le choix de ces interrupteurs, mais remet à zéro les réglages masqués, comme **Tout restaurer…** pour les prompts ; une copie des prompts reste disponible avec **Revenir à la copie…**.
 
 ## Utilisation quotidienne
 
@@ -136,6 +148,8 @@ Si vous cliquez en dehors du menu ou si vous changez de fenêtre sans sélection
 
 ### Raccourcis directs par prompt
 
+Disponibles avec les [fonctions avancées](#fonctions-avancées-et-expérimentales).
+
 1. Dans l'onglet **Prompts**, sélectionnez un prompt puis cliquez sur **Définir** à côté de **Raccourci direct**.
 2. Saisissez la combinaison voulue et enregistrez le prompt.
 3. Sélectionnez du texte dans n'importe quelle application.
@@ -147,6 +161,8 @@ Si vous cliquez en dehors du menu ou si vous changez de fenêtre sans sélection
 Chaque prompt peut avoir son propre raccourci, ou aucun. Deux prompts ne peuvent pas partager la même combinaison. En cas de conflit avec Windows, une autre application ou un raccourci principal de SuperMenu, l'ancien réglage est conservé.
 
 ### Reconnaissance vocale
+
+Disponible avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales), comme la capture d'écran.
 
 1. Appuyez sur **Ctrl+Alt+²** (ou votre raccourci personnalisé), puis choisissez l'action vocale
 2. Attendez **À l'écoute** avant de parler. Le modèle local déjà en mémoire est réutilisé
@@ -162,6 +178,8 @@ Nemotron, il est traité sur le PC. Les mots-clés doivent rester courts et
 correspondre à des termes susceptibles d'être prononcés.
 
 ### Capture d'écran
+
+Disponible avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales).
 
 1. Appuyez sur **Ctrl+Alt+&** (ou votre raccourci personnalisé)
 2. Selon le réglage choisi, SuperMenu capture :
@@ -198,10 +216,12 @@ Pour changer de thème :
    - **Prompt** : Instructions envoyées à l'API
    - **Message d'attente** : Texte affiché pendant le traitement
    - **Insérer directement** : Cochez pour insérer la réponse sans afficher de fenêtre
-   - **Raccourci direct** : Combinaison optionnelle propre à ce prompt, sans menu intermédiaire ; elle respecte le réglage **Insérer directement**
+   - **Raccourci direct** : Combinaison optionnelle propre à ce prompt, sans menu intermédiaire ; elle respecte le réglage **Insérer directement**. Disponible avec les [fonctions avancées](#fonctions-avancées-et-expérimentales)
    - **Position** : Ordre d'apparition dans le menu (plus petit = plus haut)
 
 ### Personnalisation des prompts vocaux
+
+Disponible avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales).
 
 1. Ouvrez les paramètres
 2. Allez dans l'onglet "Prompts Vocaux"
@@ -229,6 +249,8 @@ Pour les tâches fréquentes comme la correction orthographique, l'option "Insé
 3. Ajustez le prompt pour qu'il génère uniquement le texte final sans explications
 
 ### Prompts avec capture d'écran
+
+Disponible avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales).
 
 Vous pouvez créer des prompts spécifiques pour l'analyse d'images :
 
@@ -266,6 +288,8 @@ Si besoin, consultez les logs : `%LOCALAPPDATA%\SuperMenu\logs\supermenu.log`.
 Le menu utilise toujours le composant Qt natif. L'ancien choix « Standard Qt / Forcer via Windows » concernait uniquement la fenêtre de résultat et a été retiré. Cette fenêtre applique maintenant automatiquement Qt puis un renforcement Win32.
 
 ### Problèmes de reconnaissance vocale
+
+La rubrique **Dictée** n'apparaît qu'avec les [fonctions expérimentales](#fonctions-avancées-et-expérimentales).
 
 1. Dans **Réglages > Dictée**, sélectionnez votre microphone et cliquez sur **Tester le micro**
 2. Si aucun niveau n'apparaît, vérifiez les autorisations Microphone de Windows et essayez une autre entrée
@@ -307,7 +331,7 @@ Apple Foundation Models ne propose pas de commutateur de raisonnement ; il reste
 automatique. Certains modèles, notamment GPT-OSS, imposent un effort minimal.
 Le raisonnement peut allonger le traitement ; l’insertion conserve la réponse finale.
 
-Avec Foundry, le délai d’inactivité et **Décharger maintenant** libèrent les poids
+Avec Foundry, le délai d’inactivité et **Décharger maintenant** (fonctions avancées) libèrent les poids
 du modèle tout en conservant le moteur initialisé. Fermer SuperMenu libère aussi
 le moteur. L’interface distingue la préparation du GPU, le chargement des poids
 et le traitement ou raisonnement. Les durées par phase sont consignées dans les

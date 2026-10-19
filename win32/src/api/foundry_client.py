@@ -19,6 +19,7 @@ from PySide6.QtCore import (
 
 from src.api.foundry_worker import platform_error
 from src.config.foundry_models import MAX_INPUT_CHARS
+from supermenu_core.config.feature_modes import effective_text_idle_seconds
 from supermenu_core.config.model_memory import MODEL_IDLE_CHOICES
 
 # Silence budgets: every progress message of the active request re-arms its
@@ -385,7 +386,7 @@ class FoundryClient(QObject):
         self.device = settings.get_foundry_device()
         self._service = service or get_foundry_service()
         if hasattr(self._service, "set_idle_seconds"):
-            self._service.set_idle_seconds(settings.get_text_idle_seconds())
+            self._service.set_idle_seconds(effective_text_idle_seconds(settings))
         self._pending = {}
         self._closed = False
         self._service.completed.connect(self._completed)

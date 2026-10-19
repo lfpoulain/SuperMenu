@@ -2,6 +2,8 @@
 
 import json
 
+from .feature_modes import advanced_enabled
+
 # Server fields describe the Text settings, never a prompt. Older versions and
 # exported files stored them in each prompt; they are ignored and dropped so a
 # prompt always follows the configured LM Studio / Ollama server.
@@ -226,6 +228,10 @@ class ModelTargetSettings:
 
 
 def settings_for_prompt(settings, prompt_id):
+    # Without the advanced features every prompt uses the Text settings; the
+    # stored choice is kept for when they are turned back on.
+    if not advanced_enabled(settings):
+        return settings
     prompt = settings.get_prompt(prompt_id) or {}
     target = prompt.get("model_target")
     return ModelTargetSettings(settings, target) if target else settings

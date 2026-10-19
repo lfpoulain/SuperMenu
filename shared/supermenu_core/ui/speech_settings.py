@@ -21,7 +21,7 @@ from supermenu_core.audio.resident import get_resident_service
 from .verification_status import VerificationStatus
 from .settings_panel import Disclosure
 from .controls import ChoiceBox
-from supermenu_core.config.model_memory import idle_choices
+from supermenu_core.config.model_memory import DEFAULT_IDLE_SECONDS, idle_choices
 from .microphone_test import MicrophoneTest
 
 
@@ -32,6 +32,8 @@ class SpeechSettingsWidget(QGroupBox):
     def __init__(self, settings, backend_factory, parent=None, *, platform=None):
         super().__init__("Microphone et moteur vocal", parent)
         self.settings, self.backend_factory = settings, backend_factory
+        # Model retention belongs to the advanced features.
+        self._retention_visible = True
         self.backend = None
         self.platform = platform or sys.platform
         layout = QVBoxLayout(self)
@@ -331,7 +333,7 @@ class SpeechSettingsWidget(QGroupBox):
         self.device_combo.setVisible(provider == "foundry")
         self.device_label.setVisible(provider == "foundry")
         self.context_options.setVisible(provider == "openai")
-        self.memory_options.setVisible(provider != "openai")
+        self._update_option_visibility()
         self.cloud_group.setVisible(provider == "openai")
         self.download_button.hide()
         self.download_button.setEnabled(False)
@@ -354,6 +356,32 @@ class SpeechSettingsWidget(QGroupBox):
             "Moteur vocal à vérifier",
             "Vérifiez la disponibilité avant votre première dictée.",
         )
+
+    def set_retention_visible(self, visible):
+        """Show or hide model retention; a hidden delay is neither shown nor saved.
+
+        Changing it does not cancel a running check nor reset the status.
+        """
+        self._retention_visible = bool(visible)
+        if not self._retention_visible:
+            # Show the stored delay again: an unsaved one would stay pending
+            # unseen, then come back with the advanced features as if saved.
+            # The delay only updates the unsaved state, never the engine check.
+            self.idle_combo.setCurrentIndex(
+                self.idle_combo.findData(self.settings.get_speech_idle_seconds())
+            )
+        self._update_option_visibility()
+        self._update_unsaved()
+
+    def is_retention_visible(self):
+        return self._retention_visible
+
+    def _update_option_visibility(self):
+        provider = self.provider_combo.currentData()
+        memory = provider != "openai" and self._retention_visible
+        self.memory_options.setVisible(memory)
+        # No empty "Options avancées" (Apple Speech without retention).
+        self.advanced.setVisible(provider in {"openai", "foundry"} or memory)
 
     def _busy(self, active):
         for widget in (
@@ -484,8 +512,12 @@ class SpeechSettingsWidget(QGroupBox):
             self.settings.set_api_key(options["api_key"])
         self.settings.set_speech_device(options["device"])
         self.settings.set_speech_microphone(options["microphone"])
-        self.settings.set_speech_idle_seconds(self.idle_combo.currentData())
-        self.resident.set_idle_seconds(self.idle_combo.currentData())
+        if self._retention_visible:
+            self.settings.set_speech_idle_seconds(self.idle_combo.currentData())
+            self.resident.set_idle_seconds(self.idle_combo.currentData())
+        else:
+            # The stored delay is kept for when the advanced features return.
+            self.resident.set_idle_seconds(DEFAULT_IDLE_SECONDS)
         if options["provider"] == "openai":
             self.resident.unload_idle()
         self.settings.set_transcription_languages(self.languages_input.text().strip())

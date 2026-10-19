@@ -25,6 +25,8 @@ class NativeStatusItem(QObject):
     def __init__(self, icon_path, actions, parent=None):
         super().__init__(parent)
         self._callbacks = {}
+        # Menu items by label, to show or hide one without rebuilding the menu.
+        self._items = {}
         self._status_item = None
         self._target = SuperMenuStatusTarget.alloc().init()
         self._target.dispatch = self.activated.emit
@@ -43,6 +45,7 @@ class NativeStatusItem(QObject):
             item.setTarget_(self._target)
             item.setTag_(index)
             self._menu.addItem_(item)
+            self._items[label] = item
         self._status_item = NSStatusBar.systemStatusBar().statusItemWithLength_(
             NSVariableStatusItemLength
         )
@@ -70,6 +73,12 @@ class NativeStatusItem(QObject):
             logging.getLogger("SuperMenu").exception(
                 "Action de la barre des menus impossible"
             )
+
+    def set_entry_visible(self, label, visible):
+        """Show or hide one menu entry; an unknown label is ignored."""
+        item = self._items.get(label)
+        if item is not None:
+            item.setHidden_(not visible)
 
     def hide(self):
         if self._status_item is not None:

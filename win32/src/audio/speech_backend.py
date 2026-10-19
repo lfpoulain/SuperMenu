@@ -1,5 +1,6 @@
 from supermenu_core.audio.backends import OpenAISpeechBackend, ProcessSpeechBackend
 from supermenu_core.audio.resident import ResidentSpeechBackend
+from supermenu_core.config.feature_modes import effective_speech_idle_seconds
 from src.api.foundry_client import worker_command
 
 
@@ -15,5 +16,5 @@ def create_speech_backend(settings, options):
     if options.get("action", "start") in {"probe", "download"}:
         return ProcessSpeechBackend((program, args), options)
     return ResidentSpeechBackend(
-        (program, args), options, settings.get_speech_idle_seconds()
+        (program, args), options, effective_speech_idle_seconds(settings)
     )

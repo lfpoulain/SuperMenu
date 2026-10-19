@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import logging
 import sys
 import threading
 
@@ -30,6 +31,11 @@ from supermenu_core.ui.controls import ChoiceBox, SidebarList, SIDEBAR_WIDTH
 
 from src.config.build_info import APP_VERSION
 from src.api.apple_foundation_client import FoundationModelsRequest
+from supermenu_core.config.feature_modes import (
+    advanced_enabled,
+    effective_speech_idle_seconds,
+    experimental_enabled,
+)
 from supermenu_core.config.openai_models import (
     AVAILABLE_MODELS,
     get_reasoning_efforts_for_model,
@@ -59,6 +65,10 @@ from src.utils.permissions import (
     request_accessibility_permission,
 )
 from supermenu_core.utils.validators import Validators
+
+
+# Shown or hidden with the experimental features, without rebuilding the menu.
+DICTATION_MENU_ENTRY = "Dicter du texte…"
 
 
 class _BackgroundWorker(QObject):
@@ -189,6 +199,11 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.settings_tab, "Réglages")
         self.tabs.addTab(self._create_about_tab(), "À propos")
         self.shell.content_layout.addLayout(close_footer(self.hide))
+        # Startup registered the shortcuts already: only the interface follows
+        # the switches here; apply_feature_modes handles later changes.
+        self._feature_mode_problems = []
+        self._applied_feature_modes = self._feature_modes()
+        self._apply_feature_visibility()
 
         # Polled while the configuration window is on screen. SuperMenu lives
         # in the menu bar and is hidden most of the time; a permanent 1.5 s
@@ -427,6 +442,10 @@ class MainWindow(QMainWindow):
         from supermenu_core.ui.dictation_settings import DictationShortcutSettings
         self.dictation_shortcut_settings = DictationShortcutSettings(self.settings, self.dictation_hotkey_manager)
         self.dictation_shortcut_settings.record_requested.connect(self.record_dictation_hotkey)
+        # The field changes only once the new shortcut is registered.
+        self.dictation_shortcut_settings.shortcut.textChanged.connect(
+            self._retry_prompt_hotkeys
+        )
         shortcuts_page.insertWidget(2, self.dictation_shortcut_settings)
 
         permissions_group = QGroupBox("Autorisations macOS")
@@ -465,13 +484,20 @@ class MainWindow(QMainWindow):
         permissions_layout.addLayout(status_row)
         app_page.addWidget(permissions_group)
 
-        from supermenu_core.ui.application_settings import ApplicationSettings
+        from supermenu_core.ui.application_settings import (
+            ApplicationSettings,
+            FeatureModeSettings,
+        )
         self.application_settings = ApplicationSettings(
             self.settings, lambda: self.check_for_updates(silent=False)
         )
         self.theme_combo = self.application_settings.theme_combo
         self.channel_combo = self.application_settings.channel_combo
         app_page.insertWidget(2, self.application_settings)
+        # No screen capture on macOS: the switches describe voice only.
+        self.feature_mode_settings = FeatureModeSettings(self.settings)
+        self.feature_mode_settings.modes_changed.connect(self.apply_feature_modes)
+        app_page.insertWidget(3, self.feature_mode_settings)
         diagnostics = Disclosure("Dossiers et diagnostic")
         for label, path in (
             ("Ouvrir le dossier de configuration", user_config_dir),
@@ -673,7 +699,8 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Export terminé", "Les prompts ont été exportés.")
 
     def save_current_prompt(self, show_confirmation=True):
-        if not self.text_prompt_form.model_choice.is_valid():
+        # A hidden model choice (advanced features off) is kept, never checked.
+        if not self.text_prompt_form.model_choice_is_valid():
             return False
         item = self.prompt_list.currentItem()
         if item is None:
@@ -689,6 +716,13 @@ class MainWindow(QMainWindow):
             return False
         prompt_id = item.data(Qt.ItemDataRole.UserRole)
         prompt = self.settings.get_prompt(prompt_id) or {}
+        # Without the advanced features the model and shortcut rows are hidden:
+        # the stored values are saved back unchanged (None keeps the model).
+        model_target = self.text_prompt_form.model_target_for_save()
+        if self.text_prompt_form.is_advanced_visible():
+            hotkey = self.prompt_hotkey.text().strip()
+        else:
+            hotkey = str(prompt.get("hotkey", "") or "").strip()
         candidate_prompts = self.settings.get_prompts()
         candidate_prompts[prompt_id] = {
             "name": name,
@@ -697,9 +731,13 @@ class MainWindow(QMainWindow):
             or "Traitement en cours…",
             "insert_directly": self.prompt_direct.isChecked(),
             "reasoning_mode": self.text_prompt_form.reasoning.currentData(),
-            "model_target": self.text_prompt_form.model_choice.target(),
+            "model_target": (
+                model_target
+                if model_target is not None
+                else prompt.get("model_target", {})
+            ),
             "position": prompt.get("position", 999),
-            "hotkey": self.prompt_hotkey.text().strip(),
+            "hotkey": hotkey,
         }
         if self.prompt_hotkey_manager is not None:
             valid, errors = self.prompt_hotkey_manager.validate_prompts(
@@ -717,9 +755,9 @@ class MainWindow(QMainWindow):
                 self.prompt_status.text().strip() or "Traitement en cours…",
                 self.prompt_direct.isChecked(),
                 position=prompt.get("position", 999),
-                hotkey=self.prompt_hotkey.text().strip(),
+                hotkey=hotkey,
                 reasoning_mode=self.text_prompt_form.reasoning.currentData(),
-                model_target=self.text_prompt_form.model_choice.target(),
+                model_target=model_target,
             )
         except ValueError as exc:
             QMessageBox.warning(self, "Raccourci invalide", str(exc))
@@ -1042,6 +1080,7 @@ class MainWindow(QMainWindow):
         if manager.set_hotkey(hotkey):
             field.setText(hotkey)
             self.settings.sync()
+            self._retry_prompt_hotkeys()
             return
         QMessageBox.warning(
             self,
@@ -1087,10 +1126,15 @@ class MainWindow(QMainWindow):
         the same saved value again.
         """
         messages = []
+        dictation_manager = (
+            getattr(self, "dictation_hotkey_manager", None)
+            if experimental_enabled(self.settings)
+            else None
+        )
         for label, manager in (
             ("Menu principal", self.hotkey_manager),
             ("Mode personnalisé", self.custom_hotkey_manager),
-            ("Dictée instantanée", getattr(self, "dictation_hotkey_manager", None)),
+            ("Dictée instantanée", dictation_manager),
         ):
             error = getattr(manager, "refused_hotkey_error", "") if manager else ""
             if error:
@@ -1166,7 +1210,12 @@ class MainWindow(QMainWindow):
             if manager is not None
         ]
         dictation_manager = getattr(self, "dictation_hotkey_manager", None)
-        if dictation_manager is not None and self.settings.get_dictation_hotkey():
+        # Instant dictation stays unbound without the experimental features.
+        if (
+            dictation_manager is not None
+            and experimental_enabled(self.settings)
+            and self.settings.get_dictation_hotkey()
+        ):
             hotkey_managers.append(dictation_manager)
         listeners_registered = bool(hotkey_managers) and all(
             manager.registered for manager in hotkey_managers
@@ -1210,7 +1259,7 @@ class MainWindow(QMainWindow):
                 # A saved shortcut refused by validation: relaunching would
                 # refuse it again, recording a new one fixes it.
                 message = (
-                    f"⚠️ Raccourci inactif — {refused[0]}. "
+                    f"⚠️ Raccourci inactif — {refused[0].rstrip('.')}. "
                     "Réenregistre-le avec « Définir »."
                 )
             else:
@@ -1246,7 +1295,10 @@ class MainWindow(QMainWindow):
         """Compatibility entry point for saving the complete configuration."""
         if self.tabs.currentWidget() is self.voice_prompt_editor:
             return self.voice_prompt_editor.save()
-        if not self._validate_endpoint_settings() or not self.speech_settings.save():
+        if not self._validate_endpoint_settings():
+            return False
+        # The dictation settings are hidden without the experimental features.
+        if experimental_enabled(self.settings) and not self.speech_settings.save():
             return False
         current_prompt = self.prompt_list.currentItem()
         if current_prompt is not None and not self.save_current_prompt(False):
@@ -1286,10 +1338,166 @@ class MainWindow(QMainWindow):
     def save_application_settings(self, _checked=False):
         self.settings.set_theme(self.theme_combo.currentData())
         self.settings.set_update_channel(self.channel_combo.currentData())
+        # Filled by apply_feature_modes, which modes_changed calls from save().
+        self._feature_mode_problems = []
+        try:
+            self.feature_mode_settings.save()
+        except Exception as exc:
+            log(f"Application des fonctions impossible : {exc}", logging.WARNING)
         self.settings.sync()
         ThemeManager.apply_theme(QApplication.instance(), self.settings.get_theme())
-        QMessageBox.information(self, "Réglages enregistrés", "Les modifications sont actives.")
+        problems = list(self._feature_mode_problems)
+        if problems:
+            QMessageBox.warning(
+                self,
+                "Raccourcis inactifs",
+                "Les modifications sont actives, mais ces raccourcis restent "
+                "inactifs :\n"
+                + "\n".join(problems)
+                + "\n\nChoisissez-en un autre dans Réglages > Raccourcis ou "
+                "dans l’onglet Prompts.",
+            )
+        else:
+            QMessageBox.information(self, "Réglages enregistrés", "Les modifications sont actives.")
         return True
+
+    def _feature_modes(self):
+        """The saved switches as (advanced, experimental), read now."""
+        return (
+            bool(advanced_enabled(self.settings)),
+            bool(experimental_enabled(self.settings)),
+        )
+
+    def _apply_feature_visibility(self):
+        """Show or hide the switchable features; never touches a shortcut.
+
+        Hidden tabs, pages and rows keep their widgets and stored values, so
+        turning a feature back on shows everything exactly as it was.
+        """
+        advanced, experimental = self._feature_modes()
+        voice_index = self.tabs.indexOf(self.voice_prompt_editor)
+        if not experimental and self.tabs.currentIndex() == voice_index:
+            self.tabs.setCurrentIndex(0)
+        self.tabs.setTabVisible(voice_index, experimental)
+        self.settings_panel.set_page_visible("voice", experimental)
+        self.dictation_shortcut_settings.setVisible(experimental)
+        self.text_prompt_form.set_advanced_visible(advanced)
+        self.voice_prompt_editor.set_advanced_visible(advanced)
+        self.speech_settings.set_retention_visible(advanced)
+        self.dictation_behavior.set_prompt_model_hint(advanced)
+        self._set_status_entry_visible(experimental)
+        self.feature_mode_settings.refresh()
+
+    def _set_status_entry_visible(self, experimental):
+        tray = self.tray_icon
+        if tray is None or not hasattr(tray, "set_entry_visible"):
+            return
+        try:
+            tray.set_entry_visible(DICTATION_MENU_ENTRY, experimental)
+        except Exception as exc:
+            log(f"Entrée de dictée de la barre des menus : {exc}", logging.WARNING)
+
+    def apply_feature_modes(self, *_args):
+        """Apply the switches without restarting; return the problem lines.
+
+        Shortcuts follow the startup order: prompt shortcuts are released
+        before instant dictation registers, then bound again, so the core
+        shortcut keeps priority exactly as after a relaunch.
+        """
+        problems = []
+        previous = getattr(self, "_applied_feature_modes", None)
+        advanced, experimental = current = self._feature_modes()
+        self._applied_feature_modes = current
+        advanced_changed = previous is None or previous[0] != advanced
+        experimental_changed = previous is None or previous[1] != experimental
+        prompt_errors = {}
+
+        def step(description, action):
+            try:
+                return action()
+            except Exception as exc:
+                log(f"{description} impossible : {exc}", logging.WARNING)
+                return None
+
+        step("Affichage des fonctions", self._apply_feature_visibility)
+        if advanced_changed or experimental_changed:
+            if self.prompt_hotkey_manager is not None:
+                step(
+                    "Libération des raccourcis de prompts",
+                    self.prompt_hotkey_manager.unregister_hotkeys,
+                )
+            dictation_manager = self.dictation_hotkey_manager
+            if experimental_changed and dictation_manager is not None:
+                step(
+                    "Raccourci de dictée instantanée",
+                    dictation_manager.register_hotkey,
+                )
+            refreshed = step("Raccourcis de prompts", self._refresh_prompt_hotkeys)
+            if refreshed:
+                prompt_errors = dict(refreshed[1] or {})
+        speech = self.speech_settings
+        resident = speech.resident
+        # Without the experimental features no voice model stays loaded: a
+        # dictation already running is not interrupted, and its model is
+        # unloaded as soon as it ends. The saved delay is kept.
+        step(
+            "Conservation du modèle vocal",
+            lambda: resident.set_idle_seconds(
+                effective_speech_idle_seconds(self.settings)
+                if experimental
+                else 0
+            ),
+        )
+        if experimental_changed and not experimental:
+            # Nothing keeps the microphone or a voice model for a hidden
+            # feature. Only what is running is stopped: an interrupted check
+            # or download says so instead of staying "in progress" when the
+            # features come back, and an idle page keeps its last result.
+            def stop_voice_check():
+                if speech.backend is not None:
+                    speech.cancel()
+
+            def stop_microphone_test():
+                if speech.microphone_test.active:
+                    speech.microphone_test.cancel(silent=True)
+
+            step("Arrêt de la vérification vocale", stop_voice_check)
+            step("Arrêt du test du micro", stop_microphone_test)
+            step("Déchargement du modèle vocal", resident.unload_idle)
+        step("État des raccourcis", self.refresh_permission_status)
+        dictation_manager = self.dictation_hotkey_manager
+        if experimental_changed and experimental and dictation_manager is not None:
+            error = getattr(dictation_manager, "last_register_error", "")
+            if error:
+                hotkey = self.settings.get_dictation_hotkey()
+                problems.append(f"- Dictée instantanée ({hotkey}) : {error}")
+        if prompt_errors:
+            prompts = self.settings.get_prompts()
+            for prompt_id, error in prompt_errors.items():
+                prompt = prompts.get(prompt_id)
+                name = (
+                    str(prompt.get("name") or "").strip()
+                    if isinstance(prompt, dict)
+                    else ""
+                ) or (
+                    "Raccourcis des prompts"
+                    if prompt_id == "registration"
+                    else prompt_id
+                )
+                problems.append(f"- {name} : {error}")
+        self._feature_mode_problems = problems
+        return problems
+
+    def _retry_prompt_hotkeys(self, *_args):
+        """Bind a prompt shortcut freed by a new main, custom or dictation one.
+
+        A prompt shortcut left unbound because another SuperMenu shortcut
+        held it comes back as soon as that one moves, as the « Raccourcis
+        inactifs » warning promises, without waiting for a relaunch.
+        """
+        manager = self.prompt_hotkey_manager
+        if manager is not None and getattr(manager, "errors", None):
+            self._refresh_prompt_hotkeys()
 
     def _refresh_prompt_hotkeys(self):
         if self.prompt_hotkey_manager:
@@ -1304,7 +1512,7 @@ class MainWindow(QMainWindow):
         return [
             ("Ouvrir SuperMenu", self.show_main_window),
             ("Afficher le menu des prompts", self.show_prompt_menu),
-            ("Dicter du texte…", self.start_dictation),
+            (DICTATION_MENU_ENTRY, self.start_dictation),
             ("Afficher la dernière réponse", lambda: self.context_menu_manager
              and self.context_menu_manager.show_response_window()),
             ("Vérifier les mises à jour", lambda: self.check_for_updates(False)),
@@ -1330,10 +1538,12 @@ class MainWindow(QMainWindow):
                 self,
             )
             QApplication.instance().aboutToQuit.connect(self.tray_icon.hide)
-            return True
         except Exception as exc:
             log(f"Barre des menus native indisponible : {exc}")
             return False
+        # Outside the try: hiding the dictation entry never fails the setup.
+        self._set_status_entry_visible(experimental_enabled(self.settings))
+        return True
 
     def show_main_window(self):
         # Record where the user came from before SuperMenu takes the

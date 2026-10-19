@@ -10,6 +10,7 @@ from PySide6.QtCore import QSettings
 from supermenu_core.config.model_target import ModelTargetSettingsMixin
 from supermenu_core.audio.settings import SpeechSettingsMixin
 from supermenu_core.config.model_memory import TextMemorySettingsMixin
+from supermenu_core.config.feature_modes import FeatureModesSettingsMixin
 from supermenu_core.config.voice_prompts import VoicePromptSettingsMixin
 from supermenu_core.config.prompt_transfer import export_prompt_bundle, import_prompt_bundle
 from supermenu_core.config.prompt_restore import backup_prompt_library, keep_library_copy
@@ -39,13 +40,17 @@ _normalize_update_channel = normalize_update_channel
 _normalize_prompt_collection = normalize_prompt_collection
 
 
-class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettingsMixin):
+class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettingsMixin, FeatureModesSettingsMixin):
     """Manage application settings"""
     
     def __init__(self):
         # Utiliser un fichier INI dans le dossier utilisateur au lieu du registre Windows
         # Cela rend l'application plus portable et évite les problèmes d'accès au registre
         self.settings = QSettings(os.path.join(os.path.expanduser("~"), "SuperMenu.ini"), QSettings.Format.IniFormat)
+        # Before any default is written: settings of an earlier version mean
+        # an update, which keeps every feature it already offered.
+        existing_install = self.has_saved_preferences()
+        self.initialize_feature_modes(existing_install)
         self.default_prompts = default_text_prompts()
         
         self.default_voice_prompts = default_voice_prompts()

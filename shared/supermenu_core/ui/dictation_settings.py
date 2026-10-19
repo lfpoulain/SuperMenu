@@ -13,6 +13,14 @@ from PySide6.QtWidgets import (
 
 from .controls import ChoiceBox
 
+# The correction model depends on the advanced features (per-prompt models).
+PROMPT_MODEL_HINT = (
+    "Sinon, Copier et Insérer restent disponibles dans la fenêtre de dictée. La correction utilise le modèle du prompt « Corriger », ou le réglage général si aucun modèle n’est choisi pour ce prompt. La dictée est envoyée au service sélectionné. Ces options ne modifient pas les prompts vocaux."
+)
+GENERAL_MODEL_HINT = (
+    "Sinon, Copier et Insérer restent disponibles dans la fenêtre de dictée. La correction utilise le moteur et le modèle des réglages Texte. La dictée est envoyée au service sélectionné. Ces options ne modifient pas les prompts vocaux."
+)
+
 
 class DictationBehaviorSettings(QGroupBox):
     def __init__(self, settings, parent=None):
@@ -31,14 +39,16 @@ class DictationBehaviorSettings(QGroupBox):
             settings.get_dictation_correct_before_insert()
         )
         layout.addWidget(self.correct_before_insert)
-        hint = QLabel(
-            "Sinon, Copier et Insérer restent disponibles dans la fenêtre de dictée. La correction utilise le modèle du prompt « Corriger », ou le réglage général si aucun modèle n’est choisi pour ce prompt. La dictée est envoyée au service sélectionné. Ces options ne modifient pas les prompts vocaux."
-        )
+        hint = self.hint = QLabel(PROMPT_MODEL_HINT)
         hint.setWordWrap(True)
         hint.setObjectName("mutedText")
         layout.addWidget(hint)
         self.auto_insert.toggled.connect(self.save)
         self.correct_before_insert.toggled.connect(self.save)
+
+    def set_prompt_model_hint(self, advanced):
+        """Describe the correction model with or without per-prompt models."""
+        self.hint.setText(PROMPT_MODEL_HINT if advanced else GENERAL_MODEL_HINT)
 
     def save(self):
         self.settings.set_dictation_auto_insert(self.auto_insert.isChecked())

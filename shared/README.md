@@ -46,6 +46,17 @@ fourni explicitement par l'adaptateur de plateforme.
   avec la liste des alias proposés, et `registered_foundry_models()` la relit
   pour l’éditeur de prompt et le routage. Sans enregistrement (macOS), aucun
   modèle Foundry n’est proposé.
+- `config/feature_modes.py` gère les interrupteurs « Fonctions avancées »
+  (modèle et raccourci par prompt, conservation des modèles locaux) et
+  « Fonctions expérimentales » (voix, dictée, test du micro, capture d’écran
+  sous Windows), réglés dans `ui/application_settings.py`
+  (`FeatureModeSettings`). Une nouvelle installation démarre sans ces fonctions ;
+  une mise à jour les garde actives. Règle : les interrupteurs sont lus au moment
+  de l’usage (`advanced_enabled()`, `experimental_enabled()`,
+  `effective_model_target()`, `effective_*_idle_seconds()`), jamais mis en
+  cache, et les raccourcis concernés sont filtrés à leur enregistrement.
+  Désactiver une fonction la masque et l’ignore sans rien supprimer :
+  l’import/export conserve tous les champs.
 - `ui/theme_styles.py` centralise la palette d'origine, les états de sélection,
   les surfaces et les couleurs de statut. `ThemeManager` applique le thème à
   toute l'application ; les fenêtres ne définissent pas de styles locaux.

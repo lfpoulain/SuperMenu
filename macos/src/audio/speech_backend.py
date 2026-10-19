@@ -6,6 +6,7 @@ from pathlib import Path
 
 from supermenu_core.audio.backends import OpenAISpeechBackend, ProcessSpeechBackend
 from supermenu_core.audio.resident import ResidentSpeechBackend
+from supermenu_core.config.feature_modes import effective_speech_idle_seconds
 from src.utils.paths import resource_path
 
 
@@ -39,6 +40,7 @@ def create_speech_backend(settings, options):
         )
     if options.get("action", "start") in {"probe", "download"}:
         return ProcessSpeechBackend((str(helper), []), options)
+    # The saved delay applies with the advanced features only; it is kept.
     return ResidentSpeechBackend(
-        (str(helper), []), options, settings.get_speech_idle_seconds()
+        (str(helper), []), options, effective_speech_idle_seconds(settings)
     )

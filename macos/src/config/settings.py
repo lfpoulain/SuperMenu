@@ -11,6 +11,7 @@ from PySide6.QtCore import QSettings
 from supermenu_core.config.model_target import ModelTargetSettingsMixin
 from supermenu_core.audio.settings import SpeechSettingsMixin
 from supermenu_core.config.model_memory import TextMemorySettingsMixin
+from supermenu_core.config.feature_modes import FeatureModesSettingsMixin
 from supermenu_core.config.voice_prompts import VoicePromptSettingsMixin
 from supermenu_core.config.prompt_transfer import export_prompt_bundle, import_prompt_bundle
 from supermenu_core.config.prompt_restore import backup_prompt_library
@@ -58,11 +59,15 @@ def _normalize_prompts(value) -> dict[str, dict]:
     return _read_prompts(value)[0]
 
 
-class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettingsMixin):
+class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettingsMixin, FeatureModesSettingsMixin):
     def __init__(self, config_path: str | None = None):
         self.config_path = str(config_path or settings_file())
         Path(self.config_path).parent.mkdir(parents=True, exist_ok=True)
         self.settings = QSettings(self.config_path, QSettings.Format.IniFormat)
+        # Before any default is written: settings of an earlier version mean
+        # an update, which keeps every feature it already offered.
+        existing_install = self.has_saved_preferences()
+        self.initialize_feature_modes(existing_install)
         self.default_prompts = default_text_prompts()
         self.default_hotkey = "Cmd+Shift+Space"
         self.default_custom_hotkey = "Cmd+Shift+M"
@@ -345,8 +350,14 @@ class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSetting
         return import_prompt_bundle(self, file_path)
 
     def reset_to_defaults(self) -> None:
+        # The feature switches are preferences, not defaults: keep them.
+        advanced = self.get_advanced_features_enabled()
+        experimental = self.get_experimental_features_enabled()
         self.settings.clear()
         self._initialize_settings()
+        self.set_advanced_features_enabled(advanced)
+        self.set_experimental_features_enabled(experimental)
+        self.sync()
 
     def sync(self) -> None:
         self.settings.sync()

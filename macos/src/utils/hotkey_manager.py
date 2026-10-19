@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from src.utils.logger import log
 from supermenu_core.audio.dictation_shortcut import DictationShortcut, ReleaseBinding
+from supermenu_core.config.feature_modes import advanced_enabled, experimental_enabled
 
 
 try:
@@ -647,6 +648,16 @@ class HotkeyService:
             log(f"Configuration des raccourcis impossible : {exc}", logging.ERROR)
             return False, self._last_error
 
+    def shortcut_owners(self, excluding=None):
+        """Map each bound shortcut to its owner, leaving out ``excluding``."""
+        with self._lock:
+            return {
+                shortcut: owner
+                for owner, bindings in self._owner_bindings.items()
+                if owner != excluding
+                for shortcut in bindings
+            }
+
     def validate_owner_bindings(self, owner, bindings):
         try:
             for shortcut in bindings:
@@ -799,7 +810,11 @@ class HotkeyManager(QObject):
     def register_hotkey(self) -> bool:
         self.hotkey = self._get_configured_hotkey()
         self._refused_hotkey_error = ""
-        if self.dictation_hotkey and not self.hotkey:
+        # Instant dictation belongs to the experimental features: without them
+        # its saved shortcut is kept but stays unbound, without any error.
+        if self.dictation_hotkey and (
+            not self.hotkey or not experimental_enabled(self.settings)
+        ):
             self.unregister_hotkey()
             self._last_register_error = ""
             return True
@@ -914,17 +929,35 @@ class PromptHotkeyManager(QObject):
         self._owner = "raccourcis des prompts"
         self._binding_active = False
         self._errors = {}
+        # Prompt id -> combination left unbound because another SuperMenu
+        # shortcut holds it (see refresh_hotkeys).
+        self._conflicts = {}
         self.refresh_hotkeys()
 
     @property
     def errors(self):
         return dict(self._errors)
 
+    def _taken_shortcuts(self):
+        owners = getattr(self.service, "shortcut_owners", None)
+        return owners(excluding=self._owner) if owners is not None else {}
+
     def refresh_hotkeys(self):
         self._errors = {}
+        self._conflicts = {}
         mapping = {}
+        # Per-prompt shortcuts belong to the advanced features: without them
+        # an empty mapping releases every prompt shortcut, saved ones intact.
+        prompts = (
+            self.settings.get_prompts() if advanced_enabled(self.settings) else {}
+        )
+        # A hidden prompt shortcut is not checked against the other ones, so
+        # one of them may have taken it meanwhile. That prompt alone stays
+        # unbound, named in its error; the core shortcut keeps priority, as
+        # in the startup order, and the other prompts stay bound.
+        taken = self._taken_shortcuts() if prompts else {}
         for prompt_id, prompt in sorted(
-            self.settings.get_prompts().items(),
+            prompts.items(),
             key=lambda item: (item[1].get("position", 999), item[0]),
         ):
             hotkey = str(prompt.get("hotkey", "") or "").strip()
@@ -935,6 +968,12 @@ class PromptHotkeyManager(QObject):
             )
             if error:
                 self._errors[prompt_id] = error
+                continue
+            if normalized in taken:
+                self._errors[prompt_id] = (
+                    f"Ce raccourci est déjà utilisé par {taken[normalized]}."
+                )
+                self._conflicts[prompt_id] = normalized
                 continue
             if normalized in mapping:
                 self._errors[prompt_id] = (
@@ -965,8 +1004,16 @@ class PromptHotkeyManager(QObject):
         saved library) must follow the current rule. An unchanged shortcut
         keeps the rule it was saved under, and one that is refused anyway stays
         unbound as in ``refresh_hotkeys``: neither may block saving another
-        prompt, or the user could not even clear it.
+        prompt, or the user could not even clear it. The same goes for an
+        unchanged shortcut that ``refresh_hotkeys`` already left unbound
+        because another SuperMenu shortcut still holds it (one recorded while
+        the prompt shortcuts were hidden); a new conflict is still refused.
+
+        Without the advanced features the prompt shortcuts are neither shown
+        nor bound: a hidden one must never block saving or importing.
         """
+        if not advanced_enabled(self.settings):
+            return True, {}
         if accepted is None:
             accepted = self.settings.get_prompts()
         unchanged = []
@@ -983,11 +1030,18 @@ class PromptHotkeyManager(QObject):
             )
             target = unchanged if hotkey == saved_hotkey else changed
             target.append((prompt_id, hotkey))
+        taken = self._taken_shortcuts() if self._conflicts else {}
         mapping = {}
-        for _prompt_id, hotkey in unchanged:
+        for prompt_id, hotkey in unchanged:
             normalized, error = normalize_hotkey(hotkey, legacy=True)
-            if not error:
-                mapping[normalized] = lambda: None
+            if error:
+                continue
+            if (
+                self._conflicts.get(prompt_id) == normalized
+                and normalized in taken
+            ):
+                continue
+            mapping[normalized] = lambda: None
         errors = {}
         for prompt_id, hotkey in changed:
             normalized, error = normalize_hotkey(hotkey)

@@ -9,6 +9,7 @@ macOS.
 - [Compatibilité](#compatibilité)
 - [Installation](#installation)
 - [Premier lancement et Accessibilité](#premier-lancement-et-accessibilité)
+- [Fonctions avancées et expérimentales](#fonctions-avancées-et-expérimentales)
 - [Configurer le fournisseur IA](#configurer-le-fournisseur-ia)
 - [Prompts vocaux](#prompts-vocaux)
 - [Configurer les raccourcis](#configurer-les-raccourcis)
@@ -96,7 +97,48 @@ Accessibilité est utilisée pour :
 SuperMenu ne demande pas **Surveillance de l’entrée**. L’ajouter manuellement
 n’améliore pas le fonctionnement normal de cette version.
 
+## Fonctions avancées et expérimentales
+
+SuperMenu affiche l’essentiel par défaut. Deux interrupteurs indépendants se
+trouvent dans **Réglages > Application > Fonctions** ; cochez-les puis cliquez
+sur **Appliquer**. Les onglets, rubriques, entrées de menu et raccourcis
+concernés apparaissent ou disparaissent aussitôt, sans redémarrer.
+
+- **Fonctions avancées** : choix du modèle, du fournisseur ou du poste LM Link
+  pour chaque prompt, raccourci direct par prompt et durée de conservation du
+  modèle vocal local (Apple Speech). Désactivées, chaque prompt utilise le
+  moteur et le modèle des réglages **Texte**, y compris la correction de la
+  dictée, les raccourcis de prompts sont inactifs et le modèle vocal est
+  déchargé après 5 minutes d’inactivité. Le mode de raisonnement de chaque
+  prompt reste toujours disponible.
+- **Fonctions expérimentales** : onglet **Voix** (prompts vocaux), sous-menu
+  **Voix** du menu principal, entrée **Dicter du texte…** de la barre des
+  menus, dictée instantanée et son raccourci, rubrique **Dictée** des réglages
+  et test du micro. Désactivées, aucun de ces éléments n’est affiché et le
+  raccourci de dictée instantanée n’est pas enregistré.
+
+Une nouvelle installation démarre avec les deux interrupteurs désactivés. Une
+mise à jour depuis une version précédente les active tous les deux, afin de ne
+retirer aucune fonction déjà utilisée.
+
+Désactiver une fonction ne supprime rien : modèles choisis, raccourcis, prompts
+vocaux et réglages de dictée sont conservés et réapparaissent tels quels quand
+vous la réactivez. Si des prompts ont leur propre modèle, SuperMenu demande
+confirmation avant de désactiver les fonctions avancées, car ils utiliseront
+alors le moteur des réglages Texte, éventuellement en ligne. L’export et
+l’import des prompts conservent toujours tous les champs.
+
+Si un raccourci ne peut pas être réactivé après **Appliquer** (par exemple
+parce qu’un prompt utilise la même combinaison que la dictée instantanée), une
+seule alerte **Raccourcis inactifs** les énumère. Seul le prompt concerné reste
+inactif : les autres raccourcis fonctionnent, et il se réactive dès que l’un
+des deux raccourcis change.
+
 ## Prompts vocaux
+
+Les prompts vocaux et la dictée font partie des
+[fonctions expérimentales](#fonctions-avancées-et-expérimentales) : activez-les
+d’abord si l’onglet **Voix** n’apparaît pas.
 
 L’onglet **Voix** permet de créer, modifier, réordonner et supprimer les mêmes
 prompts vocaux que sur Windows. Par exemple, **Résumer** applique une instruction
@@ -124,6 +166,10 @@ prompts textuels conserve votre bibliothèque vocale actuelle.
 
 Ouvrez **SuperMenu > Paramètres** depuis l’icône de la barre des menus.
 
+La rubrique **Dictée** fait partie des
+[fonctions expérimentales](#fonctions-avancées-et-expérimentales) : activez-les
+d’abord si elle n’apparaît pas.
+
 Pour la voix, ouvrez **Dictée** : le moteur vocal se choisit séparément du moteur
 de texte. Sélectionnez OpenAI ou Apple Speech, une langue et le microphone.
 **Tester le micro** affiche son niveau pendant cinq secondes, sans sauvegarde
@@ -139,6 +185,8 @@ activez si souhaité **Coller automatiquement** et/ou **Corriger avec le moteur 
 texte avant d’insérer**. Une correction échouée conserve la dictée sans la coller.
 Les prompts vocaux conservent leur propre traitement et leur fenêtre de réponse.
 
+La dictée instantanée fait aussi partie des
+[fonctions expérimentales](#fonctions-avancées-et-expérimentales).
 Dans **Réglages > Raccourcis > Dictée instantanée**, définissez une combinaison
 (facultative, désactivée initialement). Choisissez **Appuyer une fois** pour arrêter
 avec **Terminer**, ou **Maintenir pour parler** pour arrêter au relâchement.
@@ -148,7 +196,10 @@ le démarrage du microphone. Le raccourci conserve l’application où vous écr
 Dans **Options avancées**, choisissez quand décharger le modèle local :
 immédiatement, après 1/5/15/30 minutes d’inactivité, ou à la fermeture de
 SuperMenu. La valeur par défaut est cinq minutes. **Décharger maintenant**
-libère la mémoire sans supprimer les ressources téléchargées.
+libère la mémoire sans supprimer les ressources téléchargées. Ce choix fait
+partie des [fonctions avancées](#fonctions-avancées-et-expérimentales) : sans
+elles, il n’est pas affiché et le modèle est déchargé après cinq minutes
+d’inactivité.
 
 ### OpenAI
 
@@ -249,6 +300,11 @@ SuperMenu mémorise l’application cible avant de prendre le premier plan. Cett
 identité est utilisée pour revenir vers la bonne fenêtre lors d’une insertion.
 
 ### Utiliser un raccourci de prompt
+
+Les raccourcis de prompts font partie des
+[fonctions avancées](#fonctions-avancées-et-expérimentales) : activez-les
+d’abord si le champ **Raccourci direct** n’apparaît pas dans l’onglet
+**Prompts**.
 
 Un prompt peut posséder sa propre combinaison globale. Ce chemin :
 

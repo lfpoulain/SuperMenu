@@ -8,15 +8,22 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QVBoxLayout,
+    QWidget,
 )
 
 from supermenu_core.ui.verification_status import VerificationStatus
 from supermenu_core.ui.settings_panel import Disclosure
 from supermenu_core.ui.controls import ChoiceBox
+from supermenu_core.config.feature_modes import effective_text_idle_seconds
 from supermenu_core.config.model_memory import idle_choices
 from src.api.foundry_client import get_foundry_service
 from src.api.foundry_worker import platform_error
 from src.config.foundry_models import FOUNDRY_MODELS
+
+# The model retention is an advanced feature: without it, the disclosure only
+# holds the hardware options and its title says so.
+HARDWARE_AND_MEMORY_TITLE = "Matériel et mémoire du modèle"
+HARDWARE_TITLE = "Matériel du modèle"
 
 
 class FoundrySettingsWidget(QGroupBox):
@@ -24,7 +31,8 @@ class FoundrySettingsWidget(QGroupBox):
         super().__init__("Foundry Local", parent)
         self.service = get_foundry_service()
         self.settings = settings
-        self.service.set_idle_seconds(settings.get_text_idle_seconds())
+        # The stored delay applies only with the advanced features.
+        self.service.set_idle_seconds(effective_text_idle_seconds(settings))
         self.request_id = None
         self.operation = None
         self.models = {}
@@ -73,39 +81,63 @@ class FoundrySettingsWidget(QGroupBox):
         layout.addLayout(buttons)
         self.cache_label = QLabel()
         self.cache_label.setWordWrap(True)
-        advanced = Disclosure("Matériel et mémoire du modèle")
+        advanced = Disclosure(HARDWARE_AND_MEMORY_TITLE)
+        self.hardware_options = advanced
         advanced.content_layout.addWidget(QLabel("Calcul local"))
         advanced.content_layout.addWidget(self.device_combo)
         advanced.content_layout.addWidget(self.cache_label)
-        advanced.content_layout.addWidget(QLabel("Décharger le modèle texte après"))
+        # Model retention belongs to the advanced features: hidden, not removed.
+        self.memory_options = QWidget()
+        memory_layout = QVBoxLayout(self.memory_options)
+        memory_layout.setContentsMargins(0, 0, 0, 0)
+        memory_layout.setSpacing(advanced.content_layout.spacing())
+        memory_layout.addWidget(QLabel("Décharger le modèle texte après"))
         self.idle_combo = ChoiceBox()
         for title, seconds in idle_choices("Chaque requête"):
             self.idle_combo.addItem(title, seconds)
         self.idle_combo.setCurrentIndex(self.idle_combo.findData(settings.get_text_idle_seconds()))
         self.idle_combo.currentIndexChanged.connect(self._save_memory_policy)
-        advanced.content_layout.addWidget(self.idle_combo)
+        memory_layout.addWidget(self.idle_combo)
         self.memory_status = QLabel()
         self.memory_status.setWordWrap(True)
-        advanced.content_layout.addWidget(self.memory_status)
+        memory_layout.addWidget(self.memory_status)
         self.unload_button = QPushButton("Décharger maintenant")
         self.unload_button.clicked.connect(self.service.unload_idle)
-        advanced.content_layout.addWidget(self.unload_button)
+        memory_layout.addWidget(self.unload_button)
+        advanced.content_layout.addWidget(self.memory_options)
         self.service.state_changed.connect(self._memory_changed)
         self._memory_changed()
         layout.addWidget(advanced)
         note = QLabel(
             'Modèles sous licence <a href="https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE">Apache 2.0</a>. '
             "16 Go de RAM conseillés pour le 4B, 24 Go pour le 9B. "
-            "La vitesse dépend du matériel. Limite : 16 000 caractères par requête. "
-            "Le moteur vocal se choisit dans la rubrique Dictée."
+            "La vitesse dépend du matériel. Limite : 16 000 caractères par requête."
         )
         note.setOpenExternalLinks(True)
         note.setWordWrap(True)
         advanced.content_layout.addWidget(note)
+        # Speech is an experimental feature: this pointer follows its switch.
+        self.voice_engine_note = QLabel("Le moteur vocal se choisit dans la rubrique Dictée.")
+        self.voice_engine_note.setWordWrap(True)
+        advanced.content_layout.addWidget(self.voice_engine_note)
         self.service.completed.connect(self.completed)
         self.service.failed.connect(self.failed)
         self.service.progress.connect(self.progress)
         self.update_model()
+
+    def set_retention_visible(self, visible):
+        """Show or hide the text model retention; the stored delay is kept."""
+        visible = bool(visible)
+        self.memory_options.setVisible(visible)
+        title = HARDWARE_AND_MEMORY_TITLE if visible else HARDWARE_TITLE
+        self.hardware_options.toggle.setText(title)
+        self.hardware_options.toggle.setAccessibleName(title)
+
+    def is_retention_visible(self):
+        return not self.memory_options.isHidden()
+
+    def set_voice_note_visible(self, visible):
+        self.voice_engine_note.setVisible(bool(visible))
 
     def _save_memory_policy(self):
         seconds = self.idle_combo.currentData()

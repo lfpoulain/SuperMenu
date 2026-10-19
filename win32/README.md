@@ -113,6 +113,12 @@ Au premier lancement (ou via l'icône dans la barre des tâches) :
    - **Voix** : `Ctrl+Alt+²`.
    - **Capture** : `Ctrl+Alt+&`.
    - **Mode personnalisé** : `Ctrl+Alt+M`.
+3. **Fonctions** : dans **Réglages > Application > Fonctions**, active si besoin
+   les **fonctions avancées** (modèle et raccourci par prompt, conservation des
+   modèles locaux en mémoire) et les **fonctions expérimentales** (voix, dictée
+   et capture d'écran), puis clique sur **Appliquer**. Une nouvelle
+   installation les laisse désactivées ; une mise à jour les garde actives. Les
+   désactiver ne supprime aucun réglage. [Détails](docs/GUIDE_UTILISATION.md#fonctions-avancées-et-expérimentales).
 
 ---
 

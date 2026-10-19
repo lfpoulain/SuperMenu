@@ -11,6 +11,7 @@ from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout
 from src.utils.logger import log
 from supermenu_core.audio.dictation_shortcut import DictationShortcut
+from supermenu_core.config.feature_modes import advanced_enabled, experimental_enabled
 
 _WM_HOTKEY = 0x0312
 _MOD_ALT = 0x0001
@@ -528,12 +529,22 @@ class HotkeyManager(QObject):
             return
         self.settings.set_hotkey(hotkey)
 
+    def _feature_enabled(self):
+        """False while the experimental features driven by this shortcut are off."""
+        if self.voice_hotkey or self.screenshot_hotkey or self.dictation_hotkey:
+            return experimental_enabled(self.settings)
+        return True
+
     def register_hotkey(self):
         self.unregister_hotkey()
 
         self.hotkey = self._get_configured_hotkey()
         self._last_register_error = ""
 
+        # A disabled feature keeps its stored shortcut but does not hold it:
+        # no registration, no error to report.
+        if not self._feature_enabled():
+            return True
         if self.dictation_hotkey and not self.hotkey:
             return True
         modifiers, vk, err = _parse_hotkey_to_win32(self.hotkey)
@@ -664,6 +675,9 @@ class PromptHotkeyManager(QObject):
         """Rebuild all prompt registrations from persisted settings."""
         self.unregister_hotkeys()
         self._errors = {}
+        # Per-prompt shortcuts are an advanced feature: kept, not registered.
+        if not advanced_enabled(self.settings):
+            return True, {}
         manager_ref = weakref.ref(self)
 
         prompts = self.settings.get_prompts()

@@ -44,6 +44,8 @@ class VoicePromptEditor(QWidget):
         # Form values as loaded or saved, to detect edits before replacing them.
         self._saved_form = None
         self._pending_target = None
+        # The per-prompt model belongs to the advanced features.
+        self._advanced_visible = True
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         help_text = QLabel(
@@ -99,7 +101,7 @@ class VoicePromptEditor(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(6)
         self.form = QGroupBox("Votre prompt vocal")
-        form = form_layout(self.form, stacked=True)
+        form = self._fields = form_layout(self.form, stacked=True)
         self.name_input = QLineEdit()
         form.addRow("Nom", self.name_input)
         self.instruction_input = QTextEdit()
@@ -288,6 +290,31 @@ class VoicePromptEditor(QWidget):
         self.feedback.clear()
         self._saved_form = self._form_state() if prompt else None
 
+    def set_advanced_visible(self, visible):
+        """Show or hide the per-prompt model; a hidden choice is kept as stored."""
+        self._advanced_visible = bool(visible)
+        self._fields.setRowVisible(self.model_choice, self._advanced_visible)
+        if not self._advanced_visible and self._show_stored_model():
+            # The other edits stay pending; the hidden model is never one.
+            if self._saved_form is not None:
+                self._saved_form = self._saved_form[:-1] + (self._model_state(),)
+
+    def _show_stored_model(self):
+        """Show the stored model again; return False without a loaded prompt.
+
+        An unsaved choice must not stay behind the hidden row: it would count
+        as an edit nobody sees, then come back with the advanced features as
+        if it were saved.
+        """
+        prompt = self.settings.get_voice_prompt(self._current_id)
+        if not prompt:
+            return False
+        self.model_choice.set_target(prompt.get("model_target", {}))
+        return True
+
+    def is_advanced_visible(self):
+        return self._advanced_visible
+
     def _filter(self, text):
         for index in range(self.prompt_list.count()):
             item = self.prompt_list.item(index)
@@ -303,7 +330,8 @@ class VoicePromptEditor(QWidget):
         self.settings.set_voice_prompts(prompts)
 
     def save(self, _checked=False):
-        if not self.model_choice.is_valid():
+        # A hidden model choice is neither checked nor saved: the stored one stays.
+        if self._advanced_visible and not self.model_choice.is_valid():
             return False
         if self._current_id is None:
             return True
@@ -321,12 +349,17 @@ class VoicePromptEditor(QWidget):
             include_selected_text=self.include_selected.isChecked(),
             prompt_order=self.order_combo.currentData(),
             reasoning_mode=self.reasoning.currentData(),
-            model_target=self.model_choice.target(),
+            model_target=(
+                self.model_choice.target() if self._advanced_visible else None
+            ),
         )
         item = self._item_for(self._current_id) or self.prompt_list.currentItem()
         if item is not None:
             item.setText(name)
             item.setToolTip(name)
+        if not self._advanced_visible:
+            # The stored model was kept: the form shows it, not a stale choice.
+            self._show_stored_model()
         self._saved_form = self._form_state()
         self.feedback.setText("Prompt vocal enregistré.")
         return True
@@ -373,7 +406,12 @@ class VoicePromptEditor(QWidget):
             prompts = self.settings.get_voice_prompts()
             if identifier not in prompts:
                 return
-            prompts[identifier] = {**default, "position": prompts[identifier]["position"]}
+            current = prompts[identifier]
+            restored = {**default, "position": current["position"]}
+            if not self._advanced_visible:
+                # Without the advanced features the hidden model choice is kept.
+                restored["model_target"] = current.get("model_target", {})
+            prompts[identifier] = restored
             self.settings.set_voice_prompts(prompts)
             self.reload(identifier)
 

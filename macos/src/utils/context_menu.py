@@ -11,6 +11,11 @@ from PySide6.QtWidgets import QApplication
 
 
 from supermenu_core.api.openai_client import clear_capabilities_cache
+from supermenu_core.config.feature_modes import (
+    advanced_enabled,
+    effective_model_target,
+    experimental_enabled,
+)
 from supermenu_core.config.model_target import ModelTargetSettings, settings_for_prompt
 from supermenu_core.ui.controls import Menu as QMenu, populate_prompt_menu
 from supermenu_core.ui.voice_menu import populate_voice_menu
@@ -158,8 +163,10 @@ class ContextMenuManager(QObject):
         menu.addSeparator()
         custom_action = menu.addAction("Mode personnalisé…")
         custom_action.setData(("custom", None))
-        voice_menu = menu.addMenu("Voix")
-        populate_voice_menu(voice_menu, self.settings.get_voice_prompts(), lambda kind, key: (kind, key))
+        # Voice prompts and dictation belong to the experimental features.
+        if experimental_enabled(self.settings):
+            voice_menu = menu.addMenu("Voix")
+            populate_voice_menu(voice_menu, self.settings.get_voice_prompts(), lambda kind, key: (kind, key))
 
         def cleanup_menu():
             if self._active_menu is not menu:
@@ -280,7 +287,9 @@ class ContextMenuManager(QObject):
         QTimer.singleShot(0, popup_when_application_is_active)
 
     def start_dictation(self, *, from_ui=False, target=None):
-        if self._closed:
+        # Read at use time: the status menu, the voice menu, the « Dicter »
+        # button and instant dictation all end here.
+        if self._closed or not experimental_enabled(self.settings):
             return
         from supermenu_core.audio.dictation_flow import PlainDictationSession
         from supermenu_core.audio.settings import speech_options
@@ -318,6 +327,10 @@ class ContextMenuManager(QObject):
             SafeDialogs.show_information("Réglages de dictée", str(exc))
 
     def start_instant_dictation(self):
+        # Checked before touching _instant_session: finishing must never stop
+        # a session this call did not start.
+        if not experimental_enabled(self.settings):
+            return
         self._instant_session = None
         session = self._dictation
         if session and (session.is_recording or session.is_processing or getattr(session, "_delivery_busy", False)):
@@ -336,7 +349,9 @@ class ContextMenuManager(QObject):
         from supermenu_core.audio.session import DictationSession
         from supermenu_core.audio.settings import speech_options
 
-        if self._closed:
+        # Also covers a selection captured before the experimental features
+        # were turned off.
+        if self._closed or not experimental_enabled(self.settings):
             return
         if self._dictation is not None:
             self._dictation.cleanup()
@@ -353,7 +368,11 @@ class ContextMenuManager(QObject):
             SafeDialogs.show_information("Réglages de dictée", str(exc))
 
     def run_voice_prompt(self, prompt_id, *, from_ui=False):
-        if self._closed or self._selection_pending:
+        if (
+            self._closed
+            or self._selection_pending
+            or not experimental_enabled(self.settings)
+        ):
             return
         prompt = self.settings.get_voice_prompt(prompt_id)
         if not prompt:
@@ -401,7 +420,12 @@ class ContextMenuManager(QObject):
         self._capture_selection(self._handle_custom)
 
     def run_prompt_hotkey(self, prompt_id: str) -> None:
-        if self._closed or self._selection_pending:
+        # A shortcut queued before the advanced features were turned off.
+        if (
+            self._closed
+            or self._selection_pending
+            or not advanced_enabled(self.settings)
+        ):
             return
 
         def run(selected_text, target):
@@ -526,6 +550,9 @@ class ContextMenuManager(QObject):
         request_id = uuid.uuid4().hex
         if self._closed:
             return request_id
+        # Without the advanced features every prompt uses the Texte settings;
+        # its stored model is kept. Covers retries and kept answers too.
+        model_target = effective_model_target(self.settings, model_target)
         client = self.api_client
         indicator = None
         if insert_directly:

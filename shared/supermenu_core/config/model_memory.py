@@ -1,6 +1,8 @@
 """Model retention preferences shared by speech and text engines."""
 
 MODEL_IDLE_CHOICES = (0, 60, 300, 900, 1800, -1)
+# Default retention, also applied while the advanced features are off.
+DEFAULT_IDLE_SECONDS = 300
 
 
 def idle_choices(immediate="Après chaque utilisation"):
