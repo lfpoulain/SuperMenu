@@ -20,5 +20,6 @@ xcrun swiftc \
     "${project_dir}/native/FoundationModelsHelper.swift" \
     -o "${output_dir}/SuperMenuFoundationModels"
 
+# os_unsupported is only accepted on a runner older than macOS 26.
 printf '%s' '{"action":"availability"}' | "${output_dir}/SuperMenuFoundationModels" | \
-    python -c 'import json, sys; r = json.load(sys.stdin); assert type(r.get("ok")) is bool; assert r["ok"] or r.get("code") in {"os_unsupported", "device_not_eligible", "intelligence_disabled", "model_not_ready", "unavailable"}, r'
+    python "${script_dir}/check_native_helper.py" foundation

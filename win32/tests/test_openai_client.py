@@ -46,6 +46,15 @@ class FakeSettings:
         return self.reasoning_effort
 
 
+@pytest.fixture(autouse=True)
+def isolated_capabilities_cache():
+    # Probes are shared by every client of the process: a test must neither
+    # inherit nor leave behind the capabilities of another test.
+    client_module.clear_capabilities_cache()
+    yield
+    client_module.clear_capabilities_cache()
+
+
 @pytest.mark.parametrize(
     ("model", "configured_effort", "expected_effort"),
     [
@@ -164,6 +173,28 @@ def test_ollama_reads_thinking_capability_from_show_endpoint(monkeypatch):
     client._ensure_ollama_model_capabilities()
 
     assert client._ollama_capabilities == {"completion", "thinking"}
+
+
+def test_a_probe_of_another_test_is_never_reused(monkeypatch):
+    """The process-wide cache would otherwise make tests order-dependent."""
+    probes = []
+
+    class FailedResponse:
+        status_code = 503
+
+    monkeypatch.setattr(
+        client_module._SESSION,
+        "post",
+        lambda *_args, **_kwargs: probes.append(_args) or FailedResponse(),
+    )
+    client = OpenAIClient(
+        FakeSettings(use_custom_endpoint=True, custom_model="qwen3")
+    )
+
+    client._ensure_ollama_model_capabilities()
+
+    assert len(probes) == 1
+    assert client._ollama_capabilities is None
 
 
 def test_ollama_image_payload_uses_images_array_not_openai_content_parts():

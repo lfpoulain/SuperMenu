@@ -1,10 +1,11 @@
 """Shared text prompt fields; persistence and hotkeys stay in each adapter."""
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QGroupBox, QLineEdit, QTextEdit, QCheckBox, QHBoxLayout, QPushButton
+from PySide6.QtWidgets import QGroupBox, QLineEdit, QCheckBox, QHBoxLayout, QPushButton
 
 from .settings_panel import form_layout
 from .confirmations import confirm_action
+from .controls import PlainTextEdit
 from .prompt_reasoning import PromptReasoningChoice
 from .prompt_model import PromptModelChoice
 
@@ -42,8 +43,8 @@ class TextPromptForm(QGroupBox):
         self.name = QLineEdit()
         self.name.setPlaceholderText("Ex. : Corriger l’orthographe")
         form.addRow("Nom", self.name)
-        self.instruction = QTextEdit()
-        self.instruction.setAcceptRichText(False)
+        # Plain text only, even when an adapter loads it with setText().
+        self.instruction = PlainTextEdit()
         self.instruction.setMinimumHeight(100)
         self.instruction.setPlaceholderText("Ex. : Corrige l’orthographe et la grammaire du texte suivant.")
         form.addRow("Instructions", self.instruction)

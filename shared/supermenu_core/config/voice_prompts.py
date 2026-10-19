@@ -4,7 +4,15 @@ import json
 import logging
 import uuid
 
-from .prompts import default_voice_prompts, normalize_prompt_collection
+from .prompt_restore import backup_prompt_library
+from .prompts import (
+    default_voice_prompts,
+    normalize_prompt_collection,
+    repair_prompt_collection,
+)
+
+# A child of the "SuperMenu" logger, the only one both platforms write to file.
+logger = logging.getLogger("SuperMenu.core.config")
 
 VOICE_ORDER_CHOICES = (
     ("Instruction → Dictée → Sélection", "prompt_transcription_selected"),
@@ -39,17 +47,29 @@ class VoicePromptSettingsMixin:
             self.set_voice_prompts(self.default_voice_prompts)
 
     def get_voice_prompts(self):
+        stored = self.settings.value("voice_prompts", "{}")
         try:
-            raw = json.loads(self.settings.value("voice_prompts", "{}"))
-            normalized = normalize_prompt_collection(raw, voice=True)
-            if normalized != raw:
-                self.set_voice_prompts(normalized)
-            return normalized
+            raw = json.loads(stored)
+            normalized, problems = repair_prompt_collection(raw, voice=True)
         except (TypeError, ValueError):
-            logging.getLogger(__name__).error(
+            # Keep the unreadable value: the next edit replaces this key.
+            backup_prompt_library(self, "voice_prompts", stored, "repair")
+            logger.error(
                 "Configuration de prompts vocaux invalide"
             )
             return {}
+        if problems:
+            # Show every readable prompt, but leave the stored value untouched
+            # until the next edit; a copy of it is kept first.
+            if backup_prompt_library(self, "voice_prompts", stored, "repair"):
+                logger.warning(
+                    "%d anomalie(s) dans les prompts vocaux : copie conservée dans "
+                    "voice_prompts_backups",
+                    len(problems),
+                )
+        elif normalized != raw:
+            self.set_voice_prompts(normalized)
+        return normalized
 
     def get_voice_prompt(self, prompt_id):
         return self.get_voice_prompts().get(prompt_id)

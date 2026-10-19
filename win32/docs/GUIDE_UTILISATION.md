@@ -82,10 +82,10 @@ Lors du premier lancement de SuperMenu, ou en accédant aux paramètres via l'ic
      *   L'effort de raisonnement est enregistré séparément des réglages Ollama / LM Studio. Les modèles GPT-5.6 proposent `none`, `low`, `medium`, `high`, `xhigh` et `max`; GPT-5.4 propose les mêmes niveaux sauf `max`.
 
 3.  **Raccourcis Clavier** :
-    *   **Raccourci Principal** : Pour afficher le menu contextuel après avoir sélectionné du texte (par défaut : `Ctrl+²`).
+    *   **Raccourci Principal** : Pour afficher le menu contextuel après avoir sélectionné du texte (par défaut : `Ctrl+²`). Sur un clavier non AZERTY, `²` correspond à la touche située sous Échap (par exemple ``Ctrl+` `` en QWERTY ou `Ctrl+^` en QWERTZ).
     *   **Raccourci Capture d'Écran** : Pour lancer l'outil de capture d'écran (par défaut : `Ctrl+Alt+&`).
     *   **Raccourci Vocal** : Pour ouvrir le menu vocal (par défaut : `Ctrl+Alt+²`).
-    *   Règles : les raccourcis doivent contenir au moins un modificateur (`Ctrl`, `Alt` ou `Shift`). Les touches de fonction `F1` à `F24` sont prises en charge. La touche `Win` n'est pas autorisée et les raccourcis à une seule touche ne sont pas supportés.
+    *   Règles : les raccourcis doivent contenir au moins un modificateur (`Ctrl`, `Alt` ou `Shift`). Les touches de fonction `F1` à `F24` sont prises en charge. `Shift` seul ne convient qu'aux touches `F1` à `F24` : une lettre, un chiffre, un symbole, Espace, Entrée ou une flèche doit être combiné avec `Ctrl` ou `Alt`, car Windows réserve la combinaison à SuperMenu dans toutes les applications (`Shift+K` empêcherait de taper un K majuscule). La touche `Win` n'est pas autorisée et les raccourcis à une seule touche ne sont pas supportés.
 
 4. **Dictée et transcription** :
    * Dans **Réglages > Dictée**, choisissez OpenAI ou Foundry Local avec Nemotron. Ce choix est indépendant du moteur de texte.
@@ -121,13 +121,14 @@ Notes importantes :
 - Les raccourcis sont enregistrés au niveau Windows (raccourcis globaux).
 - Si un raccourci est déjà utilisé par une autre application, SuperMenu ne pourra pas l'enregistrer.
 - Certaines touches dépendent de la disposition clavier (ex : `²`, `&` en AZERTY). Si vous changez de layout, ajustez le raccourci.
+- Sur un clavier non AZERTY, `Ctrl+²` et `Ctrl+Alt+²` utilisent la touche située sous Échap (par exemple ``Ctrl+` `` en QWERTY ou `Ctrl+^` en QWERTZ).
 
 ## Utilisation quotidienne
 
 ### Menu contextuel
 
 1. Sélectionnez du texte dans n'importe quelle application
-2. Appuyez sur **Ctrl+²** (ou votre raccourci personnalisé)
+2. Appuyez sur **Ctrl+²** (ou votre raccourci personnalisé ; sur un clavier non AZERTY, la touche située sous Échap remplace `²`)
 3. Choisissez l'action souhaitée dans le menu qui apparaît
 4. Le résultat s'affiche dans une fenêtre dédiée ou est inséré directement
 
@@ -319,6 +320,10 @@ journaux, sans enregistrer le texte traité.
 état d’origine après confirmation. Les prompts personnels sont retirés et une copie
 JSON de la liste précédente est conservée dans `prompts_before_restore` ou
 `voice_prompts_before_restore` de la configuration. Les réglages des moteurs IA restent inchangés.
+En plus, les 5 dernières copies de chaque liste, faites avant une restauration, un import,
+une réinitialisation de tous les réglages ou lors de la lecture d’une configuration partiellement illisible,
+sont gardées dans `prompts_backups` et `voice_prompts_backups`. « Revenir à la copie… »
+remet la plus récente après confirmation ; la liste remplacée est elle-même gardée en copie.
 
 La majuscule d’une lettre dans un raccourci n’ajoute pas Shift : `Ctrl+Alt+C`
 fonctionne avec Ctrl, Alt et C seulement. SuperMenu attend le relâchement des touches

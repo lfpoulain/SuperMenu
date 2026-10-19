@@ -12,6 +12,7 @@ from supermenu_core.audio.settings import SpeechSettingsMixin
 from supermenu_core.config.model_memory import TextMemorySettingsMixin
 from supermenu_core.config.voice_prompts import VoicePromptSettingsMixin
 from supermenu_core.config.prompt_transfer import export_prompt_bundle, import_prompt_bundle
+from supermenu_core.config.prompt_restore import backup_prompt_library, keep_library_copy
 from src.config.build_info import BUILD_CHANNEL
 from src.config.foundry_models import DEFAULT_FOUNDRY_MODEL, normalize_foundry_model
 from supermenu_core.config.openai_models import (
@@ -26,6 +27,7 @@ from supermenu_core.config.prompts import (
     default_text_prompts,
     default_voice_prompts,
     normalize_prompt_collection,
+    repair_prompt_collection,
 )
 from supermenu_core.config.provider_settings import (
     CUSTOM_REASONING_EFFORTS,
@@ -248,11 +250,14 @@ class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSetting
 
     def get_openai_reasoning_effort(self, model=None):
         """Get and validate the OpenAI effort independently of local providers."""
-        model = normalize_openai_model(model or self.get_model())
+        saved_model = self.get_model()
+        model = normalize_openai_model(model or saved_model)
         default = get_default_reasoning_effort_for_model(model)
         effort = self.settings.value("openai_reasoning_effort", default)
         normalized = normalize_reasoning_effort(model, effort)
-        if normalized != effort:
+        # The stored effort belongs to the saved model. Previewing another one
+        # (scrolling the settings list, a prompt's own model) must not rewrite it.
+        if normalized != effort and model == saved_model:
             self.settings.setValue("openai_reasoning_effort", normalized)
         return normalized
 
@@ -500,13 +505,24 @@ class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSetting
         prompts_json = self.settings.value("prompts", "{}")
         try:
             raw_prompts = json.loads(prompts_json)
-            prompts = _normalize_prompt_collection(raw_prompts)
-            if prompts != raw_prompts:
-                self.set_prompts(prompts)
-            return prompts
+            prompts, problems = repair_prompt_collection(raw_prompts)
         except (json.JSONDecodeError, TypeError, ValueError) as e:
+            # Keep the unreadable value: the next edit replaces this key.
+            backup_prompt_library(self, "prompts", prompts_json, "repair")
             log(f"Configuration de prompts invalide: {e}", logging.ERROR)
             return {}
+        if problems:
+            # One invalid entry must not hide the whole library. The stored
+            # value is left untouched until the next edit and copied first.
+            if backup_prompt_library(self, "prompts", prompts_json, "repair"):
+                log(
+                    f"{len(problems)} anomalie(s) dans les prompts : prompts réparés "
+                    "ou ignorés, copie conservée dans prompts_backups",
+                    logging.WARNING,
+                )
+        elif prompts != raw_prompts:
+            self.set_prompts(prompts)
+        return prompts
     
     def get_prompt(self, prompt_id):
         """Get a specific prompt"""
@@ -661,6 +677,9 @@ class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSetting
         self.set_theme(self.default_theme)
         self.set_update_channel(self.default_update_channel)
         self.set_last_update_check_date("")
+        # The prompt libraries remain recoverable from prompts_backups.
+        keep_library_copy(self)
+        keep_library_copy(self, voice=True)
         self.set_prompts(self.default_prompts)
         self.set_voice_prompts(self.default_voice_prompts)
         self.set_model(self.default_model)

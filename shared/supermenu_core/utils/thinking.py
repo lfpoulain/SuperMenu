@@ -17,12 +17,53 @@ THINK_TAG_RE = re.compile(r"</?think\b[^>]*>", re.IGNORECASE)
 BRACKET_THINK_BLOCK_RE = re.compile(r"\[think\](.*?)\[/think\]", re.IGNORECASE | re.DOTALL)
 BRACKET_THINK_TAG_RE = re.compile(r"\[/?think\]", re.IGNORECASE)
 
-_UNCLOSED_RE = re.compile(r"<think\b[^>]*>", re.IGNORECASE)
-_UNCLOSED_BRACKET_RE = re.compile(r"\[think\]", re.IGNORECASE)
+# An unclosed block only counts when its tag opens a line: a literal "<think>"
+# quoted in the middle of an answer must not swallow the rest of the text.
+_UNCLOSED_RE = re.compile(r"^[ \t]*<think\b[^>]*>", re.IGNORECASE | re.MULTILINE)
+_UNCLOSED_BRACKET_RE = re.compile(r"^[ \t]*\[think\]", re.IGNORECASE | re.MULTILINE)
+# Likewise an orphan closing tag only ends the reasoning when it opens or ends
+# its line, as templates emit it ("...\n</think>\n\n"): a "</think>" quoted in
+# a sentence or in code stays text instead of hiding everything before it.
+_CLOSE_RE = re.compile(
+    r"^[ \t]*</think\b[^>]*>|</think\b[^>]*>(?=[ \t]*(?:\r?\n|$))",
+    re.IGNORECASE | re.MULTILINE,
+)
+_CLOSE_BRACKET_RE = re.compile(
+    r"^[ \t]*\[/think\]|\[/think\](?=[ \t]*(?:\r?\n|$))",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _split_at_last(pattern, visible, reasoning_parts):
+    """Treat everything before the last orphan closing tag as reasoning."""
+    closings = list(pattern.finditer(visible))
+    if not closings:
+        return visible
+    last = closings[-1]
+    head = visible[: last.start()]
+    head = BRACKET_THINK_TAG_RE.sub("", THINK_TAG_RE.sub("", head)).strip()
+    if head:
+        reasoning_parts.append(head)
+    return visible[last.end():]
+
+
+def _split_unclosed(pattern, visible, reasoning_parts):
+    unclosed = pattern.search(visible)
+    if not unclosed:
+        return visible
+    tail = visible[unclosed.end():].strip()
+    if tail:
+        reasoning_parts.append(tail)
+    return visible[: unclosed.start()]
 
 
 def split_inline_thinking(text):
-    """Return ``(visible, reasoning)``, including an unclosed final block."""
+    """Return ``(visible, reasoning)``, including an unclosed final block.
+
+    A closing tag without its opening one is also handled: templates that put
+    ``<think>`` in the prompt (Qwen3-Thinking, DeepSeek-R1 distills) only emit
+    the closing tag, so everything before it is the reasoning trace.
+    """
     if not isinstance(text, str) or not text:
         return "", ""
 
@@ -40,22 +81,11 @@ def split_inline_thinking(text):
     visible = THINK_BLOCK_RE.sub("", text)
     visible = BRACKET_THINK_BLOCK_RE.sub("", visible)
 
-    unclosed = _UNCLOSED_RE.search(visible)
-    if unclosed:
-        tail = visible[unclosed.end():].strip()
-        if tail:
-            reasoning_parts.append(tail)
-        visible = visible[: unclosed.start()]
+    visible = _split_at_last(_CLOSE_RE, visible, reasoning_parts)
+    visible = _split_at_last(_CLOSE_BRACKET_RE, visible, reasoning_parts)
+    visible = _split_unclosed(_UNCLOSED_RE, visible, reasoning_parts)
+    visible = _split_unclosed(_UNCLOSED_BRACKET_RE, visible, reasoning_parts)
 
-    unclosed_bracket = _UNCLOSED_BRACKET_RE.search(visible)
-    if unclosed_bracket:
-        tail = visible[unclosed_bracket.end():].strip()
-        if tail:
-            reasoning_parts.append(tail)
-        visible = visible[: unclosed_bracket.start()]
-
-    visible = THINK_TAG_RE.sub("", visible)
-    visible = BRACKET_THINK_TAG_RE.sub("", visible)
     return visible.strip(), "\n\n".join(reasoning_parts).strip()
 
 
@@ -79,5 +109,8 @@ def mask_thinking(text):
         return text, False
     if not contains_thinking(text):
         return text, False
-    visible, _reasoning = split_inline_thinking(text)
+    visible, reasoning = split_inline_thinking(text)
+    if not reasoning and visible == text.strip():
+        # Only quoted tags: nothing is hidden, so no reasoning toggle either.
+        return text, False
     return re.sub(r"\n{3,}", "\n\n", visible).strip(), True

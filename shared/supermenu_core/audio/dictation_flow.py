@@ -23,11 +23,15 @@ class PlainDictationSession(DictationSession):
         correction_factory,
         auto_insert=False,
         correct_before_insert=False,
+        correction_reasoning_mode="default",
         parent=None,
     ):
         super().__init__(backend_factory, options, parent=parent)
         self._insert_text = insert_text
         self._correction_factory = correction_factory
+        # A mode or a callable read at insertion time, so the « Corriger »
+        # prompt's current reasoning choice applies to the correction.
+        self.correction_reasoning_mode = correction_reasoning_mode
         self.auto_insert = auto_insert
         self.correct_before_insert = correct_before_insert
         self._correction_client = None
@@ -90,6 +94,10 @@ class PlainDictationSession(DictationSession):
             dialog.set_processing("Correction avec le moteur de texte choisi…")
             dialog._title("Correction…")
             try:
+                reasoning_mode = self.correction_reasoning_mode
+                if callable(reasoning_mode):
+                    reasoning_mode = reasoning_mode()
+                reasoning_mode = reasoning_mode or "default"
                 client = self._correction_factory()
                 self._correction_client = client
                 self._correction_id = uuid.uuid4().hex
@@ -100,6 +108,11 @@ class PlainDictationSession(DictationSession):
                     text,
                     include_reasoning=False,
                     request_id=self._correction_id,
+                    **(
+                        {"reasoning_mode": reasoning_mode}
+                        if reasoning_mode != "default"
+                        else {}
+                    ),
                 )
             except Exception as exc:
                 self._correction_failed(self._correction_id, str(exc))

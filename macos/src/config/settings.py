@@ -13,11 +13,13 @@ from supermenu_core.audio.settings import SpeechSettingsMixin
 from supermenu_core.config.model_memory import TextMemorySettingsMixin
 from supermenu_core.config.voice_prompts import VoicePromptSettingsMixin
 from supermenu_core.config.prompt_transfer import export_prompt_bundle, import_prompt_bundle
+from supermenu_core.config.prompt_restore import backup_prompt_library
 
 from supermenu_core.api.model_capabilities import normalize_reasoning_option
 from supermenu_core.config.prompts import (
     default_text_prompts,
     normalize_prompt_collection,
+    repair_prompt_collection,
 )
 from supermenu_core.config.provider_settings import normalize_update_channel
 from src.config.build_info import BUILD_CHANNEL
@@ -38,16 +40,22 @@ CUSTOM_ENDPOINT_API_KEY_SETTING = "custom_endpoint_api_key"
 _normalize_update_channel = normalize_update_channel
 
 
-def _normalize_prompts(value) -> dict[str, dict]:
+def _read_prompts(value) -> tuple[dict[str, dict], list[str]]:
+    """Return the usable prompts of a stored library and what was wrong."""
     if isinstance(value, str):
         try:
             value = json.loads(value)
         except json.JSONDecodeError:
-            return {}
+            return {}, ["Configuration de prompts illisible."]
     try:
-        return normalize_prompt_collection(value)
-    except (TypeError, ValueError):
-        return {}
+        return repair_prompt_collection(value)
+    except (TypeError, ValueError) as exc:
+        return {}, [str(exc)]
+
+
+def _normalize_prompts(value) -> dict[str, dict]:
+    # One invalid entry is repaired or left out instead of emptying the library.
+    return _read_prompts(value)[0]
 
 
 class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSettingsMixin, TextMemorySettingsMixin):
@@ -237,28 +245,29 @@ class Settings(ModelTargetSettingsMixin, SpeechSettingsMixin, VoicePromptSetting
         self.settings.setValue("update_channel", _normalize_update_channel(channel))
 
     def get_prompts(self) -> dict[str, dict]:
-        prompts = _normalize_prompts(self.settings.value("prompts", "{}"))
+        stored = self.settings.value("prompts", "{}")
+        prompts, problems = _read_prompts(stored)
+        # The stored value is left untouched until the next edit, which would
+        # replace it: keep a copy first instead of losing personal prompts.
+        if problems and backup_prompt_library(self, "prompts", stored, "repair"):
+            log(
+                f"{len(problems)} anomalie(s) dans les prompts : prompts réparés "
+                "ou ignorés, copie conservée dans prompts_backups",
+                logging.WARNING,
+            )
         return prompts or _normalize_prompts(self.default_prompts)
 
     def get_prompt(self, prompt_id: str):
         return self.get_prompts().get(prompt_id)
 
-    @staticmethod
-    def _assert_unique_hotkeys(prompts: dict[str, dict]) -> None:
-        seen = {}
-        for prompt_id, prompt in prompts.items():
-            hotkey = str(prompt.get("hotkey") or "").strip().casefold()
-            if not hotkey:
-                continue
-            if hotkey in seen:
-                raise ValueError(
-                    f"Le raccourci est déjà utilisé par le prompt '{seen[hotkey]}'."
-                )
-            seen[hotkey] = prompt_id
-
     def set_prompts(self, prompts: dict[str, dict]) -> None:
-        normalized = _normalize_prompts(prompts)
-        self._assert_unique_hotkeys(normalized)
+        if isinstance(prompts, str):
+            prompts = json.loads(prompts)
+        # Invalid data and shared hotkeys are refused instead of being saved as
+        # an empty library or silently clearing another prompt's hotkey.
+        normalized = normalize_prompt_collection(
+            prompts, reject_duplicate_hotkeys=True
+        )
         self.settings.setValue(
             "prompts",
             json.dumps(normalized, ensure_ascii=False),

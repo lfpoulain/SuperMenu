@@ -1,5 +1,10 @@
+import hashlib
 import json
+import logging
+import os
 import re
+import shutil
+import tempfile
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 
@@ -16,12 +21,36 @@ _VERSION_PATTERN = re.compile(
     r"v?(\d+\.\d+\.\d+(?:-(?:beta|rc)\.\d+)?)",
     re.IGNORECASE,
 )
+# "Windows version: X" (metadata line) or "Windows : `X`" (beta summary line).
+_WINDOWS_VERSION_LINE = re.compile(
+    rf"Windows(?:\s+version)?\s*:\s*`?{_VERSION_PATTERN.pattern}",
+    re.IGNORECASE,
+)
+_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
+# The rolling beta reuses its tag: each push to main replaces the installer
+# at this same URL, possibly while the "Télécharger" question was open.
+_ROLLING_BETA_ASSET_URL = re.compile(
+    r"https://github\.com/([\w.-]+)/([\w.-]+)/releases/download/beta/([\w.-]+)",
+    re.IGNORECASE,
+)
+_DOWNLOAD_FOLDER_PREFIX = "SuperMenu_update_"
 
 _MANIFEST_SCHEMA_VERSION = 1
+
+# Same logger as src.utils.logger, without importing its file handlers here.
+_LOGGER = logging.getLogger("SuperMenu")
 
 
 class UpdateCheckError(RuntimeError):
     """User-facing update lookup failure."""
+
+
+class UpdateIntegrityError(UpdateCheckError):
+    """The downloaded installer does not match its published SHA-256."""
+
+
+class UpdateSupersededError(UpdateIntegrityError):
+    """A newer rolling beta replaced the installer during the update."""
 
 
 def _build_session() -> requests.Session:
@@ -220,21 +249,35 @@ def _release_from_manifest(
         raise ValueError("Le tag du manifeste de mise à jour est incorrect.")
 
     asset_name = installer_asset_name(expected_channel)
+    declared_asset = payload.get("asset")
+    if declared_asset is not None and declared_asset != asset_name:
+        raise ValueError("L'installateur déclaré dans le manifeste est incorrect.")
+
+    # Manifests published before the fingerprint was added have no sha256;
+    # a declared one must be valid, otherwise the manifest is rejected.
+    sha256 = None
+    if payload.get("sha256") is not None:
+        sha256 = str(payload.get("sha256")).strip().lower()
+        if not _SHA256_PATTERN.fullmatch(sha256):
+            raise ValueError("L'empreinte SHA-256 du manifeste est invalide.")
+
     release_base = f"https://github.com/{owner}/{repo}/releases"
+    asset = {
+        "name": asset_name,
+        "browser_download_url": (
+            f"{release_base}/download/{tag}/{asset_name}"
+        ),
+    }
+    if sha256:
+        # Same field and format as the GitHub API release assets.
+        asset["digest"] = f"sha256:{sha256}"
     return {
         "name": f"SuperMenu {version}",
         "body": f"Channel: {expected_channel}\nVersion: {version}",
         "tag_name": tag,
         "prerelease": prerelease,
         "html_url": f"{release_base}/tag/{tag}",
-        "assets": [
-            {
-                "name": asset_name,
-                "browser_download_url": (
-                    f"{release_base}/download/{tag}/{asset_name}"
-                ),
-            }
-        ],
+        "assets": [asset],
     }
 
 
@@ -318,6 +361,12 @@ def get_release_for_update_channel(
 
 def extract_version_from_release(release: dict) -> Optional[str]:
     body = release.get("body") or ""
+    # Shared releases list both platforms; the metadata lines are appended
+    # after the human notes, so the last Windows line wins.
+    windows_versions = _WINDOWS_VERSION_LINE.findall(body)
+    if windows_versions:
+        return windows_versions[-1]
+
     m = re.search(
         rf"Version:\s*{_VERSION_PATTERN.pattern}",
         body,
@@ -347,10 +396,170 @@ def find_asset_download_url(release: dict, asset_name: str) -> Optional[str]:
     return None
 
 
-def download_to_file(url: str, dest_path: str, timeout_s: int = 60) -> None:
+def _normalize_sha256(value) -> Optional[str]:
+    normalized = str(value or "").strip().lower()
+    if normalized.startswith("sha256:"):
+        normalized = normalized[len("sha256:"):]
+    if _SHA256_PATTERN.fullmatch(normalized):
+        return normalized
+    return None
+
+
+def find_asset_sha256(release: dict, asset_name: str) -> Optional[str]:
+    """Return the published SHA-256 of an asset, or None if unknown.
+
+    Manifests and the GitHub API both expose it as "digest": "sha256:<hex>".
+    """
+    for asset in release.get("assets") or []:
+        if (asset.get("name") or "").lower() == asset_name.lower():
+            return _normalize_sha256(asset.get("digest"))
+    return None
+
+
+def _download_and_hash(url: str, dest_path: str, timeout_s: int) -> str:
+    digest = hashlib.sha256()
     with _SESSION.get(url, stream=True, timeout=(10, timeout_s)) as r:
         r.raise_for_status()
         with open(dest_path, "wb") as f:
             for chunk in r.iter_content(chunk_size=1024 * 256):
                 if chunk:
                     f.write(chunk)
+                    digest.update(chunk)
+    return digest.hexdigest()
+
+
+def download_to_file(url: str, dest_path: str, timeout_s: int = 60) -> None:
+    _download_and_hash(url, dest_path, timeout_s)
+
+
+def _file_sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 256), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _discard_downloaded_installer(path: str) -> None:
+    """Delete a refused installer, only inside one of our private folders."""
+    folder = os.path.dirname(os.path.abspath(path))
+    temp_dir = os.path.abspath(tempfile.gettempdir())
+    if os.path.basename(folder).startswith(_DOWNLOAD_FOLDER_PREFIX) and (
+        os.path.normcase(os.path.dirname(folder)) == os.path.normcase(temp_dir)
+    ):
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def _remove_previous_downloads() -> None:
+    """Delete the folders left by earlier downloads, best effort.
+
+    Each download gets a new mkdtemp folder: an installer declined at
+    "Lancer l'installation maintenant ?", refused at launch or already run
+    would otherwise stay in %TEMP% (about 100 MB each). A file still in use,
+    such as a running installer, cannot be deleted and is simply left.
+    """
+    try:
+        with os.scandir(tempfile.gettempdir()) as entries:
+            folders = [
+                entry.path
+                for entry in entries
+                if entry.name.startswith(_DOWNLOAD_FOLDER_PREFIX)
+                and not entry.is_symlink()
+                and entry.is_dir(follow_symlinks=False)
+            ]
+    except OSError:
+        return
+    for folder in folders:
+        # rmtree refuses a junction and never follows links inside the folder.
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def _rolling_beta_republished(url: str, expected_sha256: str) -> bool:
+    """Whether the beta manifest now publishes another installer fingerprint.
+
+    Read once and best effort: any failure keeps the strict integrity refusal.
+    """
+    match = _ROLLING_BETA_ASSET_URL.fullmatch(str(url or ""))
+    if not match:
+        return False
+    owner, repo, asset_name = match.groups()
+    try:
+        release = get_release_from_manifest(owner, repo, UPDATE_CHANNEL_BETA)
+        published = find_asset_sha256(release or {}, asset_name)
+    except Exception:
+        return False
+    return bool(published) and published != expected_sha256
+
+
+def verify_installer_sha256(path: str, expected_sha256: Optional[str]) -> None:
+    """Check an installer again right before it is launched.
+
+    Without a published fingerprint (older manifests) there is nothing to
+    compare, and the download already logged a warning. A refused installer
+    is deleted when it sits in a folder created by download_verified_installer.
+    """
+    if not expected_sha256:
+        return
+    expected = _normalize_sha256(expected_sha256)
+    if expected is None or _file_sha256(path) != expected:
+        _discard_downloaded_installer(path)
+        raise UpdateIntegrityError(
+            "L'installateur ne correspond plus à l'empreinte publiée. "
+            "Il ne sera pas lancé."
+        )
+
+
+def download_verified_installer(
+    url: str,
+    file_name: str,
+    expected_sha256: Optional[str],
+    timeout_s: int = 60,
+) -> str:
+    """Download an installer into a private temporary folder and verify it.
+
+    The folder comes from tempfile.mkdtemp, so the path is not predictable;
+    the folders of earlier downloads are deleted first. The installer is
+    returned only once its SHA-256 matches the published one; on mismatch,
+    the folder is deleted and UpdateIntegrityError raised, or its subclass
+    UpdateSupersededError when a newer rolling beta was published meanwhile.
+    Older manifests have no fingerprint: the download is then accepted with
+    a warning in the logs, so updates keep working during the transition.
+    """
+    expected = None
+    if expected_sha256:
+        expected = _normalize_sha256(expected_sha256)
+        if expected is None:
+            raise UpdateIntegrityError(
+                "L'empreinte publiée pour l'installateur est invalide."
+            )
+
+    safe_name = os.path.basename(str(file_name or "").replace("\\", "/"))
+    if not safe_name or safe_name in (".", ".."):
+        safe_name = "SuperMenu_Setup.exe"
+
+    _remove_previous_downloads()
+    folder = tempfile.mkdtemp(prefix=_DOWNLOAD_FOLDER_PREFIX)
+    dest_path = os.path.join(folder, safe_name)
+    try:
+        actual = _download_and_hash(url, dest_path, timeout_s)
+        if expected is None:
+            _LOGGER.warning(
+                "Mise à jour : aucune empreinte SHA-256 publiée pour %s ; "
+                "intégrité du téléchargement non vérifiée.",
+                safe_name,
+            )
+        elif actual != expected:
+            if _rolling_beta_republished(url, expected):
+                raise UpdateSupersededError(
+                    "Une nouvelle bêta a été publiée pendant la mise à jour. "
+                    "Le fichier téléchargé a été supprimé ; relancez « Vérifier "
+                    "les mises à jour » pour installer la dernière bêta."
+                )
+            raise UpdateIntegrityError(
+                "L'installateur téléchargé ne correspond pas à l'empreinte "
+                "publiée. Il a été supprimé ; réessayez plus tard."
+            )
+    except BaseException:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    return dest_path

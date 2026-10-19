@@ -109,7 +109,7 @@ Au premier lancement (ou via l'icône dans la barre des tâches) :
 1. **Moteur IA** : Choisis OpenAI avec ta clé API, un endpoint Ollama/LM Studio,
    ou **IA locale Microsoft** puis télécharge un Qwen et enregistre la configuration.
 2. **Raccourcis** : Vérifie ou modifie les raccourcis par défaut.
-   - **Menu** : `Ctrl+²` (le carré, en haut à gauche du clavier AZERTY).
+   - **Menu** : `Ctrl+²` (le carré, en haut à gauche du clavier AZERTY). Sur un clavier non AZERTY, c'est la touche située sous Échap (par exemple ``Ctrl+` `` en QWERTY ou `Ctrl+^` en QWERTZ).
    - **Voix** : `Ctrl+Alt+²`.
    - **Capture** : `Ctrl+Alt+&`.
    - **Mode personnalisé** : `Ctrl+Alt+M`.
@@ -174,11 +174,12 @@ dist\SuperMenu.exe --smoke-test
 - `../.github/workflows/stable-release.yml` publie une release stable immuable uniquement lors du push d'un tag `vMAJOR.MINOR.PATCH`.
 - `VERSION` contient la prochaine version stable attendue. Le tag stable doit correspondre exactement à ce fichier.
 
-Pour publier une stable, il faut volontairement effectuer ces trois opérations :
+Pour publier une stable, il faut volontairement effectuer ces quatre opérations :
 
 1. inscrire le nouveau numéro sans `v` dans `VERSION`, par exemple `1.2.1` ;
-2. commiter et pousser ce changement sur `main`, puis attendre que la CI réussisse ;
-3. créer et pousser le tag correspondant avec un `v`, par exemple `v1.2.1`.
+2. mettre à jour `../.github/STABLE_NOTES.md` avec les nouveautés, en y citant ce numéro (par exemple « ## Nouveautés de SuperMenu 1.2.1 ») : ce fichier devient le texte de la release ;
+3. commiter et pousser ces changements sur `main`, puis attendre que la CI réussisse ;
+4. créer et pousser le tag correspondant avec un `v`, par exemple `v1.2.1`.
 
 Exemple lorsque `VERSION` contient déjà `1.2.1` et que ce changement est sur `main` :
 
@@ -188,7 +189,7 @@ git tag v1.2.1
 git push origin v1.2.1
 ```
 
-À partir du push du tag, les tests, la compilation des exécutables et de l'installateur, les checksums et la publication de la release GitHub Stable sont automatiques. Si le tag et `VERSION` ne correspondent pas, le workflow s'arrête sans publier.
+À partir du push du tag, les tests, la compilation des exécutables et de l'installateur, les checksums et la publication de la release GitHub Stable sont automatiques. Si le tag et `VERSION` ne correspondent pas, ou si `STABLE_NOTES.md` ne cite pas la version, le workflow s'arrête dès la première minute sans publier.
 
 ---
 

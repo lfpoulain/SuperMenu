@@ -14,6 +14,7 @@ faciliter le débogage des problèmes rencontrés par les utilisateurs.
 import logging
 import os
 import sys
+import threading
 from logging.handlers import RotatingFileHandler
 
 
@@ -41,10 +42,11 @@ formatter = logging.Formatter(
 )
 
 if not logger.handlers:
-    # Sortie console
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    # Sortie console (absente de l'EXE fenêtré, où sys.stderr vaut None)
+    if sys.stderr is not None:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
  
     # Sortie fichier avec rotation (1 Mo par fichier, 3 sauvegardes)
     file_handler = RotatingFileHandler(
@@ -57,3 +59,39 @@ if not logger.handlers:
 def log(message: str, level: int = logging.INFO) -> None:
     """Journalise un message avec le niveau spécifié."""
     logger.log(level, message)
+
+
+_crash_reporting_installed = False
+
+
+def install_crash_reporting() -> None:
+    """Écrit dans le journal les exceptions non gérées.
+
+    L'EXE est construit sans console : sans ces crochets, une exception levée
+    dans un slot Qt ou dans un thread ne laisse aucune trace.
+    """
+    global _crash_reporting_installed
+    if _crash_reporting_installed:
+        return
+    _crash_reporting_installed = True
+
+    def handle_exception(exc_type, exc_value, exc_traceback):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+            return
+        logger.critical(
+            "Exception non gérée dans le thread principal",
+            exc_info=(exc_type, exc_value, exc_traceback),
+        )
+
+    def handle_thread_exception(args):
+        if issubclass(args.exc_type, SystemExit):
+            return
+        logger.critical(
+            "Exception non gérée dans le thread %s",
+            getattr(args.thread, "name", "inconnu"),
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+
+    sys.excepthook = handle_exception
+    threading.excepthook = handle_thread_exception

@@ -5,7 +5,9 @@
 Validateurs pour les entrées utilisateur dans SuperMenu.
 """
 
+import ipaddress
 import re
+from urllib.parse import urlsplit
 
 
 class Validators:
@@ -77,18 +79,7 @@ class Validators:
 
         url = url.strip()
 
-        # Vérifier le format de base d'une URL
-        url_pattern = re.compile(
-            r"^https?://"  # http:// ou https://
-            r"(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|"  # domaine...
-            r"localhost|"  # ou localhost
-            r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"  # ou adresse IP
-            r"(?::\d+)?"  # port optionnel
-            r"(?:/?|[/?]\S+)$",
-            re.IGNORECASE,
-        )
-
-        if not url_pattern.match(url):
+        if not re.match(r"^https?://", url, re.IGNORECASE):
             return (
                 False,
                 "Format d'URL invalide. L'URL doit commencer par http:// ou https://",
@@ -98,7 +89,61 @@ class Validators:
         if "javascript:" in url.lower() or "data:" in url.lower():
             return False, "URL potentiellement dangereuse détectée"
 
+        if re.search(r"\s", url):
+            return False, "Format d'URL invalide : l'URL ne doit pas contenir d'espace"
+
+        try:
+            parsed = urlsplit(url)
+            port = parsed.port
+        except ValueError:
+            return False, "Format d'URL invalide : port ou adresse incorrects"
+
+        hostname = parsed.hostname or ""
+        if not hostname:
+            return False, "Format d'URL invalide : nom du serveur manquant"
+        if port == 0:
+            return False, "Format d'URL invalide : port incorrect"
+        if not Validators._is_valid_hostname(hostname):
+            return (
+                False,
+                "Format d'URL invalide : nom du serveur ou adresse IP incorrects",
+            )
+
         return True, ""
+
+    @staticmethod
+    def _is_valid_hostname(hostname):
+        """Accept DNS, NetBIOS / container short names, IPv4 and IPv6 hosts.
+
+        LAN servers are routinely reached by a dotless name ("gpu-box",
+        "DESKTOP-AB12CD", "ollama") or a long private suffix
+        (".internal"), which a public-domain pattern rejected.
+        """
+        if ":" in hostname:
+            try:
+                ipaddress.IPv6Address(hostname)
+            except ValueError:
+                return False
+            return True
+
+        if re.fullmatch(r"[\d.]+", hostname):
+            try:
+                ipaddress.IPv4Address(hostname)
+            except ValueError:
+                return False
+            return True
+
+        labels = hostname[:-1].split(".") if hostname.endswith(".") else hostname.split(".")
+        if len(hostname) > 253:
+            return False
+        for label in labels:
+            if not label or len(label) > 63:
+                return False
+            if label.startswith("-") or label.endswith("-"):
+                return False
+            if not all(char.isalnum() or char in "-_" for char in label):
+                return False
+        return True
 
     @staticmethod
     def validate_model_name(model_name):
@@ -119,12 +164,17 @@ class Validators:
         if len(model_name) < 2:
             return False, "Le nom du modèle est trop court"
 
-        # Autoriser lettres, chiffres, tirets, underscores, points, deux-points et slashes
-        # Pattern plus permissif pour supporter différents formats de noms de modèles
-        if not re.match(r"^[a-zA-Z0-9._:/-]+$", model_name):
+        if len(model_name) > 256:
+            return False, "Le nom du modèle est trop long"
+
+        # Le nom part uniquement dans le JSON de la requête : les serveurs
+        # locaux utilisent des identifiants variés (« @q4_k_m » de LM Studio,
+        # identifiants d'instance personnalisés...). Seuls les caractères de
+        # contrôle sont refusés.
+        if re.search(r"[\x00-\x1f\x7f]", model_name):
             return (
                 False,
-                "Le nom du modèle contient des caractères invalides (seuls les lettres, chiffres, points, tirets, underscores, deux-points et slashes sont autorisés)",
+                "Le nom du modèle contient des caractères de contrôle invalides",
             )
 
         return True, ""

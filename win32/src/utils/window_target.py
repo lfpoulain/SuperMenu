@@ -27,6 +27,19 @@ class _GuiThreadInfo(ctypes.Structure):
     ]
 
 
+# Clients that forward the paste to another machine: Remote Desktop (mstsc,
+# Windows App), RemoteApp windows, Citrix Workspace and VMware.
+REMOTE_SESSION_WINDOW_CLASSES = frozenset(
+    {
+        "TscShellContainerClass",
+        "RAIL_WINDOW",
+        "Transparent Windows Client",
+        "VMUIFrame",
+        "VMPlayerFrame",
+    }
+)
+
+
 def _focused_control(thread_id: int) -> int | None:
     info = _GuiThreadInfo()
     info.cbSize = ctypes.sizeof(_GuiThreadInfo)
@@ -57,6 +70,13 @@ class PasteTarget:
             )
         except Exception:
             return None
+
+    def is_remote_session(self) -> bool:
+        """Whether the paste is forwarded to a remote desktop or a VM."""
+        try:
+            return win32gui.GetClassName(self.foreground_hwnd) in REMOTE_SESSION_WINDOW_CLASSES
+        except Exception:
+            return False
 
     def activate_and_verify(self) -> bool:
         """Activate the captured window and reject any changed focus control."""

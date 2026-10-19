@@ -72,7 +72,15 @@ def test_settings_views_isolate_model_device_and_credentials():
     assert remote.get_custom_model() == "large"
     assert settings.get_custom_model() == "gemma"
     assert local.get_custom_endpoint_api_key() == "server-secret"
-    assert remote.get_custom_endpoint_api_key() == ""
+    # A server stored in the prompt (older version, imported file) is ignored:
+    # the request goes to the configured server, with its own credential.
+    assert remote.get_custom_endpoint() == "http://localhost:1234"
+    assert remote.get_custom_endpoint_api_key() == "server-secret"
+    assert remote.get_custom_model_target() == {
+        "provider": "custom",
+        "model": "large",
+        "device": "apple",
+    }
 
 
 def test_global_target_and_friendly_names_are_persisted_per_endpoint():

@@ -223,6 +223,12 @@ SuperMenu normalise les noms des touches. Par exemple,
 `Command+Shift+<` et `Cmd+Shift+<` représentent la même combinaison. Un doublon
 est refusé au lieu de remplacer silencieusement un raccourci existant.
 
+Les lettres, chiffres, symboles, Espace, Entrée et flèches doivent être
+combinés avec Cmd ou Ctrl : SuperMenu observe le clavier sans intercepter la
+frappe, donc `Shift+K` ou `Option+Espace` seraient aussi tapés dans
+l’application active. Shift ou Option seuls restent possibles avec F1 à F24.
+`Cmd+A`, `Cmd+C`, `Cmd+V`, `Cmd+X` et `Cmd+Z` sont réservés.
+
 Le bouton **Afficher le menu des prompts** permet de tester tout le flux sans
 utiliser le raccourci global. Il aide à distinguer un problème d’écoute clavier
 d’un problème de sélection ou d’affichage.
@@ -276,8 +282,12 @@ Après un traitement normal, quatre actions peuvent être proposées :
 - **Écrire** réactive l’application capturée et y colle la réponse.
 
 L’insertion est annulée si la cible n’existe plus ou si une autre application
-est devenue active au moment critique. Cette vérification évite de coller une
-réponse dans la mauvaise fenêtre.
+est devenue active au moment critique. SuperMenu mémorise aussi, via
+Accessibilité, la fenêtre active de l’application cible : le collage est
+annulé si une autre fenêtre ou un autre document de la même application est
+devenu actif. Si l’Accessibilité ne peut pas répondre, seule l’application est
+vérifiée. Cette vérification évite de coller une réponse dans la mauvaise
+fenêtre.
 
 ### Insertion directe
 
@@ -285,8 +295,11 @@ Lorsqu’un prompt active **Insérer directement la réponse dans l’applicatio
 cible**, la fenêtre de réponse n’est pas ouverte. Un indicateur près du curseur
 affiche la progression, puis SuperMenu réactive la cible et colle le résultat.
 
-Évitez de changer d’application pendant cette opération : l’identité et l’état
-de la cible sont volontairement vérifiés avant le collage.
+Évitez de changer d’application, de fenêtre ou de document pendant cette
+opération : l’application et la fenêtre cibles sont volontairement vérifiées
+avant le collage. Si l’insertion est annulée, la réponse n’est pas perdue :
+elle s’affiche dans la fenêtre de réponse, ou elle est copiée dans le
+presse-papiers si cette fenêtre attend déjà une autre réponse.
 
 ## Gérer les prompts
 
@@ -424,9 +437,11 @@ SuperMenu n’a lu aucun texte. Vérifiez que :
 
 ### « La cible a changé » ou « Insertion annulée »
 
-L’application capturée n’est plus considérée comme la cible sûre. Ne changez
-pas d’application pendant la requête, puis relancez le prompt depuis la fenêtre
-où le texte doit être inséré.
+L’application ou la fenêtre capturée n’est plus considérée comme la cible
+sûre. Ne changez pas d’application, de fenêtre ou de document pendant la
+requête. En insertion directe, la réponse reste disponible dans la fenêtre de
+réponse ou dans le presse-papiers ; sinon, relancez le prompt depuis la
+fenêtre où le texte doit être inséré.
 
 Si vous souhaitez seulement récupérer le résultat, utilisez **Copier** plutôt
 que **Écrire**.
@@ -507,7 +522,11 @@ la liste de l’onglet courant par les prompts d’origine, y compris ceux suppr
 La confirmation indique que les prompts personnels et leurs raccourcis seront retirés.
 Une copie JSON de la liste précédente reste dans `prompts_before_restore` ou
 `voice_prompts_before_restore` de la configuration. Les modèles et autres réglages
-ne sont pas modifiés.
+ne sont pas modifiés. En plus, les 5 dernières copies de chaque liste, faites avant
+une restauration, un import ou lors de la lecture d’une configuration
+partiellement illisible, sont gardées dans `prompts_backups` et
+`voice_prompts_backups`. « Revenir à la copie… » remet la plus récente après
+confirmation ; la liste remplacée est elle-même gardée en copie.
 
 La validation automatique native utilise macOS 15 ; la confirmation du correctif
 sur macOS 27 nécessite aussi un essai sur le Mac concerné.

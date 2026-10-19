@@ -35,8 +35,15 @@ def verify_bundled_runtime():
             "Les composants temporaires de SuperMenu ne sont plus disponibles. "
             "Quittez complètement SuperMenu depuis son icône près de l’horloge, "
             "puis relancez-le. Vos modèles téléchargés sont conservés. "
-            "Si le problème persiste, réinstallez la bêta."
+            "Si le problème persiste, réinstallez SuperMenu."
         )
+
+
+def unknown_model_message():
+    # Built from the catalogue so that adding a model updates the advice.
+    names = [info["label"].split(" — ")[0] for info in FOUNDRY_MODELS.values()]
+    choices = ", ".join(names[:-1]) + " ou " + names[-1] if len(names) > 1 else "".join(names)
+    return f"Choisissez {choices} dans les réglages."
 
 
 def cache_root():
@@ -76,8 +83,13 @@ def configure_text_model(root, model_id):
     for manifest in (root / "cache" / "models").rglob("inference_model.json"):
         if not manifest.resolve().is_relative_to(root):
             continue
-        data = json.loads(manifest.read_text(encoding="utf-8"))
-        if data.get("Name") != model_id:
+        # The cache is shared with the speech worker: an unreadable manifest of
+        # another model (partial download, corruption) must not block this one.
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeError):
+            continue
+        if not isinstance(data, dict) or data.get("Name") != model_id:
             continue
         folder = manifest.parent
         template_path = folder / "chat_template.jinja"
@@ -215,7 +227,7 @@ class FoundryRuntime:
 
     def model(self, alias, device="auto"):
         if alias not in FOUNDRY_MODELS:
-            raise LocalError("Choisissez Qwen3.5 4B ou Qwen3.5 9B dans les réglages.")
+            raise LocalError(unknown_model_message())
         self.initialize()
         model = self.manager.catalog.get_model(alias)
         if model is None:

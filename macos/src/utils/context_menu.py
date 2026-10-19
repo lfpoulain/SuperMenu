@@ -7,8 +7,10 @@ import uuid
 
 from PySide6.QtCore import QObject, QTimer
 from PySide6.QtGui import QCursor
+from PySide6.QtWidgets import QApplication
 
 
+from supermenu_core.api.openai_client import clear_capabilities_cache
 from supermenu_core.config.model_target import ModelTargetSettings, settings_for_prompt
 from supermenu_core.ui.controls import Menu as QMenu, populate_prompt_menu
 from supermenu_core.ui.voice_menu import populate_voice_menu
@@ -32,6 +34,22 @@ MENU_ACTIVATION_POLL_MS = 25
 MENU_ACTIVATION_MAX_POLLS = 6
 MENU_FORCED_ACTIVATION_DELAY_MS = 50
 MENU_VISIBILITY_CHECK_DELAY_MS = 350
+
+
+def _application_level(target):
+    """The target without its window-level check, when it has one.
+
+    « Écrire » is an explicit click: the user may well have opened the reply
+    or document the answer is meant for in the meantime. Only the insertions
+    nobody confirms keep the window-level check.
+    """
+    application_only = getattr(target, "application_only", None)
+    if not callable(application_only):
+        return target
+    try:
+        return application_only()
+    except Exception:
+        return target
 
 
 class ContextMenuManager(QObject):
@@ -168,7 +186,13 @@ class ContextMenuManager(QObject):
         def handle_action(chosen):
             nonlocal action_dispatched
             data = chosen.data()
-            action_dispatched = bool(data)
+            # A prompt that pastes its answer directly opens no window. Hand
+            # the foreground back to the target right away, as for a cancel,
+            # instead of leaving SuperMenu active and windowless for the
+            # whole model call; the insertion re-checks the target anyway.
+            action_dispatched = bool(data) and not self._prompt_inserts_directly(
+                data
+            )
             cleanup_menu()
             if self._closed or not data:
                 return
@@ -282,6 +306,8 @@ class ContextMenuManager(QObject):
                 lambda options: create_speech_backend(self.settings, options),
                 speech_options(self.settings), insert_text=insert,
                 correction_factory=lambda: self._create_api_client(settings_for_prompt(self.settings, "corriger")),
+                # Read at insertion time, like the model of the « Corriger » prompt.
+                correction_reasoning_mode=lambda: (self.settings.get_prompt("corriger") or {}).get("reasoning_mode", "default"),
                 auto_insert=self.settings.get_dictation_auto_insert(),
                 correct_before_insert=self.settings.get_dictation_correct_before_insert(),
                 parent=self,
@@ -352,13 +378,20 @@ class ContextMenuManager(QObject):
             status = prompt.get("status") or "Traitement en cours…"
             if not direct:
                 self._prepare_response_window(status, request, "", target)
-            self._send_request(
+            request_id = self._send_request(
                 request, "", insert_directly=direct, target=target,
                 include_reasoning=False if direct else None,
                 direct_status=f"Envoyé — {status}",
                 reasoning_mode=prompt.get("reasoning_mode", "default"),
                 model_target=prompt.get("model_target"),
             )
+            restore = getattr(target, "request_activation", None)
+            if direct and callable(restore) and request_id in self._pending_requests:
+                # The recording window closes right after this callback and no
+                # other window opens: give the foreground back to the target
+                # for the model call, as the menu does for a direct prompt.
+                # The insertion re-checks the target before pasting anyway.
+                QTimer.singleShot(0, restore)
 
         self._start_voice_session(process_transcription)
 
@@ -381,6 +414,17 @@ class ContextMenuManager(QObject):
             self._handle_prompt(prompt_id, selected_text, target)
 
         self._capture_selection(run)
+
+    def _prompt_inserts_directly(self, action_data) -> bool:
+        """Whether a menu entry is a text prompt that opens no window."""
+        try:
+            action_kind, prompt_id = action_data
+            if action_kind != "prompt":
+                return False
+            prompt = self.settings.get_prompt(prompt_id)
+            return bool(prompt and prompt.get("insert_directly", False))
+        except Exception:
+            return False
 
     def _handle_prompt(self, prompt_id: str, text: str, target) -> None:
         prompt = self.settings.get_prompt(prompt_id)
@@ -459,7 +503,7 @@ class ContextMenuManager(QObject):
     ) -> None:
         self.response_window.set_status(status)
         self.response_window.set_trigger_position(QCursor.pos())
-        self.response_window.set_paste_target(target)
+        self.response_window.set_paste_target(_application_level(target))
         self.response_window.store_request(prompt, content)
         self.response_window.present()
 
@@ -494,6 +538,14 @@ class ContextMenuManager(QObject):
             "target": target,
             "indicator": indicator,
         }
+        if insert_directly:
+            # Kept so that a refused insertion can still show and retry it.
+            self._pending_requests[request_id].update(
+                prompt=prompt,
+                content=content,
+                reasoning_mode=reasoning_mode,
+                model_target=model_target,
+            )
         if not insert_directly:
             self._active_response_request_id = request_id
             self.response_window.last_reasoning_mode = reasoning_mode
@@ -542,6 +594,7 @@ class ContextMenuManager(QObject):
                 request.get("target") or target,
                 request.get("indicator"),
                 client,
+                request=request,
             )
             return
         if request_id == self._active_response_request_id:
@@ -549,7 +602,7 @@ class ContextMenuManager(QObject):
             self.response_window.set_loading(False)
         self._release_retired_client_if_idle(client)
 
-    def _insert_directly(self, response, target, indicator, client) -> None:
+    def _insert_directly(self, response, target, indicator, client, request=None) -> None:
         """Paste the answer without blocking the run loop that drives focus.
 
         The synchronous helper slept through activation and the clipboard
@@ -565,6 +618,10 @@ class ContextMenuManager(QObject):
             except ValueError:
                 pass
             if self._closed:
+                # The indicator now stays alive until closed: do not leave it
+                # on screen while the application quits.
+                if indicator is not None:
+                    indicator.close()
                 return
             if indicator is not None:
                 indicator.set_message(
@@ -574,13 +631,70 @@ class ContextMenuManager(QObject):
                 QTimer.singleShot(1600, indicator.close)
             if not success:
                 log(f"Insertion directe abandonnée : {reason}", logging.WARNING)
+                kept_in = self._keep_refused_direct_response(
+                    request or {}, response, target
+                )
+                outcome = {
+                    "window": " Elle est affichée dans la fenêtre de réponse.",
+                    "clipboard": " Elle a été copiée dans le presse-papiers.",
+                }.get(kept_in, "")
                 SafeDialogs.show_information(
                     "Insertion annulée",
-                    "L'application cible a changé ou n'est plus disponible.",
+                    (
+                        "Une autre fenêtre de l'application cible est devenue "
+                        "active : la réponse n'a pas été collée."
+                        if reason == "window_changed"
+                        else "L'application cible a changé ou n'est plus disponible."
+                    )
+                    + outcome,
                 )
             self._release_retired_client_if_idle(client)
 
         inserter.insert_text_async(response, target, finished)
+
+    def _keep_refused_direct_response(self, request, response, target):
+        """Never discard an answer whose direct insertion was refused.
+
+        Returns "window" when the answer is shown in the response window,
+        "clipboard" when it was copied because the window still awaits another
+        answer, or None when it could not be kept.
+        """
+        if self._closed or not response:
+            return None
+        active_id = self._active_response_request_id
+        if active_id is not None and active_id in self._pending_requests:
+            # Never replace an answer the response window is still waiting for.
+            return "clipboard" if self._copy_answer(response) else None
+        try:
+            self.response_window.last_reasoning_mode = request.get(
+                "reasoning_mode", "default"
+            )
+            self.response_window.last_model_target = dict(
+                request.get("model_target") or {}
+            )
+            # Keeps « Réessayer », including the transcript of a voice prompt.
+            self._prepare_response_window(
+                "Insertion annulée — réponse conservée",
+                request.get("prompt"),
+                request.get("content") or "",
+                target,
+            )
+            self.response_window.set_response(response)
+            self.response_window.set_loading(False)
+            return "window"
+        except Exception:
+            logger.exception("Affichage de la réponse non insérée impossible")
+            return "clipboard" if self._copy_answer(response) else None
+
+    @staticmethod
+    def _copy_answer(text) -> bool:
+        """Copy a kept answer the way the « Copier » button does."""
+        try:
+            QApplication.clipboard().setText(text)
+            return True
+        except Exception:
+            logger.exception("Copie de la réponse non insérée impossible")
+            return False
 
     def on_request_error_scoped(self, request_id, error) -> None:
         if self._closed:
@@ -592,15 +706,45 @@ class ContextMenuManager(QObject):
             not request["insert_directly"]
             and request_id == self._active_response_request_id
         ):
-            self.response_window.set_response(f"Erreur : {error}")
+            # An error is shown as such and can be copied, never inserted.
+            self.response_window.set_error(f"Erreur : {error}")
             self.response_window.set_loading(False)
-        else:
+        elif request["insert_directly"]:
             indicator = request.get("indicator")
             if indicator is not None:
                 indicator.set_message("Échec du traitement")
                 QTimer.singleShot(1800, indicator.close)
-            SafeDialogs.show_critical("Erreur de traitement", str(error))
+            target = request.get("target")
+            if target is not None and not self._user_moved_elsewhere(target):
+                # The box activates SuperMenu: give the foreground back to the
+                # user's application once the error has been read.
+                SafeDialogs.show_critical(
+                    "Erreur de traitement",
+                    str(error),
+                    on_closed=target.request_activation,
+                )
+            else:
+                SafeDialogs.show_critical("Erreur de traitement", str(error))
+        else:
+            # A newer prompt already owns the response window: the late
+            # failure of the request it replaced concerns nothing on screen.
+            log("Erreur ignorée : la requête a été remplacée par une plus récente")
         self._release_retired_client_if_idle(request["client"])
+
+    @staticmethod
+    def _user_moved_elsewhere(target) -> bool:
+        """True only when a third application is known to be in front.
+
+        Neither the target nor SuperMenu: the user went on working elsewhere
+        during the model call, and closing the box must leave them there.
+        """
+        is_current = getattr(target, "is_current", None)
+        if not callable(is_current):
+            return False
+        try:
+            return not is_current() and not current_application_is_active()
+        except Exception:
+            return False
 
     def on_retry_requested(self) -> None:
         if self._closed:
@@ -626,6 +770,8 @@ class ContextMenuManager(QObject):
 
     def update_client_config(self) -> None:
         self.settings.sync()
+        # Another server may now answer at the same address: probe it again.
+        clear_capabilities_cache()
         previous = self.api_client
         self._retired_clients.append(previous)
         self.api_client = self._create_api_client()

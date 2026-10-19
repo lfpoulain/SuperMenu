@@ -6,12 +6,30 @@ Indicateur de chargement visuel pour SuperMenu.
 Affiche une notification non-bloquante pour les opérations longues.
 """
 
+from functools import partial
+
 from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout
 from PySide6.QtCore import Qt, QTimer
 
 
+def _release_hidden(indicator):
+    """Forget an indicator once it is hidden, outside of its own events."""
+    try:
+        if indicator.isVisible():
+            return
+    except RuntimeError:
+        pass
+    SimpleLoadingIndicator._visible_indicators.discard(indicator)
+
+
 class SimpleLoadingIndicator(QDialog):
     """Version simplifiée sans barre de progression (plus légère)."""
+
+    # Callers often show a parentless indicator, schedule its closing with
+    # QTimer.singleShot and drop their reference. A timer does not keep the
+    # Python wrapper alive, so the window was destroyed before anyone could
+    # read it. A visible indicator now keeps itself alive until it is hidden.
+    _visible_indicators = set()
 
     def __init__(self, message="⏳ Chargement...", parent=None):
         """
@@ -49,11 +67,23 @@ class SimpleLoadingIndicator(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
 
         self.label = QLabel(message)
+        # Statuses can come from user prompts: never interpret them as HTML.
+        self.label.setTextFormat(Qt.PlainText)
         self.label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.label)
 
         self.setLayout(layout)
         self.adjustSize()
+
+    def showEvent(self, event):
+        SimpleLoadingIndicator._visible_indicators.add(self)
+        super().showEvent(event)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        # Release on the next loop turn: dropping the last reference here
+        # would delete the window while Qt is still delivering this event.
+        QTimer.singleShot(0, partial(_release_hidden, self))
 
     def set_message(self, message):
         """Met à jour le message."""

@@ -186,9 +186,15 @@ forme canonique. La validation exige un modificateur, refuse les doublons et
 protège des raccourcis système comme `Cmd+Q`, `Cmd+Space` et les commandes de
 fenêtres réservées à macOS.
 
+Une touche autre que F1 à F24 exige Cmd ou Ctrl, car les moniteurs `NSEvent`
+observent la frappe sans la consommer. `Cmd+A`, `C`, `V`, `X` et `Z` sont
+réservés.
+
 L’enregistreur est un dialogue Qt. `_modifier_labels()` traduit les
 modificateurs Qt vers les touches physiques macOS afin que Command et Control
-soient affichés correctement.
+soient affichés correctement. L’enregistreur lit la touche dans
+`QKeyEvent.key()`, comme le détecteur lit `charactersIgnoringModifiers`, et non
+dans `text()`.
 
 ### Moniteurs AppKit persistants
 
@@ -215,6 +221,13 @@ en file vers le thread Qt, ce qui évite la réentrance dans le gestionnaire
 identifier et son nom. Le PID seul n’est pas suffisant : il peut être réutilisé
 après la fermeture d’une application. Le bundle identifier est donc revérifié
 avant chaque réactivation.
+
+`PasteTarget.focused_window` garde en plus l’élément Accessibilité de la
+fenêtre active au moment de la capture. Il ne fait pas partie de l’identité et
+reste `None` lorsque l’Accessibilité ne répond pas. `focused_window_matches()`
+ne renvoie `False` que si une autre fenêtre de la même application a le focus ;
+toute réponse inconnue conserve la vérification au seul niveau de
+l’application.
 
 La dernière cible externe est mémorisée juste avant que la fenêtre de
 configuration ou la barre des menus active SuperMenu. Une action lancée depuis
@@ -311,12 +324,17 @@ copiée, réinsérée ou renvoyée par **Réessayer**.
 4. activation forcée de compatibilité si nécessaire ;
 5. snapshot puis écriture du presse-papiers ;
 6. attente du relâchement des modificateurs ;
-7. dernière vérification de la cible ;
+7. dernière vérification de la cible : application (`is_current()`), puis
+   fenêtre (`focused_window_matches()`) ;
 8. émission de `Cmd+V` ;
 9. restauration conditionnelle du presse-papiers.
 
 Une cible différente provoque une annulation explicite au lieu d’un collage au
-mauvais endroit.
+mauvais endroit : `target_changed` pour une autre application,
+`window_changed` pour une autre fenêtre ou un autre document de la même
+application. En insertion directe, la réponse annulée est alors affichée dans
+la fenêtre de réponse, ou copiée dans le presse-papiers si cette fenêtre attend
+encore une autre requête.
 
 ## Configuration, secrets et journaux
 

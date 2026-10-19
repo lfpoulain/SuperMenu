@@ -10,6 +10,7 @@ import os
 import sys
 import json
 import re
+import traceback
 
 # Ajouter la racine du projet au chemin d'importation Python
 project_dir = os.path.dirname(os.path.abspath(__file__))
@@ -98,6 +99,50 @@ def run_foundry_smoke_test():
     return 1
 
 
+# Modes sans interface : ils ne doivent jamais ouvrir de boîte de dialogue
+# (la CI et le processus parent attendent leur sortie).
+_HEADLESS_FLAGS = (
+    "--microphone-smoke-test",
+    "--speech-worker",
+    "--foundry-worker",
+    "--foundry-smoke-test",
+    "--smoke-test",
+)
+
+
+def report_startup_failure(message):
+    """Garde une trace d'un échec de démarrage, même dans l'EXE fenêtré.
+
+    Dans l'EXE (console=False), sys.stdout et sys.stderr valent None : les
+    print() ne vont nulle part. Le journal et une boîte de message minimale
+    évitent une application qui « ne se lance pas » sans explication.
+    """
+    failure = sys.exc_info()
+    try:
+        from src.utils.logger import logger
+
+        # Écrit aussi sur la console quand elle existe (mode développement).
+        logger.critical(message, exc_info=failure)
+    except Exception:
+        print(message)
+        traceback.print_exception(*failure)
+    if any(flag in sys.argv for flag in _HEADLESS_FLAGS):
+        return
+    if not (getattr(sys, "frozen", False) or sys.stdout is None):
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(
+            None,
+            f"{message}\n\nDétails dans %LOCALAPPDATA%\\SuperMenu\\logs\\supermenu.log",
+            "SuperMenu",
+            0x10,  # MB_ICONERROR
+        )
+    except Exception:
+        pass
+
+
 # Importer et lancer l'application
 if __name__ == "__main__":
     try:
@@ -117,17 +162,17 @@ if __name__ == "__main__":
             sys.exit(run_foundry_smoke_test())
         if "--smoke-test" in sys.argv:
             sys.exit(run_packaged_smoke_test())
+        from src.utils.logger import install_crash_reporting
+
+        install_crash_reporting()
         from src.main import SuperMenu
 
         app = SuperMenu()
         sys.exit(app.run())
     except ImportError as e:
-        print(f"Erreur d'importation: {e}")
+        report_startup_failure(f"Erreur d'importation: {e}")
         print(f"Chemin d'importation Python: {sys.path}")
         sys.exit(1)
     except Exception as e:
-        print(f"Erreur lors du lancement de l'application: {e}")
-        import traceback
-
-        traceback.print_exc()
+        report_startup_failure(f"Erreur lors du lancement de l'application: {e}")
         sys.exit(1)

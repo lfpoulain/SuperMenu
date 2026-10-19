@@ -24,14 +24,15 @@ if [[ -n "${MACOS_CODESIGN_IDENTITY:-}" ]]; then
 fi
 
 "${app_path}/Contents/MacOS/SuperMenu" --smoke-test
+# os_unsupported is only accepted on a runner older than macOS 26.
 printf '%s\n' '{"action":"probe","language":"fr"}' | \
     "${app_path}/Contents/Frameworks/native/SuperMenuSpeech" | \
-    python -c 'import json, sys; r = json.load(sys.stdin); assert r.get("event") == "result" or r.get("code") == "os_unsupported", r'
+    python "${script_dir}/check_native_helper.py" speech
 
 # Exercise the signed, bundled helper before notarizing and publishing it.
 printf '%s' '{"action":"availability"}' | \
     "${app_path}/Contents/Frameworks/native/SuperMenuFoundationModels" | \
-    python -c 'import json, sys; r = json.load(sys.stdin); assert type(r.get("ok")) is bool; assert r["ok"] or r.get("code") in {"os_unsupported", "device_not_eligible", "intelligence_disabled", "model_not_ready", "unavailable"}, r'
+    python "${script_dir}/check_native_helper.py" foundation
 
 # Notarize and staple the bundle before it is packaged, so the ticket survives
 # the drag to /Applications and the first launch works offline.

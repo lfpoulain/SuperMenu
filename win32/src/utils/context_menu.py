@@ -16,6 +16,7 @@ import win32api
 import win32con
 from pynput.keyboard import Controller, Key
 
+from supermenu_core.api.openai_client import clear_capabilities_cache
 from supermenu_core.config.model_target import ModelTargetSettings, settings_for_prompt
 from supermenu_core.ui.controls import Menu as QMenu, populate_prompt_menu, menu_contains_global_point
 from src.api.openai_client import OpenAIClient
@@ -28,12 +29,45 @@ from supermenu_core.audio.settings import speech_options
 from supermenu_core.config.voice_prompts import compose_voice_prompt
 from supermenu_core.ui.voice_menu import populate_voice_menu
 from src.audio.speech_backend import create_speech_backend
-from src.utils.text_inserter import TextInserter
+from src.utils.text_inserter import TextInserter, VK_C
 from src.utils.logger import log
 from src.utils.clipboard_manager import ClipboardManager
 from supermenu_core.ui.loading_indicator import SimpleLoadingIndicator
 from src.utils.window_target import PasteTarget
 from src.utils.clipboard_config import CLIPBOARD_COPY_DELAY, CLIPBOARD_RESTORE_DELAY
+
+# Shift, Ctrl, Alt and both Windows keys. Global hotkeys fire on key down: a
+# copy synthesized while one of them is still held reaches the foreground
+# application as another shortcut (Ctrl+Alt+C, Ctrl+Shift+C).
+HOTKEY_MODIFIER_KEYS = (0x10, 0x11, 0x12, 0x5B, 0x5C)
+# Only Shift, Alt and the Windows keys change the synthesized Ctrl+C or
+# Ctrl+Insert. A held Ctrl does not, so the menu and the custom mode (default
+# Ctrl+²) still open on the key press instead of waiting for Ctrl.
+COPY_ALTERING_MODIFIER_KEYS = (0x10, 0x12, 0x5B, 0x5C)
+MODIFIER_RELEASE_TIMEOUT = 2.0
+MODIFIER_RELEASE_POLL_MS = 20
+
+# Console hosts copy with Ctrl+Insert; Ctrl+C would interrupt the running
+# program when nothing is selected.
+CONSOLE_WINDOW_CLASSES = frozenset({"ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS"})
+# Standalone terminals where Ctrl+C reaches the program as an interrupt and
+# whose documented copy shortcut is Ctrl+Insert: mintty/Git Bash, PuTTY 0.71+
+# (and its fork KiTTY) and WezTerm. Only Ctrl+Insert is sent to them. ConEmu
+# and Cmder are left out: they copy a selection on Ctrl+C and do not bind
+# Ctrl+Insert to copy.
+TERMINAL_WINDOW_CLASSES = frozenset(
+    {"mintty", "PuTTY", "KiTTY", "org.wezfurlong.wezterm"}
+)
+
+
+def _copy_shortcuts_for(window_class):
+    """Copy shortcuts to try in order for the foreground window class."""
+    if window_class in CONSOLE_WINDOW_CLASSES:
+        return ((Key.ctrl, Key.insert), (Key.ctrl, Key.shift, VK_C))
+    if window_class in TERMINAL_WINDOW_CLASSES:
+        return ((Key.ctrl, Key.insert),)
+    return ((Key.ctrl, VK_C),)
+
 
 class ContextMenuManager(QObject):
     """Manage the context menu for text operations"""
@@ -150,6 +184,14 @@ class ContextMenuManager(QObject):
             "target": target,
             "indicator": direct_indicator,
         }
+        if insert_directly:
+            # Kept so that a refused insertion can still show and retry it.
+            self._pending_requests[request_id].update(
+                prompt=prompt,
+                content=content,
+                reasoning_mode=reasoning_mode,
+                model_target=model_target,
+            )
         if not insert_directly:
             self._active_response_request_id = request_id
             self.response_window.last_reasoning_mode = reasoning_mode
@@ -390,11 +432,68 @@ class ContextMenuManager(QObject):
             callback,
         )
     
+    def _modifiers_held(self, keys=HOTKEY_MODIFIER_KEYS):
+        try:
+            return any(
+                win32api.GetAsyncKeyState(key) & 0x8000
+                for key in keys
+            )
+        except Exception:
+            return False
+
+    def _when_hotkey_released(self, target, on_ready, keys=HOTKEY_MODIFIER_KEYS):
+        """Call ``on_ready()`` once the hotkey modifiers in ``keys`` are up.
+
+        Copying while Alt/Shift is still held sends a different shortcut to
+        the foreground application, so the copy waits for the user's fingers
+        without blocking the Qt loop. A newer hotkey supersedes a pending one.
+        Without any held modifier, ``on_ready()`` runs immediately.
+        """
+        serial = getattr(self, "_hotkey_capture_serial", 0) + 1
+        self._hotkey_capture_serial = serial
+        deadline = time.monotonic() + MODIFIER_RELEASE_TIMEOUT
+
+        def attempt(waited=False):
+            if self._closed or self._hotkey_capture_serial != serial:
+                return
+            if self._modifiers_held(keys):
+                if time.monotonic() < deadline:
+                    QTimer.singleShot(MODIFIER_RELEASE_POLL_MS, lambda: attempt(True))
+                else:
+                    SimpleLoadingIndicator.show_near_cursor("Relâchez les touches puis réessayez", duration_ms=1800)
+                return
+            if waited and PasteTarget.capture() != target:
+                # Never read from an application focused during the wait.
+                log("Raccourci ignoré: la fenêtre active a changé", logging.DEBUG)
+                SimpleLoadingIndicator.show_near_cursor(
+                    "Raccourci ignoré : la fenêtre active a changé", duration_ms=1800
+                )
+                return
+            try:
+                on_ready()
+            except Exception as e:
+                log(f"Erreur après le raccourci: {e}", logging.ERROR)
+
+        attempt()
+
     def show_menu(self):
         """Show the context menu at the current cursor position"""
         if self._closed:
             return
+        self._recover_stale_menu_state()
+        if self._is_menu_open:
+            log("Demande de menu ignoree: un menu est deja ouvert", logging.DEBUG)
+            return
         paste_target = PasteTarget.capture()
+        self._when_hotkey_released(
+            paste_target,
+            lambda: self._open_prompt_menu(paste_target),
+            keys=COPY_ALTERING_MODIFIER_KEYS,
+        )
+
+    def _open_prompt_menu(self, paste_target):
+        if self._closed:
+            return
         owner_pid = paste_target.process_id if paste_target else self._get_foreground_pid()
         menu = self._begin_menu_session(owner_pid=owner_pid)
         if menu is None:
@@ -454,6 +553,19 @@ class ContextMenuManager(QObject):
             return
 
         paste_target = PasteTarget.capture()
+        self._when_hotkey_released(
+            paste_target,
+            lambda: self._open_custom_mode(paste_target),
+            keys=COPY_ALTERING_MODIFIER_KEYS,
+        )
+
+    def _open_custom_mode(self, paste_target):
+        if self._closed:
+            return
+        self._recover_stale_menu_state()
+        if self._is_menu_open:
+            log("Mode personnalise ignore: un menu est deja ouvert", logging.DEBUG)
+            return
         selected_text = self._try_get_selected_text()
         self._handle_godmode_action(selected_text, target=paste_target)
 
@@ -552,49 +664,51 @@ class ContextMenuManager(QObject):
         clipboard_needs_restore = False
         sentinel = f"__SUPERMENU_EMPTY_SELECTION_{time.monotonic_ns()}__"
 
+        # Aucune sélection externe ne peut être lue quand SuperMenu est au
+        # premier plan : ne pas toucher au presse-papiers dans ce cas.
+        if self._get_foreground_pid() == os.getpid():
+            return ""
+
         try:
             # Sauvegarder le contenu actuel du presse-papiers avec ClipboardManager
             old_clipboard = ClipboardManager.capture_snapshot()
 
             # Placer un marqueur permet de distinguer "rien n'a ete copie" d'un ancien clipboard.
-            if not ClipboardManager.set_clipboard_text_safe(sentinel):
+            if not ClipboardManager.set_clipboard_text_safe(sentinel, transient=True):
                 log("Impossible de preparer le presse-papiers pour la lecture de selection", logging.WARNING)
                 return ""
             clipboard_needs_restore = True
             time.sleep(0.05)  # Petit délai pour s'assurer que le clipboard est préparé
 
             # Méthode 1: Utiliser pynput pour copier le texte sélectionné
+            copy_shortcuts = _copy_shortcuts_for("")
             try:
                 try:
                     hwnd = win32gui.GetForegroundWindow()
                     _, pid = win32process.GetWindowThreadProcessId(hwnd)
                     if pid == os.getpid():
                         return ""
-                    is_console = win32gui.GetClassName(hwnd) in (
-                        "ConsoleWindowClass",
-                        "CASCADIA_HOSTING_WINDOW_CLASS",
-                    )
+                    copy_shortcuts = _copy_shortcuts_for(win32gui.GetClassName(hwnd))
                 except Exception:
-                    is_console = False
                     pass
 
-                if is_console:
-                    self._press_keyboard_shortcut(Key.ctrl, Key.insert)
-                else:
-                    self._press_keyboard_shortcut(Key.ctrl, 'c')
+                self._press_keyboard_shortcut(*copy_shortcuts[0])
 
                 time.sleep(CLIPBOARD_COPY_DELAY)
             except KeyboardInterrupt:
                 return ""
             except Exception as e:
                 log(f"Erreur pynput: {e}", logging.DEBUG)
-            
+
             # Méthode 2: Récupérer le texte avec ClipboardManager
             selected_text = ClipboardManager.get_clipboard_text_safe()
 
-            if (not selected_text or selected_text == "") and 'is_console' in locals() and is_console:
+            # Console : second raccourci seulement si le presse-papiers est illisible.
+            for shortcut in copy_shortcuts[1:]:
+                if selected_text:
+                    break
                 try:
-                    self._press_keyboard_shortcut(Key.ctrl, Key.shift, 'c')
+                    self._press_keyboard_shortcut(*shortcut)
                     time.sleep(CLIPBOARD_COPY_DELAY)
                     selected_text = ClipboardManager.get_clipboard_text_safe()
                 except Exception:
@@ -605,8 +719,8 @@ class ContextMenuManager(QObject):
                 log("Aucun texte détecté après Ctrl+C", logging.DEBUG)
                 return ""
 
-            # Log pour déboguer
-            log(f"Texte copié avec succès: {selected_text[:50]}{'...' if len(selected_text) > 50 else ''}", logging.DEBUG)
+            # Journaliser la taille seulement, jamais le contenu de la sélection
+            log(f"Texte copié avec succès ({len(selected_text)} caractères)", logging.DEBUG)
 
             # Attendre avant de restaurer pour éviter les interférences
             time.sleep(CLIPBOARD_RESTORE_DELAY)
@@ -653,31 +767,15 @@ class ContextMenuManager(QObject):
         if self._closed:
             return
         target = PasteTarget.capture()
-        serial = getattr(self, "_prompt_hotkey_serial", 0) + 1
-        self._prompt_hotkey_serial = serial
-        deadline = time.monotonic() + 2.0
 
-        def capture_after_release():
-            if self._closed or self._prompt_hotkey_serial != serial:
-                return
-            # Copying while Alt/Shift is still held sends a different shortcut
-            # to the foreground application. Wait without blocking the Qt loop.
-            held = any(win32api.GetAsyncKeyState(key) & 0x8000 for key in (0x10, 0x11, 0x12, 0x5B, 0x5C))
-            if held:
-                if time.monotonic() < deadline:
-                    QTimer.singleShot(20, capture_after_release)
-                else:
-                    SimpleLoadingIndicator.show_near_cursor("Relâchez les touches puis réessayez", duration_ms=1800)
-                return
-            if PasteTarget.capture() != target:
-                return  # Never read from an application focused during the wait.
+        def run_with_selection():
             selected_text = self._try_get_selected_text()
             if not selected_text:
                 SimpleLoadingIndicator.show_near_cursor("⚠️ Aucun texte sélectionné", duration_ms=1800)
                 return
             self._handle_menu_action(prompt_id, selected_text=selected_text, target=target)
 
-        capture_after_release()
+        self._when_hotkey_released(target, run_with_selection)
 
     def _handle_menu_action(
         self,
@@ -699,8 +797,8 @@ class ContextMenuManager(QObject):
         if not prompt_data:
             return
         
-        # Afficher un log avec le texte sélectionné (une seule fois)
-        log(f"Texte sélectionné: {selected_text[:30]}...", logging.DEBUG)
+        # Journaliser la taille de la sélection, jamais son contenu
+        log(f"Texte sélectionné: {len(selected_text)} caractères", logging.DEBUG)
         
         # Vérifier si le résultat doit être inséré directement
         insert_directly = bool(prompt_data.get("insert_directly", False))
@@ -813,7 +911,7 @@ class ContextMenuManager(QObject):
                 if prompt_dialog.exec():
                     # Utiliser la méthode d'instance get_prompt() sans argument
                     prompt = prompt_dialog.get_prompt()
-                    log(f"Prompt saisi: {prompt}", logging.DEBUG)
+                    log(f"Prompt saisi ({len(prompt or '')} caractères)", logging.DEBUG)
                     
                     content = screenshot_path
                     try:
@@ -873,6 +971,8 @@ class ContextMenuManager(QObject):
                 lambda options: create_speech_backend(self.settings, options),
                 speech_options(self.settings), insert_text=insert,
                 correction_factory=lambda: self._create_api_client(settings_for_prompt(self.settings, "corriger")),
+                # Read at insertion time, like the model of the « Corriger » prompt.
+                correction_reasoning_mode=lambda: (self.settings.get_prompt("corriger") or {}).get("reasoning_mode", "default"),
                 auto_insert=self.settings.get_dictation_auto_insert(),
                 correct_before_insert=self.settings.get_dictation_correct_before_insert(),
                 parent=self,
@@ -917,14 +1017,14 @@ class ContextMenuManager(QObject):
             if include_selected_text:
                 selected_text = self._try_get_selected_text()
                 if selected_text:
-                    log(f"Texte sélectionné inclus: {selected_text[:50]}...", logging.DEBUG)
+                    log(f"Texte sélectionné inclus ({len(selected_text)} caractères)", logging.DEBUG)
             
             # Fonction de rappel pour traiter le texte transcrit
             def process_transcription(text):
                 if self._closed:
                     return
                 if text:
-                    log(f"Transcription vocale reçue: {text[:50]}...", logging.DEBUG)
+                    log(f"Transcription vocale reçue ({len(text)} caractères)", logging.DEBUG)
                     
                     full_prompt = compose_voice_prompt(prompt_data, text, selected_text)
 
@@ -985,7 +1085,7 @@ class ContextMenuManager(QObject):
                     return
                 if text:
                     log(
-                        f"Transcription vocale reçue pour prompt personnalisé: {text[:50]}...",
+                        f"Transcription vocale reçue pour prompt personnalisé ({len(text)} caractères)",
                         logging.DEBUG,
                     )
                     
@@ -1083,18 +1183,38 @@ class ContextMenuManager(QObject):
         client = request["client"]
         if request["insert_directly"] or insert_directly:
             safe_target = request.get("target") or target
-            inserted = TextInserter().insert_text(response, target=safe_target)
+            # Sans cible capturée au lancement, coller viserait la fenêtre au
+            # premier plan à l'arrivée de la réponse, parfois bien plus tard.
+            inserted = safe_target is not None and TextInserter().insert_text(
+                response, target=safe_target
+            )
             indicator = request.get("indicator")
             if not inserted:
+                kept_in = self._keep_refused_direct_response(
+                    request, response, safe_target
+                )
                 if indicator is not None:
                     indicator.set_message("⚠️ Insertion annulée")
                     indicator.move_near_cursor()
                     QTimer.singleShot(2200, indicator.close)
-                SafeDialogs.show_information(
-                    "Insertion annulée",
-                    "La fenêtre ou le champ cible a changé. La réponse n'a pas "
-                    "été collée pour éviter une insertion au mauvais endroit.",
-                )
+                # Shown in the response window, the answer carries its own
+                # warning there: a box would end up below that topmost window.
+                if kept_in != "window":
+                    reason = (
+                        "La fenêtre ou le champ cible a changé."
+                        if safe_target is not None
+                        else "Aucune fenêtre cible n'était disponible au lancement."
+                    )
+                    outcome = (
+                        " Elle a été copiée dans le presse-papiers."
+                        if kept_in == "clipboard"
+                        else ""
+                    )
+                    SafeDialogs.show_information(
+                        "Insertion annulée",
+                        f"{reason} La réponse n'a pas été collée pour éviter une "
+                        f"insertion au mauvais endroit.{outcome}",
+                    )
             elif indicator is not None:
                 indicator.set_message("✅ Réponse reçue et insérée")
                 indicator.move_near_cursor()
@@ -1108,12 +1228,61 @@ class ContextMenuManager(QObject):
 
         self.on_request_finished(response)
         self._release_retired_client_if_idle(client)
-    
+
+    def _keep_refused_direct_response(self, request, response, target):
+        """Never discard an answer whose direct insertion was refused.
+
+        Returns "window" when the answer is shown in the response window,
+        "clipboard" when it was copied because the window still awaits or
+        shows another answer, or None when it could not be kept.
+        """
+        if self._closed or not response:
+            return None
+        active_id = self._active_response_request_id
+        awaiting_answer = active_id is not None and active_id in self._pending_requests
+        if awaiting_answer or self._response_window_shows_answer():
+            # Ne pas remplacer une réponse attendue ou en cours de lecture.
+            if ClipboardManager.set_clipboard_text_safe(response):
+                return "clipboard"
+            return None
+        try:
+            self.response_window.last_reasoning_mode = request.get("reasoning_mode", "default")
+            self.response_window.last_model_target = dict(request.get("model_target") or {})
+            if request.get("prompt") is not None:
+                # Permet « Réessayer », y compris la transcription d'un prompt vocal.
+                self.response_window.store_request(request["prompt"], request.get("content") or "")
+            self.response_window.set_status("Insertion annulée — réponse conservée")
+            self.response_window.set_trigger_position(QCursor.pos())
+            self.response_window.set_paste_target(target)
+            self._present_response_window()
+            self.on_request_finished(response)
+        except Exception as e:
+            log(f"Affichage de la réponse non insérée impossible: {e}", logging.ERROR)
+            if ClipboardManager.set_clipboard_text_safe(response):
+                return "clipboard"
+            return None
+        try:
+            # set_response annonce « Terminé » : rappeler que rien n'a été collé.
+            self.response_window.status_label.setText("⚠️ Insertion annulée — réponse conservée")
+            self.response_window._set_status("warning")
+        except Exception as e:
+            log(f"Statut d'insertion annulée non affiché: {e}", logging.DEBUG)
+        return "window"
+
+    def _response_window_shows_answer(self):
+        """Whether the visible response window holds a finished answer."""
+        try:
+            window = self.response_window
+            return bool(window.isVisible() and getattr(window, "final_response", None))
+        except RuntimeError:
+            return False
+
     def on_request_error(self, error):
         """Handle request error signal"""
         if self._closed:
             return
-        self.response_window.set_response(f"Erreur: {error}")
+        # An error is shown as such and can be copied, never inserted.
+        self.response_window.set_error(f"Erreur: {error}")
         self.response_window.set_loading(False)
 
     def on_request_error_scoped(self, request_id, error):
@@ -1153,6 +1322,8 @@ class ContextMenuManager(QObject):
         if self._closed:
             return
         self.settings.sync()
+        # Another server may now answer at the same address: probe it again.
+        clear_capabilities_cache()
         old_client = self.api_client
         if old_client is not None:
             self._retired_clients.append(old_client)

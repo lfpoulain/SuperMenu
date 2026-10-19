@@ -68,7 +68,8 @@ class PromptDialog(QDialog):
             preview_text = QTextEdit()
             preview_text.setReadOnly(True)
             preview_text.setMaximumHeight(100)
-            preview_text.setText(
+            # setText would guess HTML: show exactly the text that is sent.
+            preview_text.setPlainText(
                 selected_text[:500] + ("..." if len(selected_text) > 500 else "")
             )
             self.preview_container.addWidget(preview_text)

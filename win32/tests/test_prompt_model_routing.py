@@ -33,6 +33,7 @@ def test_text_and_voice_targets_survive_export_import(settings, tmp_path):
         "provider": "custom",
         "model": "gemma",
         "device": "apple",
+        "device_name": "Sur Serveur Apple (LM Link)",
         "endpoint": "http://localhost:1234",
         "endpoint_type": "lmstudio",
     }
@@ -49,12 +50,18 @@ def test_text_and_voice_targets_survive_export_import(settings, tmp_path):
     )
     assert settings.get_prompt("corriger")["model_target"] == {}
     import_prompt_bundle(settings, path)
-    assert settings.get_prompt("corriger")["model_target"] == target
-    assert settings.get_voice_prompt(voice)["model_target"] == target
+    # The model and its device survive; the server always comes from the Text
+    # settings, so the exported file does not carry it.
+    kept = {"provider": "custom", "model": "gemma", "device": "apple"}
+    assert settings.get_prompt("corriger")["model_target"] == kept
+    assert settings.get_voice_prompt(voice)["model_target"] == kept
     # Old callers that update only instructions must preserve the explicit route.
     settings.update_prompt("corriger", "Corriger", "Nouvelle instruction", "En cours")
-    assert settings.get_prompt("corriger")["model_target"] == target
+    assert settings.get_prompt("corriger")["model_target"] == kept
     payload = json.loads(path.read_text(encoding="utf-8"))
+    assert "localhost:1234" not in path.read_text(encoding="utf-8")
+    # Nor the name of a machine: it describes the exporting server.
+    assert "Serveur Apple" not in path.read_text(encoding="utf-8")
     payload["voice_prompts"][voice]["model_target"] = {
         "provider": "unknown",
         "model": "a",

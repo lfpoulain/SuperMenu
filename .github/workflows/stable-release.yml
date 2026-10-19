@@ -13,7 +13,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Both builds wait for this check: a wrong tag or notes left on the previous
+  # version fail within a minute, before any Apple notarization is submitted.
+  validate-stable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Validate stable tag and notes
+        run: |
+          set -euo pipefail
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "Stable tags must use the exact vMAJOR.MINOR.PATCH format" >&2
+            exit 1
+          fi
+          app_version="${BASH_REMATCH[1]}"
+
+          declared_version="$(tr -d '[:space:]' < win32/VERSION)"
+          if [[ "${app_version}" != "${declared_version}" ]]; then
+            echo "Tag version ${app_version} does not match win32/VERSION (${declared_version})" >&2
+            exit 1
+          fi
+
+          # The release body comes from this file: never publish the notes of
+          # the previous version.
+          if ! grep -qF -- "${app_version}" .github/STABLE_NOTES.md; then
+            echo ".github/STABLE_NOTES.md must describe version ${app_version} before tagging" >&2
+            exit 1
+          fi
+
   build-windows-stable:
+    needs: validate-stable
     runs-on: windows-latest
     defaults:
       run:
@@ -126,6 +161,7 @@ jobs:
           retention-days: 30
 
   build-macos-stable:
+    needs: validate-stable
     runs-on: macos-15
     timeout-minutes: 45
     env:
@@ -281,6 +317,13 @@ jobs:
       MACOS_VERSION: ${{ needs.build-macos-stable.outputs.app_version }}
 
     steps:
+      # Only the release notes are read from the tag; no code runs from it.
+      - name: Checkout release notes
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github
+          persist-credentials: false
+
       - name: Download Windows stable artifacts
         uses: actions/download-artifact@v6
         with:
@@ -293,19 +336,27 @@ jobs:
           name: stable-macos
           path: release-assets
 
+      # The installer fingerprints let the apps refuse a corrupted or swapped
+      # download. Older apps ignore the extra asset and sha256 fields.
       - name: Generate platform manifests and checksums
         working-directory: release-assets
         run: |
+          set -euo pipefail
+          windows_sha256="$(sha256sum SuperMenu_Setup.exe | cut -d ' ' -f 1)"
+          macos_sha256="$(sha256sum SuperMenu-macOS-arm64.dmg | cut -d ' ' -f 1)"
+
           jq -n \
             --arg version "${WINDOWS_VERSION}" \
             --arg tag "${GITHUB_REF_NAME}" \
-            '{schema_version: 1, channel: "stable", version: $version, prerelease: false, tag: $tag}' \
+            --arg sha256 "${windows_sha256}" \
+            '{schema_version: 1, channel: "stable", version: $version, prerelease: false, tag: $tag, asset: "SuperMenu_Setup.exe", sha256: $sha256}' \
             > update-stable.json
 
           jq -n \
             --arg version "${MACOS_VERSION}" \
             --arg tag "${GITHUB_REF_NAME}" \
-            '{schema_version: 1, platform: "macos", architecture: "arm64", channel: "stable", version: $version, prerelease: false, tag: $tag, asset: "SuperMenu-macOS-arm64.dmg"}' \
+            --arg sha256 "${macos_sha256}" \
+            '{schema_version: 1, platform: "macos", architecture: "arm64", channel: "stable", version: $version, prerelease: false, tag: $tag, asset: "SuperMenu-macOS-arm64.dmg", sha256: $sha256}' \
             > update-macos-stable.json
 
           sha256sum \
@@ -315,6 +366,18 @@ jobs:
             update-stable.json \
             update-macos-stable.json \
             > SHA256SUMS.txt
+
+      # Edit STABLE_NOTES.md for each version; only the metadata is generated.
+      # The "Windows version:" and "macOS version:" lines are read by the apps
+      # when the manifests are unreachable: keep them, without backticks.
+      - name: Prepare stable notes
+        run: |
+          {
+            cat .github/STABLE_NOTES.md
+            printf '\n<details>\n<summary>Informations de build</summary>\n\n'
+            printf -- '- Channel: stable\n- Windows version: %s\n- macOS version: %s\n- Commit: `%s`\n' "${WINDOWS_VERSION}" "${MACOS_VERSION}" "${GITHUB_SHA}"
+            printf '\n</details>\n'
+          } > stable-release-notes.md
 
       - name: Publish immutable stable release
         uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
@@ -329,32 +392,4 @@ jobs:
           artifactErrorsFailBuild: true
           artifacts: release-assets/*
           token: ${{ secrets.GITHUB_TOKEN }}
-          body: |
-            Release stable officielle de SuperMenu.
-
-            Channel: stable
-            Windows version: ${{ env.WINDOWS_VERSION }}
-            macOS version: ${{ env.MACOS_VERSION }}
-            Commit: ${{ github.sha }}
-
-            Windows : exécutable portable et installateur.
-            macOS Apple Silicon : DMG signé Developer ID et notarisé par Apple.
-
-            IA locale : Qwen3.5 4B et 9B avec Foundry Local sur Windows,
-            Apple Foundation Models sur Mac compatible avec macOS 26+.
-            Accélération CUDA prioritaire sur les GPU NVIDIA compatibles.
-
-            Dictée en direct avec OpenAI, Nemotron via Foundry Local sur Windows,
-            ou Apple Speech sur Mac. Raccourci de dictée instantanée, appui maintenu
-            ou simple, copie et insertion dans la fenêtre de transcription,
-            collage automatique et correction préalable facultative.
-
-            Prompts vocaux partagés entre Mac et Windows. Modèles locaux conservés
-            en mémoire avec délai d’inactivité configurable et déchargement manuel.
-
-            Interface Mac et PC harmonisée : réglages par rubrique, retours visuels
-            de préparation des modèles, actions cohérentes et fenêtre plus haute.
-            Correction de l’ouverture du microphone et du redémarrage Foundry.
-            Les prompts, réglages et modèles déjà téléchargés sont conservés.
-
-            Cette version est recommandée pour une utilisation quotidienne.
+          bodyFile: stable-release-notes.md

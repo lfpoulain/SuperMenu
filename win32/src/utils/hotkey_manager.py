@@ -36,6 +36,16 @@ _VK_DELETE = 0x2E
 _VK_F1 = 0x70
 _FUNCTION_KEY_COUNT = 24
 
+# "²" n'existe que sur les claviers AZERTY, où il occupe la touche située sous
+# Échap (code de balayage 0x29). Le raccourci par défaut "Ctrl+²" retombe sur
+# cette même touche physique quand la disposition active n'a pas de "²" ou ne
+# l'obtient qu'avec AltGr (qui ajouterait Ctrl+Alt à la combinaison).
+_SQUARE_KEY = "²"
+_SCAN_CODE_BELOW_ESCAPE = 0x29
+_MAPVK_VSC_TO_VK = 1
+_MAPVK_VK_TO_CHAR = 2
+_OEM_KEYS = frozenset((*range(0xBA, 0xC1), *range(0xDB, 0xE0), 0xE2))
+
 _USER32 = ctypes.WinDLL("user32", use_last_error=True) if sys.platform.startswith("win") else None
 
 if _USER32 is not None:
@@ -45,6 +55,8 @@ if _USER32 is not None:
     _USER32.UnregisterHotKey.restype = ctypes.wintypes.BOOL
     _USER32.VkKeyScanW.argtypes = [ctypes.c_wchar]
     _USER32.VkKeyScanW.restype = ctypes.c_short
+    _USER32.MapVirtualKeyW.argtypes = [ctypes.wintypes.UINT, ctypes.wintypes.UINT]
+    _USER32.MapVirtualKeyW.restype = ctypes.wintypes.UINT
 
 
 class _Win32HotkeyEventFilter(QAbstractNativeEventFilter):
@@ -150,6 +162,26 @@ class _Win32HotkeyRegistry:
 _REGISTRY = _Win32HotkeyRegistry()
 
 
+def _key_below_escape():
+    """Touche virtuelle de la touche physique située sous Échap, ou None."""
+    try:
+        vk = int(_USER32.MapVirtualKeyW(_SCAN_CODE_BELOW_ESCAPE, _MAPVK_VSC_TO_VK))
+    except Exception:
+        return None
+    return vk if vk in _OEM_KEYS else None
+
+
+def _key_character(vk):
+    """Caractère inscrit sur la touche ``vk`` dans la disposition active, ou ""."""
+    try:
+        # Le bit de poids fort signale une touche morte (^ en QWERTZ).
+        code = int(_USER32.MapVirtualKeyW(int(vk), _MAPVK_VK_TO_CHAR)) & 0xFFFF
+    except Exception:
+        return ""
+    character = chr(code) if code else ""
+    return character if character.isprintable() and not character.isspace() else ""
+
+
 def _parse_hotkey_to_win32(hotkey):
     if not hotkey or not isinstance(hotkey, str):
         return None, None, "Le raccourci ne peut pas être vide"
@@ -190,6 +222,11 @@ def _parse_hotkey_to_win32(hotkey):
         return None, None, "Le raccourci doit contenir Ctrl, Alt ou Shift"
 
     key_l = key_token.lower()
+    is_function_key = key_l.startswith("f") and key_l[1:].isdigit()
+    if modifiers == _MOD_SHIFT and not is_function_key:
+        # RegisterHotKey réserve la combinaison dans tout le système : Shift+K
+        # empêcherait de taper un K majuscule dans les autres applications.
+        return None, None, "Avec Shift seul, utilisez une touche F1 à F24, ou ajoutez Ctrl ou Alt"
     vk_map = {
         "backspace": _VK_BACK,
         "tab": _VK_TAB,
@@ -226,6 +263,28 @@ def _parse_hotkey_to_win32(hotkey):
         # Uppercase recorder labels must not silently add Shift to a letter.
         character = key_token.lower() if key_token.isalpha() else key_token
         vk_and_shift = int(_USER32.VkKeyScanW(character))
+        # Un "Ctrl+Alt+²" enregistré sur un clavier où ² passe par AltGr garde
+        # son sens ; seul un "Ctrl+²" y deviendrait silencieusement Ctrl+Alt+2.
+        alt_gr = _MOD_CONTROL | _MOD_ALT
+        needs_alt_gr = (
+            vk_and_shift != -1
+            and (vk_and_shift >> 8) & 0x06 == 0x06
+            and modifiers & alt_gr != alt_gr
+        )
+        if character == _SQUARE_KEY and (vk_and_shift == -1 or needs_alt_gr):
+            fallback_vk = _key_below_escape()
+            if fallback_vk is not None:
+                # Le libellé affiché reste "²" : nommer la touche réellement
+                # réservée, qui peut entrer en conflit avec d'autres logiciels.
+                reason = "absente de ce clavier" if vk_and_shift == -1 else "accessible seulement avec AltGr"
+                key_name = _key_character(fallback_vk) or f"VK 0x{fallback_vk:02X}"
+                actual = "+".join(parts[:-1] + [key_name])
+                log(
+                    f"Raccourci '{hotkey}' : touche '{key_token}' {reason}, "
+                    f"touche sous Échap utilisée à la place ({actual})",
+                    logging.WARNING,
+                )
+                return modifiers, fallback_vk, ""
         if vk_and_shift == -1:
             return None, None, f"Touche non supportée: {key_token}"
 
@@ -388,6 +447,9 @@ class HotkeyManager(QObject):
     voice_hotkey_triggered = Signal()
     screenshot_hotkey_triggered = Signal()
     custom_hotkey_triggered = Signal()
+    # Émis avec le message d'erreur quand un enregistrement échoue. Le premier
+    # enregistrement a lieu dans __init__ : lire ``last_error`` pour celui-là.
+    registration_failed = Signal(str)
 
     def __init__(
         self,
@@ -421,6 +483,24 @@ class HotkeyManager(QObject):
                 pass
 
         self.register_hotkey()
+
+    @property
+    def last_error(self):
+        """Dernière erreur d'enregistrement, vide si le raccourci est actif."""
+        return self._last_register_error
+
+    @property
+    def feature_name(self):
+        """Nom de la fonction pilotée par ce raccourci, pour les messages."""
+        if self.dictation_hotkey:
+            return "Dictée"
+        if self.voice_hotkey:
+            return "Menu vocal"
+        if self.screenshot_hotkey:
+            return "Capture d’écran"
+        if self.custom_hotkey:
+            return "Mode personnalisé"
+        return "Menu principal"
 
     def _get_configured_hotkey(self):
         if self.dictation_hotkey:
@@ -460,6 +540,7 @@ class HotkeyManager(QObject):
         if err:
             self._last_register_error = err
             log(f"No valid hotkey configured: {err}", logging.WARNING)
+            self.registration_failed.emit(err)
             return False
 
         inst_ref = weakref.ref(self)
@@ -474,6 +555,7 @@ class HotkeyManager(QObject):
         if reg_err:
             self._last_register_error = reg_err
             log(f"Error registering hotkey '{self.hotkey}': {reg_err}", logging.ERROR)
+            self.registration_failed.emit(reg_err)
             return False
 
         self._hotkey_id = hotkey_id

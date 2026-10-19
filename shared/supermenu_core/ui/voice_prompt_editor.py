@@ -1,6 +1,6 @@
 """Shared voice prompt library and editor for both desktop compositions."""
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -17,12 +17,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from supermenu_core.config.model_target import without_server
 from supermenu_core.config.voice_prompts import VOICE_ORDER_CHOICES
 from .controls import ChoiceBox
+from .model_catalog import selected_model_id, selected_model_target
 from .settings_panel import form_layout, scrollable_form
 from .page_actions import PromptActions
-from .confirmations import confirm_action
-from .prompt_restore import restore_library
+from .confirmations import confirm_action, confirm_unsaved_changes
+from .prompt_restore import restore_library, restore_previous_library
 from .prompt_reasoning import PromptReasoningChoice
 from .prompt_model import PromptModelChoice
 
@@ -39,6 +41,9 @@ class VoicePromptEditor(QWidget):
         self.settings = settings
         self._loading = False
         self._current_id = None
+        # Form values as loaded or saved, to detect edits before replacing them.
+        self._saved_form = None
+        self._pending_target = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         help_text = QLabel(
@@ -66,7 +71,7 @@ class VoicePromptEditor(QWidget):
         )
         self.prompt_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.prompt_list.setDefaultDropAction(Qt.DropAction.MoveAction)
-        self.prompt_list.currentItemChanged.connect(self._select)
+        self.prompt_list.currentItemChanged.connect(self._current_changed)
         self.prompt_list.model().rowsMoved.connect(self._reorder)
         left_layout.addWidget(self.prompt_list, 1)
         buttons = QHBoxLayout()
@@ -125,6 +130,7 @@ class VoicePromptEditor(QWidget):
         right_layout.addWidget(self.feedback)
         self.actions = PromptActions(self.reset_prompt, self.save, run=self.run)
         self.actions.restore_requested.connect(self.restore_library)
+        self.actions.restore_previous_requested.connect(self.restore_previous_library)
         self.reset_button = self.actions.reset_button
         self.save_button = self.actions.save_button
         self.run_button = self.actions.run_button
@@ -134,6 +140,7 @@ class VoicePromptEditor(QWidget):
 
     def reload(self, selected_id=None):
         selected_id = selected_id or self._current_id
+        self._pending_target = None
         self._loading = True
         self.prompt_list.clear()
         selected = None
@@ -147,10 +154,110 @@ class VoicePromptEditor(QWidget):
             self.prompt_list.addItem(item)
             if identifier == selected_id:
                 selected = item
-        self._loading = False
         self._filter(self.search.text())
+        # An explicit reload replaces the form: no unsaved-changes prompt.
         self.prompt_list.setCurrentItem(selected or self.prompt_list.item(0))
+        self._loading = False
         self._select(self.prompt_list.currentItem())
+
+    def _item_for(self, identifier):
+        for index in range(self.prompt_list.count()):
+            item = self.prompt_list.item(index)
+            if item.data(Qt.ItemDataRole.UserRole) == identifier:
+                return item
+        return None
+
+    def _set_current_item(self, item):
+        self._loading = True
+        try:
+            self.prompt_list.setCurrentItem(item)
+        finally:
+            self._loading = False
+
+    def _model_state(self):
+        # The choice as shown, not target(): target() also checks the server
+        # type of the Text settings, which can change without any edit here.
+        provider = self.model_choice.provider.currentData()
+        model = self.model_choice.model
+        if provider == "custom":
+            return provider, without_server(selected_model_target(model))
+        if provider in {"openai", "foundry"}:
+            return provider, selected_model_id(model)
+        return provider, None
+
+    def _form_state(self):
+        return (
+            self.name_input.text().strip(),
+            self.instruction_input.toPlainText().strip(),
+            self.status_input.text().strip(),
+            self.insert_directly.isChecked(),
+            self.include_selected.isChecked(),
+            self.order_combo.currentData(),
+            self.reasoning.currentData(),
+            self._model_state(),
+        )
+
+    def has_unsaved_changes(self):
+        return (
+            self._current_id is not None
+            and self._saved_form is not None
+            and self._form_state() != self._saved_form
+        )
+
+    def _confirm_leaving(self, proceed):
+        """Offer to save the edited prompt before another one replaces it."""
+        name = self.name_input.text().strip() or "ce prompt vocal"
+
+        def save_then_proceed():
+            if self.save():
+                proceed()
+
+        confirm_unsaved_changes(
+            self,
+            "Modifications non enregistrées",
+            f"Enregistrer les modifications de « {name} » avant de continuer ?",
+            save_then_proceed,
+            proceed,
+        )
+
+    def _current_changed(self, item, _previous=None):
+        if self._loading:
+            return
+        target_id = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if target_id == self._current_id and item is not None:
+            # Same prompt (for example after a move): keep the edits on screen.
+            return
+        if self._item_for(self._current_id) is None or not self.has_unsaved_changes():
+            self._select(item)
+            return
+        # Ask once the click is fully handled: the view would otherwise still
+        # select the clicked row after the edited one was restored.
+        first = self._pending_target is None
+        self._pending_target = (target_id,)
+        if first:
+            QTimer.singleShot(0, self, self._confirm_selection_change)
+
+    def _confirm_selection_change(self):
+        pending, self._pending_target = self._pending_target, None
+        if pending is None:
+            return
+        target_id = pending[0]
+        edited_item = self._item_for(self._current_id)
+        if edited_item is None or not self.has_unsaved_changes():
+            self._select(self.prompt_list.currentItem())
+            return
+        # Keep the edited prompt selected until the user decides.
+        self._set_current_item(edited_item)
+        if getattr(self, "_confirmation_dialog", None) is not None:
+            return
+
+        def select_target():
+            target = self._item_for(target_id)
+            if target is not None:
+                self._set_current_item(target)
+            self._select(self.prompt_list.currentItem())
+
+        self._confirm_leaving(select_target)
 
     def _select(self, item, _previous=None):
         if self._loading:
@@ -179,6 +286,7 @@ class VoicePromptEditor(QWidget):
             max(0, self.order_combo.findData(prompt.get("prompt_order")))
         )
         self.feedback.clear()
+        self._saved_form = self._form_state() if prompt else None
 
     def _filter(self, text):
         for index in range(self.prompt_list.count()):
@@ -215,12 +323,22 @@ class VoicePromptEditor(QWidget):
             reasoning_mode=self.reasoning.currentData(),
             model_target=self.model_choice.target(),
         )
-        self.prompt_list.currentItem().setText(name)
-        self.prompt_list.currentItem().setToolTip(name)
+        item = self._item_for(self._current_id) or self.prompt_list.currentItem()
+        if item is not None:
+            item.setText(name)
+            item.setToolTip(name)
+        self._saved_form = self._form_state()
         self.feedback.setText("Prompt vocal enregistré.")
         return True
 
     def add_prompt(self):
+        if self.has_unsaved_changes():
+            if getattr(self, "_confirmation_dialog", None) is None:
+                self._confirm_leaving(self._add_prompt)
+            return
+        self._add_prompt()
+
+    def _add_prompt(self):
         self.search.clear()
         identifier = self.settings.add_voice_prompt(
             None,
@@ -264,6 +382,10 @@ class VoicePromptEditor(QWidget):
 
     def restore_library(self):
         restore_library(self, self.settings, self.reload, voice=True)
+
+    def restore_previous_library(self):
+        """Go back to the copy kept by the last restore, import or repair."""
+        restore_previous_library(self, self.settings, self.reload, voice=True)
 
     def run(self):
         if self._current_id is not None and self.save():

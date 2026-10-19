@@ -1,0 +1,70 @@
+name: Native helpers macOS 26
+
+# The DMG jobs run on macOS 15, where the Swift helpers can only answer
+# os_unsupported. Here they run on macOS 26, where check_native_helper.py
+# refuses that answer, so the real Apple Speech and Foundation Models branches
+# are reached. Informative only: nothing depends on this workflow, and its
+# failure blocks neither CI, the beta nor the stable releases. A failure here
+# also tells whether the DMG jobs can move to a macOS 26 runner.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - macos/native/**
+      - macos/scripts/build_foundation_helper.sh
+      - macos/scripts/build_speech_helper.sh
+      - macos/scripts/check_native_helper.py
+      - .github/workflows/native-helpers.yml
+  pull_request:
+    paths:
+      - macos/native/**
+      - macos/scripts/build_foundation_helper.sh
+      - macos/scripts/build_speech_helper.sh
+      - macos/scripts/check_native_helper.py
+      - .github/workflows/native-helpers.yml
+  schedule:
+    # Weekly, to notice a change of the hosted macOS 26 image.
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-helpers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-26-helpers:
+    name: Swift helpers / macOS 26
+    runs-on: macos-26
+    timeout-minutes: 20
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: macos
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Show runner versions
+        run: |
+          sw_vers
+          xcrun --sdk macosx --show-sdk-version
+
+      - name: Build and probe Apple Speech helper
+        run: bash scripts/build_speech_helper.sh
+
+      # Run even when Speech failed, so both helpers are always reported.
+      - name: Build and probe Foundation Models helper
+        if: success() || failure()
+        run: bash scripts/build_foundation_helper.sh

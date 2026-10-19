@@ -75,8 +75,25 @@ Type: filesandordirs; Name: "{app}\bin"
 [UninstallDelete]
 
 [Code]
+const
+  CRED_TYPE_GENERIC = 1;
+
 var
   PurgeUserData: Boolean;
+
+// Les clés API sont stockées par keyring dans le Gestionnaire d'identification
+// Windows, hors de {localappdata} : la purge doit les effacer explicitement.
+function CredDelete(TargetName: String; CredType: Cardinal; Flags: Cardinal): Bool;
+external 'CredDeleteW@advapi32.dll stdcall';
+
+procedure DeleteStoredApiKeys();
+begin
+  // keyring enregistre le dernier secret sous "SuperMenu" et les précédents
+  // sous "<nom>@SuperMenu" ; un identifiant absent est simplement ignoré.
+  CredDelete('SuperMenu', CRED_TYPE_GENERIC, 0);
+  CredDelete('openai_api_key@SuperMenu', CRED_TYPE_GENERIC, 0);
+  CredDelete('custom_endpoint_api_key@SuperMenu', CRED_TYPE_GENERIC, 0);
+end;
 
 function IsSuperMenuRunning(): Boolean;
 var
@@ -109,7 +126,7 @@ begin
 
   Res := MsgBox(
     'SuperMenu va être désinstallé.' + #13#10 + #13#10 +
-    'Supprimer aussi vos données utilisateur (logs et configuration) ?',
+    'Supprimer aussi vos données utilisateur (logs, configuration et clés API enregistrées) ?',
     mbConfirmation,
     MB_YESNO
   );
@@ -140,6 +157,8 @@ begin
 
       IniPath := ExpandConstant('{%USERPROFILE}\\SuperMenu.ini');
       DeleteFile(IniPath);
+
+      DeleteStoredApiKeys();
     end;
   end;
 end;

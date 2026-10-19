@@ -15,6 +15,17 @@ CLIPBOARD_COPY_DELAY_MS = 120
 CLIPBOARD_PASTE_DELAY_MS = 400
 
 
+def _focused_window_unchanged(target) -> bool:
+    """Window-level check on top of is_current(); unknown means unchanged."""
+    check = getattr(target, "focused_window_matches", None)
+    if not callable(check):
+        return True
+    try:
+        return check() is not False
+    except Exception:
+        return True
+
+
 class TextInserter:
     def __init__(self, *, keys=None, scheduler=None):
         self.keys = keys or KeyEventPoster()
@@ -49,6 +60,15 @@ class TextInserter:
                     "active avant le collage"
                 )
                 finish(False, "target_changed")
+                return
+            if not _focused_window_unchanged(target):
+                # Same application, but another draft, document or window
+                # now has focus: the text must not land there.
+                log(
+                    "Insertion annulée : une autre fenêtre de l’application "
+                    "cible est devenue active avant le collage"
+                )
+                finish(False, "window_changed")
                 return
             if not self.keys.paste():
                 finish(False, "paste_failed")

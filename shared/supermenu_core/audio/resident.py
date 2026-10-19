@@ -14,7 +14,7 @@ from PySide6.QtCore import (
     Signal,
 )
 
-from .backends import SpeechBackend
+from .backends import START_TIMEOUT_MS, SpeechBackend, startup_timeout
 
 
 class ResidentSpeechBackend(SpeechBackend):
@@ -54,6 +54,7 @@ class ResidentSpeechService(QObject):
         self.key = None
         self.buffer = b""
         self.loaded = False
+        self.starting = False
         self.idle_seconds = 300
         self.idle_since = None
         self.closed = False
@@ -98,7 +99,8 @@ class ResidentSpeechService(QObject):
         self.idle_since = None
         self.idle_seconds = backend.idle_seconds
         self.active = backend
-        self.timer.start(120_000)
+        self.starting = True
+        self.timer.start(START_TIMEOUT_MS)
         if self.process is None:
             self._launch(backend.command)
         else:
@@ -153,6 +155,7 @@ class ResidentSpeechService(QObject):
 
     def finish(self, backend):
         if self.active is backend and not backend.closed:
+            self.starting = False
             self.timer.start(60_000)
             self._send({"session_id": backend.session_id, "action": "stop"})
 
@@ -188,6 +191,10 @@ class ResidentSpeechService(QObject):
         if not isinstance(event, dict):
             raise ValueError("event")
         sid, kind = event.get("session_id"), event["event"]
+        if sid is None and kind == "error":
+            # Worker-level failures (SDK, model load) carry no session id:
+            # they concern the session the worker is currently serving.
+            sid = self.draining or getattr(self.active, "session_id", None)
         if self.draining and sid == self.draining:
             if kind in {"cancelled", "complete"}:
                 self.draining = None
@@ -196,13 +203,16 @@ class ResidentSpeechService(QObject):
                 if pending and not pending.closed:
                     self.begin(pending)
             elif kind == "error":
-                self._fail(str(event["message"]))
+                # The abandoned session could not close cleanly: the waiting
+                # dictation never started, so it gets a fresh worker.
+                self._restart_pending()
             return
         backend = self.active
         if backend is None or backend.closed or sid != backend.session_id:
             return
         if kind == "ready":
             self.loaded = True
+            self.starting = False
             self.timer.stop()
             self.state_changed.emit()
             backend.ready.emit()
@@ -210,6 +220,9 @@ class ResidentSpeechService(QObject):
             backend.transcript.emit(str(event["text"]))
         elif kind == "progress":
             backend.phase = str(event.get("phase", ""))
+            if self.starting:
+                # An inactivity deadline: each reported step re-arms it.
+                self.timer.start(startup_timeout(backend.phase))
             backend.progress.emit(
                 str(event.get("message", "Préparation…")), int(event.get("percent", -1))
             )
@@ -254,6 +267,7 @@ class ResidentSpeechService(QObject):
         self.idle_timer.stop()
         process, self.process = self.process, None
         self.loaded = False
+        self.starting = False
         self.draining = None
         self.idle_since = None
         self.buffer = b""
@@ -277,17 +291,24 @@ class ResidentSpeechService(QObject):
     def _process_failed(self, process):
         if self.process is process:
             self._read(process)
-            if self.process is process:
+            if self.process is not process:
+                return
+            if self.draining:
+                self._restart_pending()
+            else:
                 self._fail(
                     "Le moteur vocal local s’est arrêté. La prochaine dictée rechargera le modèle."
                 )
 
+    def _restart_pending(self):
+        pending, self.pending = self.pending, None
+        self._stop()
+        if pending and not pending.closed:
+            self.begin(pending)
+
     def _timeout(self):
         if self.draining:
-            pending, self.pending = self.pending, None
-            self._stop()
-            if pending and not pending.closed:
-                self.begin(pending)
+            self._restart_pending()
         else:
             self._fail("Le moteur vocal n’a pas répondu à temps. Réessayez.")
 

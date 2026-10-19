@@ -28,6 +28,7 @@ class PromptActions(PageActions):
     """Keep reset anchored left and save anchored right in both editors."""
 
     restore_requested = Signal()
+    restore_previous_requested = Signal()
 
     def __init__(self, reset, save, *, run=None, parent=None):
         super().__init__(parent)
@@ -39,5 +40,13 @@ class PromptActions(PageActions):
         self.restore_button.setToolTip("Restaurer la liste complète des prompts d’origine")
         self.row.removeWidget(self.restore_button)
         self.row.insertWidget(1, self.restore_button)
+        self.previous_button = self.add_action(
+            "Revenir à la copie…", self.restore_previous_requested.emit
+        )
+        self.previous_button.setToolTip(
+            "Remettre la liste conservée avant la dernière restauration ou le dernier import"
+        )
+        self.row.removeWidget(self.previous_button)
+        self.row.insertWidget(2, self.previous_button)
         self.run_button = self.add_action("Dicter", run) if run is not None else None
         self.save_button = self.add_action("Enregistrer", save, primary=True)

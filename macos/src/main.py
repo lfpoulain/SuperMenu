@@ -95,6 +95,10 @@ class SuperMenu(QObject):
             self.main_window.show_main_window()
         elif not accessibility_is_trusted():
             self.main_window.show_permission_setup()
+        elif self.main_window.refused_hotkey_messages():
+            # A saved shortcut refused by validation would stay silently
+            # inactive behind a hidden window; the status line names it.
+            self.main_window.show_permission_setup()
         else:
             self.main_window.hide()
         self.main_window.schedule_startup_update_check()

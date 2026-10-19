@@ -1,5 +1,16 @@
+import pytest
+
 from supermenu_core.api import openai_client as client_module
 from supermenu_core.api.openai_client import OpenAIClient
+
+
+@pytest.fixture(autouse=True)
+def isolated_capabilities_cache():
+    # Probes are shared by every client of the process: a test must neither
+    # inherit nor leave behind the capabilities of another test.
+    client_module.clear_capabilities_cache()
+    yield
+    client_module.clear_capabilities_cache()
 
 
 class FakeSettings:

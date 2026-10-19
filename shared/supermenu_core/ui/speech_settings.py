@@ -170,14 +170,34 @@ class SpeechSettingsWidget(QGroupBox):
         from .page_actions import PageActions
 
         self.actions_widget = PageActions()
+        # Dictation reads the saved settings, so say when the page differs.
+        self.unsaved_label = QLabel("Modifications non enregistrées")
+        self.unsaved_label.setObjectName("mutedText")
+        self.unsaved_label.hide()
+        self.actions_widget.row.insertWidget(0, self.unsaved_label)
         self.test_button = self.actions_widget.add_action("Dicter", self._dictate)
         self.save_button = self.actions_widget.add_action("Enregistrer", self.save, primary=True)
         layout.addWidget(self.actions_widget)
         for widget in (self.provider_combo, self.device_combo):
             widget.currentIndexChanged.connect(self._changed)
         self.languages_input.textChanged.connect(self._changed)
-        self.api_key_input.textChanged.connect(self._changed)
+        self.api_key_input.textChanged.connect(self._api_key_changed)
+        for widget in (
+            self.provider_combo,
+            self.device_combo,
+            self.microphone_combo,
+            self.idle_combo,
+        ):
+            widget.currentIndexChanged.connect(self._update_unsaved)
+        for widget in (
+            self.languages_input,
+            self.keywords_input,
+            self.prompt_input,
+            self.api_key_input,
+        ):
+            widget.textChanged.connect(self._update_unsaved)
         self._changed()
+        self._update_unsaved()
 
     def _choose_language(self):
         code = self.language_combo.currentData()
@@ -248,6 +268,63 @@ class SpeechSettingsWidget(QGroupBox):
             ),
         }
 
+    def _api_key_changed(self, *_args):
+        # The text page mirrors its key into this field. Only the OpenAI engine
+        # uses it, so it must not stop a local model download or its check.
+        if self.provider_combo.currentData() == "openai":
+            self._changed()
+
+    def _form_values(self):
+        provider = self.provider_combo.currentData()
+        return (
+            provider,
+            self.device_combo.currentData(),
+            self.microphone_combo.currentData(),
+            self.idle_combo.currentData(),
+            self.languages_input.text().strip(),
+            self.prompt_input.toPlainText().strip(),
+            self.keywords_input.text().strip(),
+            # Saving this page stores the key only for the OpenAI engine.
+            self.api_key_input.text().strip() if provider == "openai" else "",
+        )
+
+    def _saved_values(self):
+        # The values this page shows right after loading the saved settings.
+        def shown(combo, value, fallback=None):
+            index = combo.findData(value)
+            if index < 0:
+                index = fallback if fallback is not None else -1
+            return combo.itemData(index) if index >= 0 else None
+
+        settings = self.settings
+        return (
+            shown(self.provider_combo, settings.get_speech_provider(), 0),
+            shown(self.device_combo, settings.get_speech_device()),
+            settings.get_speech_microphone(),
+            shown(self.idle_combo, settings.get_speech_idle_seconds()),
+            settings.get_transcription_languages().strip(),
+            settings.get_transcription_prompt().strip(),
+            settings.get_transcription_keywords().strip(),
+            (
+                (settings.get_api_key() or "").strip()
+                if self.provider_combo.currentData() == "openai"
+                else ""
+            ),
+        )
+
+    def has_unsaved_changes(self):
+        try:
+            return self._form_values() != self._saved_values()
+        except Exception:
+            return False
+
+    def _update_unsaved(self, *_args):
+        unsaved = self.has_unsaved_changes()
+        self.unsaved_label.setVisible(unsaved)
+        self.save_button.setToolTip(
+            "Les dictées utilisent les réglages enregistrés." if unsaved else ""
+        )
+
     def _changed(self, *_args):
         self.cancel(silent=True)
         provider = self.provider_combo.currentData()
@@ -284,6 +361,7 @@ class SpeechSettingsWidget(QGroupBox):
             self.device_combo,
             self.languages_input,
             self.language_combo,
+            self.api_key_input,
             self.check_button,
             self.save_button,
             self.test_button,
@@ -414,6 +492,7 @@ class SpeechSettingsWidget(QGroupBox):
         self.settings.set_transcription_prompt(options["prompt"])
         self.settings.set_transcription_keywords(self.keywords_input.text().strip())
         self.settings.sync()
+        self._update_unsaved()
         self.save_button.setText("Enregistré")
         QTimer.singleShot(1200, self, lambda: self.save_button.setText("Enregistrer"))
         self.settings_saved.emit()
@@ -423,6 +502,11 @@ class SpeechSettingsWidget(QGroupBox):
         self.microphone_test.cancel(silent=True)
         if self.save():
             self.dictation_requested.emit()
+
+    def showEvent(self, event):
+        # The text page can save the shared OpenAI key while this one is hidden.
+        self._update_unsaved()
+        super().showEvent(event)
 
     def hideEvent(self, event):
         self.microphone_test.cancel(silent=True)

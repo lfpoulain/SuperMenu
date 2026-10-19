@@ -74,6 +74,9 @@ _SPECIAL_KEYS = {
     "down": "down",
 }
 
+# Cmd+<key> combinations every text field relies on.
+_TEXT_EDITING_KEYS = {"a", "c", "v", "x", "z"}
+
 
 def _modifier_labels(modifiers, *, macos=None) -> list[str]:
     """Translate Qt modifiers to physical macOS modifier names."""
@@ -101,8 +104,16 @@ def _modifier_labels(modifiers, *, macos=None) -> list[str]:
     return parts
 
 
-def normalize_hotkey(hotkey: str) -> tuple[str | None, str]:
-    """Convert the persisted display format to pynput's canonical format."""
+def normalize_hotkey(
+    hotkey: str, *, legacy: bool = False
+) -> tuple[str | None, str]:
+    """Convert the persisted display format to pynput's canonical format.
+
+    ``legacy`` checks a shortcut that is already saved. Shift or Option alone
+    used to be accepted with any key: such a shortcut keeps working after an
+    update instead of being silently dropped, while a new choice (recorder,
+    edited prompt) must follow the current rule.
+    """
     if not isinstance(hotkey, str) or not hotkey.strip():
         return None, "Le raccourci ne peut pas être vide"
     parts = [part.strip() for part in hotkey.split("+") if part.strip()]
@@ -130,15 +141,88 @@ def normalize_hotkey(hotkey: str) -> tuple[str | None, str]:
         return None, "Ce raccourci est réservé à la gestion des fenêtres macOS"
     if seen == {"cmd"} and key_lower == "space":
         return None, "Cmd+Space est réservé à Spotlight"
+    if seen == {"cmd"} and key_lower in _TEXT_EDITING_KEYS:
+        # SuperMenu itself posts Cmd+C and Cmd+V: such a binding would also
+        # fire on every copy and paste, its own included.
+        return None, "Ce raccourci est réservé à l’édition de texte macOS"
+    function_key = re.fullmatch(r"f(?:[1-9]|1[0-9]|2[0-4])", key_lower)
     if key_lower in _SPECIAL_KEYS:
         key = f"<{_SPECIAL_KEYS[key_lower]}>"
-    elif re.fullmatch(r"f(?:[1-9]|1[0-9]|2[0-4])", key_lower):
+    elif function_key:
         key = f"<{key_lower}>"
     elif len(key_token) == 1 and key_token.isprintable():
         key = key_token.lower()
     else:
         return None, f"Touche non supportée : {key_token}"
+    if not legacy and not seen & {"cmd", "ctrl"} and not function_key:
+        # The AppKit monitor observes keys without consuming them: Shift+K
+        # would fire on every capital K, Option+Space would type a space over
+        # the selection before SuperMenu reads it.
+        return None, (
+            "Ajoutez Cmd ou Ctrl : Shift et Option seuls ne conviennent "
+            "qu’aux touches F1 à F24"
+        )
     return "+".join(modifiers + [key]), ""
+
+
+def _normalize_stored_hotkey(hotkey, owner):
+    """Normalize a saved shortcut, keeping one accepted by an older version.
+
+    Such a shortcut is still bound, as it was before the update; the log says
+    it should be replaced.
+    """
+    normalized, error = normalize_hotkey(hotkey, legacy=True)
+    if normalized is not None:
+        _current, advice = normalize_hotkey(hotkey)
+        if advice:
+            log(
+                f"Raccourci conservé pour {owner} ({hotkey}), "
+                f"à remplacer : {advice}",
+                logging.WARNING,
+            )
+    return normalized, error
+
+
+# Qt::Key values below this bound are the Unicode code point of the key.
+_QT_SPECIAL_KEY_BASE = 0x01000000
+
+
+def _is_recordable_character(character):
+    # Qt reports U+FFFD when Cocoa gives a key no character, such as a dead
+    # key (Cmd+^ on a French keyboard): the detector would never see it.
+    # Apple's function-key range U+F700–U+F8FF is already non-printable.
+    return (
+        character.isprintable()
+        and character != "+"
+        and character != "\ufffd"
+    )
+
+
+def _recorded_character_key(key, text, *, option_held=False):
+    """Name a character key the way the AppKit detector will read it.
+
+    The detector compares ``charactersIgnoringModifiers``, which Option does
+    not transform, while ``QKeyEvent.text()`` is the composed character
+    (Option+K gives « ˚ ») and is empty while Cmd or Ctrl is held. Qt derives
+    ``key()`` from the unmodified character, so it is the reliable source.
+    """
+    try:
+        code = int(key)
+    except (TypeError, ValueError):
+        code = 0
+    if 0x20 < code < _QT_SPECIAL_KEY_BASE:
+        character = chr(code)
+        if _is_recordable_character(character):
+            upper = character.upper()
+            return upper if len(upper) == 1 else character
+        return None
+    if option_held:
+        # The composed text would be stored and never match the detector.
+        return None
+    text = (text or "").strip()
+    if len(text) == 1 and _is_recordable_character(text):
+        return text.upper()
+    return None
 
 
 class HotkeyRecorderDialog(QDialog):
@@ -154,7 +238,7 @@ class HotkeyRecorderDialog(QDialog):
             QLabel("Appuyez sur la combinaison de touches à utiliser.")
         )
         self.current_hotkey_label = QLabel(
-            "Utilisez au moins Cmd, Option, Ctrl ou Shift"
+            "Utilisez Cmd ou Ctrl (Shift ou Option seuls : F1 à F24)"
         )
         self.current_hotkey_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.current_hotkey_label.setObjectName("shortcutDisplay")
@@ -208,6 +292,7 @@ class HotkeyRecorderDialog(QDialog):
             Qt.Key.Key_Up: "Up",
             Qt.Key.Key_Down: "Down",
         }
+        key_map[Qt.Key.Key_Backtab] = "Tab"  # Qt's name for Shift+Tab.
         key_map.update(
             {
                 getattr(Qt.Key, f"Key_F{number}"): f"F{number}"
@@ -216,9 +301,11 @@ class HotkeyRecorderDialog(QDialog):
         )
         key_part = key_map.get(Qt.Key(key))
         if key_part is None:
-            text = (event.text() or "").strip()
-            if len(text) == 1 and text.isprintable() and text != "+":
-                key_part = text.upper()
+            key_part = _recorded_character_key(
+                key,
+                event.text(),
+                option_held=bool(modifiers & Qt.KeyboardModifier.AltModifier),
+            )
         if not key_part:
             self.current_hotkey_label.setText("Touche non supportée")
             self.ok_button.setEnabled(False)
@@ -448,15 +535,8 @@ class _MacOSGlobalHotKeys:
                 if self._suspended:
                     return
                 binding = self._bindings.get(signature)
-                configured_modifiers = {
-                    configured[0] for configured in self._bindings
-                }
-            if modifiers in configured_modifiers:
-                observed = "+".join(sorted(modifiers) + [key or "?"])
-                log(
-                    "Événement clavier AppKit observé : "
-                    f"{observed} (keyCode={key_code})"
-                )
+            # Never log a keystroke that is not a registered shortcut: the
+            # global monitor sees what the user types in every application.
             if binding is None:
                 return
             shortcut, callback = binding
@@ -698,6 +778,7 @@ class HotkeyManager(QObject):
         self._owner = "dictée instantanée" if dictation_hotkey else ("mode personnalisé" if custom_hotkey else "menu principal")
         self._binding_active = False
         self._last_register_error = ""
+        self._refused_hotkey_error = ""
         self.register_hotkey()
 
     def _get_configured_hotkey(self) -> str:
@@ -717,13 +798,15 @@ class HotkeyManager(QObject):
 
     def register_hotkey(self) -> bool:
         self.hotkey = self._get_configured_hotkey()
+        self._refused_hotkey_error = ""
         if self.dictation_hotkey and not self.hotkey:
             self.unregister_hotkey()
             self._last_register_error = ""
             return True
-        normalized, error = normalize_hotkey(self.hotkey)
+        normalized, error = _normalize_stored_hotkey(self.hotkey, self._owner)
         if error:
             self._last_register_error = error
+            self._refused_hotkey_error = error
             log(
                 f"Raccourci refusé pour {self._owner} ({self.hotkey}) : {error}",
                 logging.ERROR,
@@ -775,6 +858,13 @@ class HotkeyManager(QObject):
 
     def set_hotkey(self, hotkey):
         previous = self._get_configured_hotkey()
+        if hotkey and hotkey != previous:
+            # A new choice follows the current rule; only the saved shortcut
+            # keeps the tolerance of the version that accepted it.
+            _normalized, error = normalize_hotkey(hotkey)
+            if error:
+                self._last_register_error = error
+                return False
         self._set_configured_hotkey(hotkey)
         if self.register_hotkey():
             return True
@@ -796,6 +886,15 @@ class HotkeyManager(QObject):
     @property
     def last_register_error(self) -> str:
         return self._last_register_error
+
+    @property
+    def refused_hotkey_error(self) -> str:
+        """Why the saved shortcut fails validation, or an empty string.
+
+        Unlike a service failure, relaunching SuperMenu does not fix this: the
+        shortcut has to be recorded again.
+        """
+        return self._refused_hotkey_error
 
 
 class PromptHotkeyManager(QObject):
@@ -831,7 +930,9 @@ class PromptHotkeyManager(QObject):
             hotkey = str(prompt.get("hotkey", "") or "").strip()
             if not hotkey:
                 continue
-            normalized, error = normalize_hotkey(hotkey)
+            normalized, error = _normalize_stored_hotkey(
+                hotkey, f"le prompt {prompt_id}"
+            )
             if error:
                 self._errors[prompt_id] = error
                 continue
@@ -857,13 +958,38 @@ class PromptHotkeyManager(QObject):
         except RuntimeError as exc:
             log(f"Raccourci de prompt ignoré pendant la fermeture : {exc}")
 
-    def validate_prompts(self, prompts):
-        mapping = {}
-        errors = {}
+    def validate_prompts(self, prompts, accepted=None):
+        """Check the prompt shortcuts about to be saved.
+
+        Only a shortcut that differs from the accepted one (by default the
+        saved library) must follow the current rule. An unchanged shortcut
+        keeps the rule it was saved under, and one that is refused anyway stays
+        unbound as in ``refresh_hotkeys``: neither may block saving another
+        prompt, or the user could not even clear it.
+        """
+        if accepted is None:
+            accepted = self.settings.get_prompts()
+        unchanged = []
+        changed = []
         for prompt_id, prompt in prompts.items():
             hotkey = str(prompt.get("hotkey", "") or "").strip()
             if not hotkey:
                 continue
+            saved = accepted.get(prompt_id)
+            saved_hotkey = (
+                str(saved.get("hotkey", "") or "").strip()
+                if isinstance(saved, dict)
+                else ""
+            )
+            target = unchanged if hotkey == saved_hotkey else changed
+            target.append((prompt_id, hotkey))
+        mapping = {}
+        for _prompt_id, hotkey in unchanged:
+            normalized, error = normalize_hotkey(hotkey, legacy=True)
+            if not error:
+                mapping[normalized] = lambda: None
+        errors = {}
+        for prompt_id, hotkey in changed:
             normalized, error = normalize_hotkey(hotkey)
             if error:
                 errors[prompt_id] = error

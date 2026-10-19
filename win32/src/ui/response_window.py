@@ -7,6 +7,7 @@ import win32gui
 from PySide6.QtWidgets import QApplication
 
 from supermenu_core.ui.response_window import BaseResponseWindow
+from src.utils.logger import log
 from src.utils.text_inserter import TextInserter
 
 
@@ -48,9 +49,10 @@ class ResponseWindow(BaseResponseWindow):
             win32gui.BringWindowToTop(hwnd)
             win32gui.SetForegroundWindow(hwnd)
         except Exception as exc:
-            logging.warning(
-                "Impossible de forcer la fenêtre de réponse au premier plan: %s",
-                exc,
+            # The root logger has no handler: only "SuperMenu" reaches the log file.
+            log(
+                f"Impossible de forcer la fenêtre de réponse au premier plan: {exc}",
+                logging.WARNING,
             )
 
     def _create_text_inserter(self):

@@ -1,10 +1,28 @@
 """Desktop controls with shared popup, selection and keyboard behaviour."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QComboBox, QListView, QListWidget, QMenu, QWidget
+from PySide6.QtWidgets import (
+    QComboBox, QListView, QListWidget, QMenu, QTextEdit, QWidget,
+)
 
 
 SIDEBAR_WIDTH = 220
+
+
+class PlainTextEdit(QTextEdit):
+    """A text editor whose content is never interpreted as HTML.
+
+    setAcceptRichText(False) only covers typing, pasting and dropping.
+    QTextEdit.setText() still guesses the format, so an instruction whose
+    first line contained a tag such as <code> lost its markup and line breaks.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptRichText(False)
+
+    def setText(self, text):
+        self.setPlainText(text)
 
 
 class SidebarList(QListWidget):

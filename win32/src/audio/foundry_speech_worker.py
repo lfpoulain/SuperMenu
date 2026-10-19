@@ -10,6 +10,11 @@ from supermenu_core.audio.settings import NEMOTRON_MODEL, MAX_DICTATION_SECONDS
 from src.api.foundry_model_selection import select_variant
 from src.api.foundry_worker import FoundryRuntime, LocalError, pipe_stream
 
+UNEXPECTED_ERROR = (
+    "Foundry n’a pas pu terminer la dictée. Vérifiez la disponibilité du modèle, "
+    "la mémoire et les pilotes GPU."
+)
+
 
 def select_speech_model(runtime, device, emit):
     runtime.prepare_hardware(
@@ -131,6 +136,11 @@ def run(source, emit, runtime=None):
     except LocalError as exc:
         current_emit({"event": "error", "message": str(exc)})
         raise
+    except Exception:
+        # SDK failures (model load, session) must reach the dictation that
+        # triggered them: the resident service routes errors by session id.
+        current_emit({"event": "error", "message": UNEXPECTED_ERROR})
+        raise
     finally:
         if model is not None and loaded:
             model.unload()
@@ -216,10 +226,5 @@ def main():
     except LocalError as exc:
         emit({"event": "error", "message": str(exc)})
     except Exception:
-        emit(
-            {
-                "event": "error",
-                "message": "Foundry n’a pas pu terminer la dictée. Vérifiez la disponibilité du modèle, la mémoire et les pilotes GPU.",
-            }
-        )
+        emit({"event": "error", "message": UNEXPECTED_ERROR})
     return 1

@@ -214,7 +214,41 @@ def test_recheck_attempts_hotkeys_even_when_permission_api_reports_false(
 
     assert window.hotkey_manager.registered is True
     assert window.custom_hotkey_manager.registered is True
-    assert "actifs" in window.hotkey_service_status.text()
+    # macOS creates the monitors without Accessibility but never feeds them a
+    # key, so registered managers must not be reported as working shortcuts.
+    status_text = window.hotkey_service_status.text()
+    assert "Raccourcis inactifs" in status_text
+    assert "Accessibilité" in status_text
+    assert "✅" not in status_text
+
+
+def test_unreadable_permission_state_keeps_active_hotkeys_reported(
+    window,
+    monkeypatch,
+):
+    class HotkeyManagerStub:
+        registered = True
+        last_register_error = ""
+
+        def register_hotkey(self):
+            return True
+
+    window.hotkey_manager = HotkeyManagerStub()
+    window.custom_hotkey_manager = HotkeyManagerStub()
+    monkeypatch.setattr(
+        main_window_module,
+        "current_permission_status",
+        lambda: PermissionStatus(
+            accessibility=False,
+            accessibility_check_available=False,
+        ),
+    )
+
+    window.refresh_permission_status(force_reload=True)
+
+    status_text = window.hotkey_service_status.text()
+    assert "Raccourcis globaux actifs" in status_text
+    assert "incomplète" in status_text
 
 
 def test_hotkey_recorder_is_async_and_keeps_main_window_open(window, qt_app):

@@ -1,5 +1,9 @@
+import os
+import stat
+import sys
 from pathlib import Path
 
+import pytest
 from PySide6.QtCore import QCoreApplication
 
 from supermenu_core.config.prompts import default_text_prompts
@@ -39,6 +43,38 @@ def test_api_key_is_stored_in_the_private_macos_config(tmp_path):
     reloaded = Settings(config_path=str(config_path))
     assert reloaded.get_api_key() == "sk-local-test"
     assert "sk-local-test" in config_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Les permissions POSIX 0600 ne s’appliquent pas sous Windows.",
+)
+def test_private_config_stays_readable_by_its_owner_only(tmp_path):
+    config_path = tmp_path / "settings.ini"
+
+    def mode(path):
+        return stat.S_IMODE(os.stat(path).st_mode)
+
+    settings = Settings(config_path=str(config_path))
+    assert mode(config_path) == 0o600
+
+    settings.set_api_key("sk-local-test")
+    settings.sync()
+    assert mode(config_path) == 0o600
+
+    # A write made by QSettings alone (atomic replacement) keeps the mode.
+    settings.set_custom_endpoint_api_key("endpoint-secret")
+    settings.settings.sync()
+    assert mode(config_path) == 0o600
+    leftovers = [
+        path
+        for path in tmp_path.iterdir()
+        if path.is_file()
+        and path.name.startswith(config_path.name)
+        and path != config_path
+        and not path.name.endswith(".lock")
+    ]
+    assert all(mode(path) == 0o600 for path in leftovers)
 
 
 def test_custom_reasoning_accepts_provider_native_options(tmp_path):

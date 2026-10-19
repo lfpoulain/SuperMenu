@@ -16,10 +16,9 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: beta-release
-  cancel-in-progress: true
-
+# Concurrency is declared per job, not per run: a newer build cancels an older
+# one, but a publication in progress is never interrupted, and a run whose
+# jobs are all skipped (failed CI, pull request) cancels nothing.
 jobs:
   build-windows-beta:
     if: >-
@@ -29,6 +28,9 @@ jobs:
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository) ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    concurrency:
+      group: beta-release-build-windows
+      cancel-in-progress: true
     runs-on: windows-latest
     defaults:
       run:
@@ -144,6 +146,9 @@ jobs:
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository) ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    concurrency:
+      group: beta-release-build-macos
+      cancel-in-progress: true
     runs-on: macos-15
     timeout-minutes: 45
     defaults:
@@ -302,6 +307,11 @@ jobs:
     needs:
       - build-windows-beta
       - build-macos-beta
+    # A newer run waits for this one instead of cancelling it halfway through
+    # the asset swap.
+    concurrency:
+      group: beta-release-publish
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -309,6 +319,7 @@ jobs:
       BUILD_COMMIT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
       WINDOWS_VERSION: ${{ needs.build-windows-beta.outputs.app_version }}
       MACOS_VERSION: ${{ needs.build-macos-beta.outputs.app_version }}
+      GH_REPO: ${{ github.repository }}
 
     steps:
       # Credentials stay persisted here: the last step pushes the beta tag.
@@ -331,17 +342,25 @@ jobs:
           name: beta-macos
           path: release-assets
 
+      # The installer fingerprints let the apps refuse a corrupted or swapped
+      # download. Older apps ignore the extra asset and sha256 fields.
       - name: Generate platform manifests and checksums
         working-directory: release-assets
         run: |
+          set -euo pipefail
+          windows_sha256="$(sha256sum SuperMenu_Beta_Setup.exe | cut -d ' ' -f 1)"
+          macos_sha256="$(sha256sum SuperMenu_Beta-macOS-arm64.dmg | cut -d ' ' -f 1)"
+
           jq -n \
             --arg version "${WINDOWS_VERSION}" \
-            '{schema_version: 1, channel: "beta", version: $version, prerelease: true, tag: "beta"}' \
+            --arg sha256 "${windows_sha256}" \
+            '{schema_version: 1, channel: "beta", version: $version, prerelease: true, tag: "beta", asset: "SuperMenu_Beta_Setup.exe", sha256: $sha256}' \
             > update-beta.json
 
           jq -n \
             --arg version "${MACOS_VERSION}" \
-            '{schema_version: 1, platform: "macos", architecture: "arm64", channel: "beta", version: $version, prerelease: true, tag: "beta", asset: "SuperMenu_Beta-macOS-arm64.dmg"}' \
+            --arg sha256 "${macos_sha256}" \
+            '{schema_version: 1, platform: "macos", architecture: "arm64", channel: "beta", version: $version, prerelease: true, tag: "beta", asset: "SuperMenu_Beta-macOS-arm64.dmg", sha256: $sha256}' \
             > update-macos-beta.json
 
           sha256sum \
@@ -353,30 +372,104 @@ jobs:
             > SHA256SUMS-beta.txt
 
       # Replace BETA_NOTES.md with each beta's highlights; do not append history.
+      # The "Windows version:" and "macOS version:" lines are read by the apps
+      # when the manifests are unreachable: keep them, without backticks.
       - name: Prepare concise beta notes
         run: |
           {
             cat .github/BETA_NOTES.md
             printf '\n\nWindows : `%s` · macOS Apple Silicon : `%s`\n' "${WINDOWS_VERSION}" "${MACOS_VERSION}"
-            printf '\n<details>\n<summary>Informations de build</summary>\n\nCommit : `%s`\n\n</details>\n' "${BUILD_COMMIT}"
+            printf '\n<details>\n<summary>Informations de build</summary>\n\n'
+            printf -- '- Channel: beta\n- Windows version: %s\n- macOS version: %s\n- Commit: `%s`\n' "${WINDOWS_VERSION}" "${MACOS_VERSION}" "${BUILD_COMMIT}"
+            printf '\n</details>\n'
           } > beta-release-notes.md
 
+      # The new files are uploaded next to the published ones under a staging
+      # name, then each one replaces its predecessor with a delete and a
+      # rename. The installers and the DMG go first and the manifests last, so
+      # a manifest never points to a missing or older installer, and the
+      # published beta stays complete if the upload fails.
       - name: Publish rolling beta prerelease
-        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
-        with:
-          tag: beta
-          commit: ${{ env.BUILD_COMMIT }}
-          name: SuperMenu Beta
-          prerelease: true
-          makeLatest: false
-          allowUpdates: true
-          updateOnlyUnreleased: true
-          replacesArtifacts: true
-          removeArtifacts: true
-          artifactErrorsFailBuild: true
-          artifacts: release-assets/*
-          token: ${{ secrets.GITHUB_TOKEN }}
-          bodyFile: beta-release-notes.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          final_assets=(
+            SuperMenu_Beta.exe
+            SuperMenu_Beta_Setup.exe
+            SuperMenu_Beta-macOS-arm64.dmg
+            SHA256SUMS-beta.txt
+            update-beta.json
+            update-macos-beta.json
+          )
+          for name in "${final_assets[@]}"; do
+            if [[ ! -f "release-assets/${name}" ]]; then
+              echo "Asset beta manquant : ${name}" >&2
+              exit 1
+            fi
+          done
+
+          if ! release_json="$(gh api "repos/${GH_REPO}/releases/tags/beta" 2>/dev/null)"; then
+            # First publication: gh uploads into a draft, then publishes it.
+            gh release create beta "${final_assets[@]/#/release-assets/}" \
+              --prerelease \
+              --latest=false \
+              --title "SuperMenu Beta" \
+              --target "${BUILD_COMMIT}" \
+              --notes-file beta-release-notes.md
+            exit 0
+          fi
+          if [[ "$(jq -r '.prerelease' <<< "${release_json}")" != "true" ]]; then
+            echo "La release beta existante n'est pas une préversion." >&2
+            exit 1
+          fi
+          release_id="$(jq -r '.id' <<< "${release_json}")"
+          staging_prefix="next-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-"
+
+          # Leftovers of an interrupted publication are never referenced.
+          assets_json="$(gh api "repos/${GH_REPO}/releases/${release_id}/assets?per_page=100")"
+          for asset_id in $(jq -r '.[] | select(.name | startswith("next-")) | .id' <<< "${assets_json}"); do
+            gh api -X DELETE "repos/${GH_REPO}/releases/assets/${asset_id}"
+          done
+
+          staging_dir="$(mktemp -d)"
+          for name in "${final_assets[@]}"; do
+            cp "release-assets/${name}" "${staging_dir}/${staging_prefix}${name}"
+          done
+          gh release upload beta "${staging_dir}"/*
+
+          assets_json="$(gh api "repos/${GH_REPO}/releases/${release_id}/assets?per_page=100")"
+          staged_ids=()
+          for name in "${final_assets[@]}"; do
+            staged_id="$(jq -r --arg name "${staging_prefix}${name}" \
+              '.[] | select(.name == $name and .state == "uploaded") | .id' <<< "${assets_json}")"
+            if [[ -z "${staged_id}" ]]; then
+              echo "Asset beta préparé introuvable : ${name}" >&2
+              exit 1
+            fi
+            staged_ids+=("${staged_id}")
+          done
+
+          for index in "${!final_assets[@]}"; do
+            name="${final_assets[${index}]}"
+            for old_id in $(jq -r --arg name "${name}" '.[] | select(.name == $name) | .id' <<< "${assets_json}"); do
+              gh api -X DELETE "repos/${GH_REPO}/releases/assets/${old_id}"
+            done
+            gh api -X PATCH "repos/${GH_REPO}/releases/assets/${staged_ids[${index}]}" \
+              -f name="${name}" > /dev/null
+          done
+
+          # As the former removeArtifacts option did, drop assets no build produces.
+          assets_json="$(gh api "repos/${GH_REPO}/releases/${release_id}/assets?per_page=100")"
+          for asset_id in $(jq -r '.[] | select(.name | IN($ARGS.positional[]) | not) | .id' --args "${final_assets[@]}" <<< "${assets_json}"); do
+            gh api -X DELETE "repos/${GH_REPO}/releases/assets/${asset_id}"
+          done
+
+          gh api -X PATCH "repos/${GH_REPO}/releases/${release_id}" \
+            -f name="SuperMenu Beta" \
+            -F prerelease=true \
+            -f make_latest=false \
+            -F body=@beta-release-notes.md > /dev/null
 
       - name: Align rolling beta tag with published commit
         run: |

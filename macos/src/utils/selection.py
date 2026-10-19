@@ -28,6 +28,11 @@ ACTIVATION_MAX_POLLS = 12
 # when nothing was selected.
 COPY_POLL_MS = 15
 COPY_MAX_POLLS = 18
+# A target that kept the Accessibility read waiting is busy, and handles the
+# synthetic Command+C only once it is done with that request: its copy gets a
+# longer wait, so a late answer is still read and the clipboard restored.
+SLOW_ACCESSIBILITY_MS = 300
+SLOW_TARGET_COPY_MAX_POLLS = 100
 RESTORE_DELAY_MS = 100
 
 
@@ -55,6 +60,7 @@ class SelectionReader:
         started_ns = time.monotonic_ns()
         phases = []
         sentinel = f"__SUPERMENU_EMPTY_SELECTION_{time.monotonic_ns()}__"
+        copy_max_polls = COPY_MAX_POLLS
 
         def mark(label):
             """Record where the delay before the menu actually goes."""
@@ -90,7 +96,7 @@ class SelectionReader:
                 )
                 finish(text)
                 return
-            if poll_number < COPY_MAX_POLLS:
+            if poll_number < copy_max_polls:
                 self._schedule(
                     COPY_POLL_MS,
                     lambda: read_clipboard(poll_number + 1),
@@ -150,19 +156,33 @@ class SelectionReader:
             finish("")
             return
 
-        # Fast path: the target application is still frontmost at this point,
-        # so the system-wide focused element is its own. When it answers there
-        # is no activation, no clipboard and no synthetic keystroke at all.
-        direct_text = self._accessibility.selected_text()
-        if direct_text:
-            mark("API Accessibilité")
-            log(
-                "Sélection lue via l’API Accessibilité : "
-                f"{len(direct_text)} caractère(s)"
-            )
-            finish(direct_text)
-            return
-        mark("Accessibilité muette, repli presse-papiers")
+        # Fast path, only while the target application is still frontmost:
+        # the system-wide focused element is then its own. When it answers
+        # there is no activation, no clipboard and no synthetic keystroke at
+        # all. A menu opened from SuperMenu's own interface targets the
+        # application the user came from while SuperMenu is in front; the
+        # focused element would then be one of SuperMenu's fields, so that
+        # case goes straight to reactivation and the clipboard round trip.
+        if not target.is_current():
+            mark("cible en arrière-plan, repli presse-papiers")
+        else:
+            accessibility_started_ns = time.monotonic_ns()
+            direct_text = self._accessibility.selected_text()
+            if direct_text:
+                mark("API Accessibilité")
+                log(
+                    "Sélection lue via l’API Accessibilité : "
+                    f"{len(direct_text)} caractère(s)"
+                )
+                finish(direct_text)
+                return
+            mark("Accessibilité muette, repli presse-papiers")
+            accessibility_ms = (
+                time.monotonic_ns() - accessibility_started_ns
+            ) // 1_000_000
+            if accessibility_ms >= SLOW_ACCESSIBILITY_MS:
+                copy_max_polls = SLOW_TARGET_COPY_MAX_POLLS
+                mark("cible lente, attente de la copie allongée")
 
         if not target.request_activation():
             log(

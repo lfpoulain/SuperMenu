@@ -9,6 +9,23 @@ from PySide6.QtWebSockets import QWebSocket
 
 from .settings import OPENAI_SPEECH_MODEL
 
+START_TIMEOUT_MS = 120_000
+# GPU activation (CUDA EP download) and model downloads are single blocking
+# steps that can take minutes on a slow connection.
+LONG_TIMEOUT_MS = 1_800_000
+LONG_PHASES = frozenset({"hardware", "download"})
+TIMEOUT_MESSAGE = "Le moteur vocal n’a pas répondu à temps. Réessayez."
+# The download deadline only expires when no progress arrived for that long.
+DOWNLOAD_TIMEOUT_MESSAGE = (
+    "Le téléchargement du moteur vocal n’a plus progressé. "
+    "Vérifiez la connexion, puis réessayez."
+)
+
+
+def startup_timeout(phase, default=START_TIMEOUT_MS):
+    """Deadline re-armed by each preparation step reported by a worker."""
+    return LONG_TIMEOUT_MS if phase in LONG_PHASES else default
+
 
 class SpeechBackend(QObject):
     phase = ""
@@ -33,22 +50,24 @@ class ProcessSpeechBackend(SpeechBackend):
         self.process.setProcessEnvironment(env)
         self.process.started.connect(lambda: self._send(self.options))
         self.process.readyReadStandardOutput.connect(self._read)
-        self.process.errorOccurred.connect(
-            lambda _e: self._fail("Le moteur vocal local n’a pas pu démarrer.")
-        )
+        self.process.errorOccurred.connect(self._process_error)
         self.process.finished.connect(self._exited)
         self.buffer = b""
         self.closed = False
+        self.preparing = False
+        self.startup_ms = START_TIMEOUT_MS
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
-        self.timer.timeout.connect(
-            lambda: self._fail("Le moteur vocal n’a pas répondu à temps. Réessayez.")
-        )
+        self.timer.timeout.connect(self._timed_out)
 
     def start(self):
-        self.timer.start(
-            1_800_000 if self.options.get("action") == "download" else 120_000
+        self.startup_ms = (
+            LONG_TIMEOUT_MS
+            if self.options.get("action") == "download"
+            else START_TIMEOUT_MS
         )
+        self.preparing = True
+        self.timer.start(self.startup_ms)
         self.process.start(*self.command)
 
     def _send(self, data):
@@ -65,6 +84,7 @@ class ProcessSpeechBackend(SpeechBackend):
         self._send({"audio": base64.b64encode(pcm).decode("ascii")})
 
     def finish(self):
+        self.preparing = False
         self._send({"action": "stop"})
         self.timer.start(60_000)
 
@@ -79,12 +99,16 @@ class ProcessSpeechBackend(SpeechBackend):
                 event = json.loads(line)
                 kind = event["event"]
                 if kind == "ready":
+                    self.preparing = False
                     self.timer.stop()
                     self.ready.emit()
                 elif kind == "transcript":
                     self.transcript.emit(str(event["text"]))
                 elif kind == "progress":
                     self.phase = str(event.get("phase", ""))
+                    if self.preparing:
+                        # An inactivity deadline: each reported step re-arms it.
+                        self.timer.start(startup_timeout(self.phase, self.startup_ms))
                     self.progress.emit(
                         str(event.get("message", "Préparation…")),
                         int(event.get("percent", -1)),
@@ -103,6 +127,18 @@ class ProcessSpeechBackend(SpeechBackend):
                     raise ValueError("event")
             except (ValueError, KeyError, TypeError):
                 self._fail("Réponse invalide du moteur vocal.")
+
+    def _timed_out(self):
+        downloading = self.preparing and (
+            self.options.get("action") == "download" or self.phase in LONG_PHASES
+        )
+        self._fail(DOWNLOAD_TIMEOUT_MESSAGE if downloading else TIMEOUT_MESSAGE)
+
+    def _process_error(self, error):
+        # A crash or a broken pipe ends with finished (or the deadline), which
+        # reads the worker's last message before reporting an early stop.
+        if error == QProcess.ProcessError.FailedToStart:
+            self._fail("Le moteur vocal local n’a pas pu démarrer.")
 
     def _exited(self, *_args):
         self._read()
@@ -124,6 +160,7 @@ class ProcessSpeechBackend(SpeechBackend):
 
 class OpenAISpeechBackend(SpeechBackend):
     sample_rate = 24000
+    realtime_url = "wss://api.openai.com/v1/realtime?intent=transcription"
 
     def __init__(self, api_key, options, parent=None):
         super().__init__(parent)
@@ -136,10 +173,9 @@ class OpenAISpeechBackend(SpeechBackend):
                 "Connexion à OpenAI impossible. Vérifiez la connexion et la clé API."
             )
         )
-        self.socket.disconnected.connect(
-            lambda: self._fail("La connexion OpenAI a été interrompue.")
-        )
+        self.socket.disconnected.connect(self._disconnected)
         self.closed = False
+        self.opened = False
         self.stopping = False
         self.audio_bytes = 0
         self.items = {}
@@ -163,9 +199,7 @@ class OpenAISpeechBackend(SpeechBackend):
             "Connexion à OpenAI… Aucun audio envoyé avant l’ouverture du microphone.",
             -1,
         )
-        request = QNetworkRequest(
-            QUrl("wss://api.openai.com/v1/realtime?intent=transcription")
-        )
+        request = QNetworkRequest(QUrl(self.realtime_url))
         request.setRawHeader(
             b"Authorization", ("Bearer " + self.api_key).encode("utf-8")
         )
@@ -176,7 +210,16 @@ class OpenAISpeechBackend(SpeechBackend):
         if not self.closed:
             self.socket.sendTextMessage(json.dumps(event))
 
+    def _disconnected(self):
+        # A refused connection emits disconnected before errorOccurred.
+        self._fail(
+            "La connexion OpenAI a été interrompue."
+            if self.opened
+            else "Connexion à OpenAI impossible. Vérifiez la connexion et la clé API."
+        )
+
     def _configure(self):
+        self.opened = True
         transcription = {"model": OPENAI_SPEECH_MODEL, "delay": "low"}
         for name in ("languages", "prompt", "keywords"):
             if self.options.get(name):

@@ -47,10 +47,51 @@ def _session():
     return _SESSION
 
 
-# Constante pour le timeout des requêtes API
-DEFAULT_API_TIMEOUT = 60
+# Constante pour le timeout des requêtes API.
+# Requests are not streamed, so the read timeout covers the whole generation.
+# A timed-out generation is not resent (the server may still be producing and
+# billing it): one 180 s attempt replaces the former three 60 s attempts.
+DEFAULT_API_TIMEOUT = 180
 LMSTUDIO_API_TIMEOUT = 300
+CONNECT_TIMEOUT = 10
+# Generic OpenAI-compatible servers reject prompt + max_tokens above their
+# context window, so their cap stays conservative.
 DEFAULT_MAX_TOKENS = 2048
+# OpenAI's max_completion_tokens also counts reasoning tokens: 2048 was spent
+# by the reasoning alone at the default effort, leaving an empty or cut answer.
+OPENAI_MAX_COMPLETION_TOKENS = 16384
+
+# Model capabilities rarely change, while clients created for one prompt are
+# short-lived: share a successful probe across clients for a while.
+CAPABILITIES_CACHE_TTL = 300
+# A failed probe (server still starting, network hiccup) is retried later
+# instead of being trusted for the whole lifetime of the client.
+CAPABILITIES_RETRY_DELAY = 30
+_CAPABILITIES_CACHE = {}
+_CAPABILITIES_CACHE_LOCK = threading.Lock()
+
+
+def _cached_capabilities(key):
+    with _CAPABILITIES_CACHE_LOCK:
+        entry = _CAPABILITIES_CACHE.get(key)
+        if entry is None:
+            return None
+        stored_at, value = entry
+        if time.monotonic() - stored_at > CAPABILITIES_CACHE_TTL:
+            _CAPABILITIES_CACHE.pop(key, None)
+            return None
+        return value
+
+
+def _remember_capabilities(key, value):
+    with _CAPABILITIES_CACHE_LOCK:
+        _CAPABILITIES_CACHE[key] = (time.monotonic(), value)
+
+
+def clear_capabilities_cache():
+    """Forget every capability probe shared between clients."""
+    with _CAPABILITIES_CACHE_LOCK:
+        _CAPABILITIES_CACHE.clear()
 
 
 def _looks_like_ollama_endpoint(endpoint_url):
@@ -61,7 +102,7 @@ def _looks_like_ollama_endpoint(endpoint_url):
     return port == 11434 or "ollama" in host or path.startswith("/api")
 
 
-def _models_base_url(endpoint_url, is_ollama):
+def _models_base_url(endpoint_url, is_ollama, lmstudio=False):
     base = (endpoint_url or "").rstrip("/")
     if is_ollama:
         if base.endswith("/api/chat"):
@@ -70,14 +111,28 @@ def _models_base_url(endpoint_url, is_ollama):
             return base[: -len("/api")]
         return base
 
-    for suffix in (
-        "/api/v1/chat",
-        "/api/v1/models",
-        "/v1/chat/completions",
-        "/v1/models",
-        "/v1",
-        "/api/v1",
-    ):
+    if lmstudio:
+        # Longest suffixes first: ".../api/v1" also ends with "/v1", which
+        # used to leave ".../api" as the server root.
+        suffixes = (
+            "/api/v1/chat",
+            "/api/v1/models",
+            "/api/v1",
+            "/v1/chat/completions",
+            "/v1/models",
+            "/v1",
+        )
+    else:
+        # Generic OpenAI-compatible servers may legitimately live under
+        # "/api/v1" (their catalog is then ".../api/v1/models").
+        suffixes = (
+            "/api/v1/chat",
+            "/api/v1/models",
+            "/v1/chat/completions",
+            "/v1/models",
+            "/v1",
+        )
+    for suffix in suffixes:
         if base.endswith(suffix):
             return base[: -len(suffix)]
     return base
@@ -139,12 +194,16 @@ class OpenAIClient(QObject):
         )
         self._ollama_capabilities_checked = False
         self._ollama_capabilities = None
+        self._ollama_probe_failed_at = None
         self._lmstudio_catalog_checked = False
+        self._lmstudio_probe_failed_at = None
         self._lmstudio_reasoning_supported = None
         self._lmstudio_reasoning_options = None
         self._lmstudio_reasoning_default = None
         self._lmstudio_compat_url = ""
         self._capabilities_lock = threading.Lock()
+        # Effort resolved by send_request() on the calling thread, per worker.
+        self._request_state = threading.local()
 
         # Si on utilise un endpoint personnalisé et qu'on a un custom_model dans les settings, l'utiliser
         if self.use_custom_endpoint:
@@ -181,7 +240,7 @@ class OpenAIClient(QObject):
                     self.custom_endpoint, ollama=True
                 )
             elif self.use_lmstudio_api:
-                base_url = _models_base_url(self.custom_endpoint, False)
+                base_url = _models_base_url(self.custom_endpoint, False, lmstudio=True)
                 self.api_url = f"{base_url}/api/v1/chat"
                 self._lmstudio_compat_url = f"{base_url}/v1/chat/completions"
             else:
@@ -210,6 +269,13 @@ class OpenAIClient(QObject):
             return f"{base}/chat/completions"
         return f"{base}/v1/chat/completions"
 
+    @staticmethod
+    def _probe_recently_failed(failed_at):
+        return (
+            failed_at is not None
+            and time.monotonic() - failed_at < CAPABILITIES_RETRY_DELAY
+        )
+
     def _ensure_lmstudio_model_capabilities(self, timeout=10):
         """Cache the reasoning controls advertised for the selected LM Studio model."""
         if not self.use_lmstudio_api:
@@ -217,20 +283,32 @@ class OpenAIClient(QObject):
         with self._capabilities_lock:
             if self._lmstudio_catalog_checked:
                 return
-            self._lmstudio_catalog_checked = True
+            if self._probe_recently_failed(self._lmstudio_probe_failed_at):
+                return
+            base_url = _models_base_url(self.custom_endpoint, False, lmstudio=True)
+            cache_key = ("lmstudio", base_url, self.model)
+            cached = _cached_capabilities(cache_key)
+            if cached is not None:
+                supported, options, default = cached
+                self._lmstudio_reasoning_supported = supported
+                self._lmstudio_reasoning_options = list(options)
+                self._lmstudio_reasoning_default = default
+                self._lmstudio_catalog_checked = True
+                return
             try:
                 headers = self._build_headers()
-                base_url = _models_base_url(self.custom_endpoint, False)
                 response = _session().get(
                     f"{base_url}/api/v1/models",
                     headers=headers,
                     timeout=timeout,
                 )
                 if response.status_code != 200:
+                    self._lmstudio_probe_failed_at = time.monotonic()
                     return
 
                 payload = response.json()
                 if not isinstance(payload, dict):
+                    self._lmstudio_probe_failed_at = time.monotonic()
                     return
                 selected = None
                 for model_details in parse_lmstudio_model_catalog(payload):
@@ -238,12 +316,24 @@ class OpenAIClient(QObject):
                         selected = model_details
                         break
 
+                # Only a readable catalog is final for this client.
+                self._lmstudio_catalog_checked = True
+                self._lmstudio_probe_failed_at = None
                 if selected is None:
                     return
                 self._lmstudio_reasoning_supported = selected["reasoning_supported"]
                 self._lmstudio_reasoning_options = selected["reasoning_options"]
                 self._lmstudio_reasoning_default = selected["reasoning_default"]
+                _remember_capabilities(
+                    cache_key,
+                    (
+                        selected["reasoning_supported"],
+                        tuple(selected["reasoning_options"] or ()),
+                        selected["reasoning_default"],
+                    ),
+                )
             except (requests.RequestException, ValueError, TypeError) as e:
+                self._lmstudio_probe_failed_at = time.monotonic()
                 log(
                     f"Impossible de lire les capacités LM Studio: {e}",
                     logging.DEBUG,
@@ -277,9 +367,16 @@ class OpenAIClient(QObject):
         with self._capabilities_lock:
             if self._ollama_capabilities_checked:
                 return
-            self._ollama_capabilities_checked = True
+            if self._probe_recently_failed(self._ollama_probe_failed_at):
+                return
+            base_url = _models_base_url(self.custom_endpoint, True)
+            cache_key = ("ollama", base_url, self.model)
+            cached = _cached_capabilities(cache_key)
+            if cached is not None:
+                self._ollama_capabilities = set(cached)
+                self._ollama_capabilities_checked = True
+                return
             try:
-                base_url = _models_base_url(self.custom_endpoint, True)
                 response = _session().post(
                     f"{base_url}/api/show",
                     headers=self._build_headers(),
@@ -287,11 +384,18 @@ class OpenAIClient(QObject):
                     timeout=timeout,
                 )
                 if response.status_code != 200:
+                    # Ollama not started yet or model still being pulled:
+                    # probe again on a later request rather than sending
+                    # think blindly for the whole lifetime of the client.
+                    self._ollama_probe_failed_at = time.monotonic()
                     return
 
                 payload = response.json()
                 if not isinstance(payload, dict):
+                    self._ollama_probe_failed_at = time.monotonic()
                     return
+                self._ollama_capabilities_checked = True
+                self._ollama_probe_failed_at = None
                 capabilities = payload.get("capabilities", [])
                 if isinstance(capabilities, list):
                     self._ollama_capabilities = {
@@ -299,7 +403,11 @@ class OpenAIClient(QObject):
                         for capability in capabilities
                         if str(capability).strip()
                     }
+                    _remember_capabilities(
+                        cache_key, frozenset(self._ollama_capabilities)
+                    )
             except (requests.RequestException, ValueError, TypeError) as e:
+                self._ollama_probe_failed_at = time.monotonic()
                 log(
                     f"Impossible de lire les capacités Ollama: {e}",
                     logging.DEBUG,
@@ -310,6 +418,12 @@ class OpenAIClient(QObject):
 
     def _get_default_reasoning_effort(self):
         """Read the reasoning setting for the active provider."""
+        # A request worker reuses the value read by send_request() on the Qt
+        # thread: the shared QSettings object is not touched from the worker.
+        state = getattr(self, "_request_state", None)
+        snapshot = getattr(state, "default_effort", None)
+        if snapshot is not None:
+            return snapshot
         if self.use_custom_endpoint:
             getter = getattr(self.settings, "get_custom_reasoning_effort", None)
             if getter:
@@ -584,13 +698,18 @@ class OpenAIClient(QObject):
             return self._combine_thinking(content, reasoning)
         return content
 
-    def _should_include_reasoning_by_default(self, insert_directly):
+    def _should_include_reasoning_by_default(self, insert_directly, reasoning_mode="default"):
         if insert_directly:
             return False
 
         if self.use_custom_endpoint:
-            effort = (self._get_provider_reasoning_effort() or "none").strip().lower()
-            if effort == "none":
+            # Use the effort actually sent for this prompt: a prompt set to
+            # "Avec raisonnement" makes the model think even when the engine
+            # setting is "none", so its trace must stay viewable.
+            effort = (
+                self._get_provider_reasoning_effort(reasoning_mode) or "none"
+            ).strip().lower()
+            if effort in {"none", "off"}:
                 return False
 
         return True
@@ -610,7 +729,9 @@ class OpenAIClient(QObject):
             self.model = selected_model
             self._ollama_capabilities_checked = False
             self._ollama_capabilities = None
+            self._ollama_probe_failed_at = None
             self._lmstudio_catalog_checked = False
+            self._lmstudio_probe_failed_at = None
             self._lmstudio_reasoning_supported = None
             self._lmstudio_reasoning_options = None
             self._lmstudio_reasoning_default = None
@@ -660,8 +781,13 @@ class OpenAIClient(QObject):
         # Lancer la requête dans un thread séparé
         if include_reasoning is None:
             include_reasoning = self._should_include_reasoning_by_default(
-                insert_directly
+                insert_directly, reasoning_mode
             )
+        # Settings are read here, on the calling thread, never by the worker.
+        try:
+            default_effort = self._get_default_reasoning_effort()
+        except Exception:
+            default_effort = None  # The worker reads it again and reports errors.
 
         threading.Thread(
             target=self._process_request_thread,
@@ -673,6 +799,7 @@ class OpenAIClient(QObject):
                 include_reasoning,
                 target,
                 reasoning_mode,
+                default_effort,
             ),
             daemon=True,
         ).start()
@@ -694,13 +821,24 @@ class OpenAIClient(QObject):
         """
         last_exception = None
         request_url = api_url or self.api_url
+        # Fail fast on an unreachable server, but give the (non-streamed)
+        # generation the whole read timeout.
+        if isinstance(timeout, (int, float)):
+            request_timeout = (min(CONNECT_TIMEOUT, timeout), timeout)
+            read_timeout = timeout
+        else:
+            request_timeout = timeout
+            read_timeout = timeout[-1] if isinstance(timeout, tuple) else timeout
 
         for attempt in range(self.max_retries):
             if self._closing.is_set():
                 raise RuntimeError("Client fermé")
             try:
                 response = _session().post(
-                    request_url, headers=headers, data=json.dumps(data), timeout=timeout
+                    request_url,
+                    headers=headers,
+                    data=json.dumps(data),
+                    timeout=request_timeout,
                 )
 
                 # Si succès, retourner immédiatement
@@ -722,6 +860,16 @@ class OpenAIClient(QObject):
 
                 # Pour d'autres erreurs, retourner la réponse pour traitement
                 return response
+
+            except requests.exceptions.ReadTimeout as e:
+                # The server accepted the request and may still be generating
+                # (and billing) the answer: resending it would only stack
+                # identical generations. Connection failures stay retried.
+                raise Exception(
+                    "Le serveur n'a pas terminé la réponse dans le délai prévu "
+                    f"({read_timeout} s). "
+                    "Réduisez le texte ou le niveau de raisonnement, puis réessayez."
+                ) from e
 
             except requests.exceptions.Timeout as e:
                 last_exception = e
@@ -803,7 +951,8 @@ class OpenAIClient(QObject):
         if self.use_lmstudio_api and "device" in self.model_target:
             from .lmstudio_transport import targeted_completion
             result = targeted_completion(
-                _models_base_url(self.custom_endpoint, False), self.endpoint_api_key,
+                _models_base_url(self.custom_endpoint, False, lmstudio=True),
+                self.endpoint_api_key,
                 data, self.model_target["device"], cancelled=self._closing,
                 include_reasoning=True, timeout=timeout,
             )
@@ -817,6 +966,21 @@ class OpenAIClient(QObject):
             timeout=timeout,
         )
         if not self.use_lmstudio_api:
+            if (
+                getattr(self, "use_ollama_api", False)
+                and response.status_code == 400
+                and "think" in data
+                and "think" in str(getattr(response, "text", "") or "").lower()
+            ):
+                # "<model> does not support thinking": the capability probe
+                # was unavailable, so retry once with the model's default.
+                without_think = dict(data)
+                without_think.pop("think", None)
+                response = self._make_request_with_retry(
+                    headers,
+                    without_think,
+                    timeout=timeout,
+                )
             return response
 
         if response.status_code == 400 and "reasoning" in data:
@@ -857,6 +1021,8 @@ class OpenAIClient(QObject):
         reasons = [
             response_data.get("finish_reason"),
             response_data.get("stop_reason"),
+            # Ollama's native /api/chat reports its cutoff here.
+            response_data.get("done_reason"),
         ]
         choices = response_data.get("choices", [])
         if isinstance(choices, list):
@@ -868,12 +1034,45 @@ class OpenAIClient(QObject):
         stats = response_data.get("stats", {})
         if isinstance(stats, dict):
             reasons.extend((stats.get("finish_reason"), stats.get("stop_reason")))
+        incomplete = response_data.get("incomplete_details")
+        if isinstance(incomplete, dict):
+            reasons.append(incomplete.get("reason"))
 
-        cutoff_markers = ("length", "max_token", "context")
+        cutoff_markers = ("length", "max_token", "max_output", "context")
         return any(
             any(marker in str(reason).lower() for marker in cutoff_markers)
             for reason in reasons
             if reason
+        )
+
+    def _truncation_message(self):
+        """Explain a server-side cutoff in terms of what the user can change."""
+        if self.use_lmstudio_api:
+            return (
+                "LM Studio a interrompu la réponse car la fenêtre de "
+                "contexte du modèle est pleine. Rechargez le modèle avec "
+                "un Context Length plus élevé, puis réessayez."
+            )
+        if self.use_ollama_api:
+            return (
+                "Ollama a interrompu la réponse avant la fin (limite de "
+                "longueur ou de contexte du modèle atteinte). Réduisez le "
+                "texte ou augmentez le contexte du modèle, puis réessayez."
+            )
+        if self.use_custom_endpoint:
+            # The cap is SuperMenu's own (see DEFAULT_MAX_TOKENS), and servers
+            # that expose a reasoning trace count it in the same budget.
+            return (
+                "Le serveur a interrompu la réponse avant la fin : SuperMenu "
+                f"limite la réponse à {DEFAULT_MAX_TOKENS} tokens sur ce type "
+                "de serveur, raisonnement du modèle compris (ou le contexte du "
+                "modèle est plein). Réduisez le texte ou utilisez un modèle "
+                "sans raisonnement, puis réessayez."
+            )
+        return (
+            "La réponse a été interrompue avant la fin (limite de longueur "
+            "atteinte). Réduisez le texte ou le niveau de raisonnement, "
+            "puis réessayez."
         )
 
     def _process_request_thread(
@@ -885,9 +1084,13 @@ class OpenAIClient(QObject):
         include_reasoning=True,
         target=None,
         reasoning_mode="default",
+        default_reasoning_effort=None,
     ):
         """Traite la requête dans un thread séparé"""
         cleanup_path = None
+        state = getattr(self, "_request_state", None)
+        if state is not None:
+            state.default_effort = default_reasoning_effort
         try:
             # Préparer les en-têtes et les données de la requête
             headers = self._build_headers()
@@ -912,14 +1115,10 @@ class OpenAIClient(QObject):
             if response.status_code == 200:
                 # Analyser la réponse
                 response_data = response.json()
-                if self.use_lmstudio_api and self._response_was_truncated(
-                    response_data
-                ):
-                    raise RuntimeError(
-                        "LM Studio a interrompu la réponse car la fenêtre de "
-                        "contexte du modèle est pleine. Rechargez le modèle avec "
-                        "un Context Length plus élevé, puis réessayez."
-                    )
+                # A cut answer must never be inserted as if it were complete,
+                # nor a partial reasoning trace promoted to the final answer.
+                if self._response_was_truncated(response_data):
+                    raise RuntimeError(self._truncation_message())
                 response_content = self._extract_response_text(
                     response_data, include_reasoning=include_reasoning
                 )
@@ -946,6 +1145,8 @@ class OpenAIClient(QObject):
             if not self._closing.is_set():
                 self._internal_error.emit(request_id, f"Erreur: {str(e)}")
         finally:
+            if state is not None:
+                state.default_effort = None
             self._cleanup_owned_image(cleanup_path)
 
     @Slot(str, str, bool, object)
@@ -986,9 +1187,13 @@ class OpenAIClient(QObject):
     @staticmethod
     def _owned_temporary_image(image_path):
         """Return the path only for screenshots owned by SuperMenu."""
-        if not image_path:
+        if not image_path or not isinstance(image_path, str):
             return None
-        absolute_path = os.path.abspath(image_path)
+        try:
+            absolute_path = os.path.abspath(image_path)
+        except (TypeError, ValueError, OSError):
+            # Arbitrary selected text (NUL bytes, overlong strings...).
+            return None
         if os.path.dirname(absolute_path) != os.path.abspath(tempfile.gettempdir()):
             return None
         if not os.path.basename(absolute_path).startswith("supermenu_screenshot_"):
@@ -1023,8 +1228,13 @@ class OpenAIClient(QObject):
             if content.startswith("data:image/") and ";base64," in content:
                 image_data_url = content
                 image_base64 = self._data_url_to_base64(content)
-            elif os.path.isfile(content) and content.lower().endswith(
-                (".png", ".jpg", ".jpeg")
+            elif (
+                # Selected text is never read as a file path: a pasted
+                # "C:\...\scan.png" (or a UNC path) must stay text. Only
+                # SuperMenu's own temporary screenshot may be loaded here.
+                content.lower().endswith((".png", ".jpg", ".jpeg"))
+                and self._owned_temporary_image(content)
+                and os.path.isfile(content)
             ):
                 with open(content, "rb") as image_file:
                     image_base64 = base64.b64encode(image_file.read()).decode("utf-8")
@@ -1101,7 +1311,11 @@ class OpenAIClient(QObject):
             if capabilities is None:
                 raise ValueError(f"Modèle OpenAI non supporté: {self.model}")
 
-            data[capabilities.max_tokens_parameter] = DEFAULT_MAX_TOKENS
+            data[capabilities.max_tokens_parameter] = (
+                OPENAI_MAX_COMPLETION_TOKENS
+                if capabilities.max_tokens_parameter == "max_completion_tokens"
+                else DEFAULT_MAX_TOKENS
+            )
             effort = normalize_reasoning_effort(
                 self.model,
                 self._get_provider_reasoning_effort(reasoning_mode),
@@ -1127,12 +1341,25 @@ class OpenAIClient(QObject):
 
         return headers
 
+    # Legacy surface kept for compatibility only. The applications use
+    # send_request() and the *_scoped signals; nothing in production calls
+    # process_request() or send_request_sync().
     def process_request(self, prompt, content):
-        """Méthode obsolète pour la compatibilité - utiliser send_request à la place"""
+        """Obsolète : utiliser send_request à la place."""
         self.send_request(prompt, content)
 
-    def send_request_sync(self, prompt, content):
-        """Envoie une requête à l'API OpenAI de manière synchrone et renvoie la réponse"""
+    def send_request_sync(self, prompt, content, reasoning_mode="default"):
+        """Obsolète : envoie une requête de manière synchrone et renvoie la réponse.
+
+        Applies the same checks as send_request(): complete custom
+        configuration, per-prompt reasoning and cutoff detection.
+        """
+        reasoning_mode = normalize_reasoning_mode(reasoning_mode)
+        if self.use_custom_endpoint and (not self.custom_endpoint or not self.model):
+            raise Exception(
+                "Configuration personnalisée incomplète. "
+                "Renseignez obligatoirement l'endpoint et le modèle."
+            )
         if not self.use_custom_endpoint and not self.api_key:
             raise Exception(
                 "Clé API non configurée. Veuillez configurer votre clé API dans les paramètres."
@@ -1143,35 +1370,43 @@ class OpenAIClient(QObject):
             headers = self._build_headers()
             self._ensure_ollama_model_capabilities()
             self._ensure_lmstudio_model_capabilities()
-            data, cleanup_path = self._build_request_data(prompt, content)
+            reasoning_options = (
+                {"reasoning_mode": reasoning_mode} if reasoning_mode != "default" else {}
+            )
+            data, cleanup_path = self._build_request_data(
+                prompt, content, **reasoning_options
+            )
 
             timeout = (
                 LMSTUDIO_API_TIMEOUT if self.use_lmstudio_api else DEFAULT_API_TIMEOUT
             )
-            response = self._perform_request(headers, data, timeout=timeout)
+            response = self._perform_request(
+                headers, data, timeout=timeout, **reasoning_options
+            )
 
             if response.status_code == 200:
                 response_data = response.json()
-                if self.use_lmstudio_api and self._response_was_truncated(
-                    response_data
-                ):
-                    raise RuntimeError(
-                        "LM Studio a atteint la limite de sa fenêtre de contexte."
-                    )
-                response_text = self._extract_response_text(response_data)
+                if self._response_was_truncated(response_data):
+                    raise RuntimeError(self._truncation_message())
+                response_text = self._extract_response_text(
+                    response_data,
+                    include_reasoning=self._should_include_reasoning_by_default(
+                        False, reasoning_mode
+                    ),
+                )
                 if not response_text.strip():
                     raise RuntimeError("Le fournisseur a renvoyé une réponse vide.")
                 return response_text
-
-            raise Exception(f"Erreur {response.status_code}: {response.text}")
+            http_error = f"{response.status_code}: {response.text}"
         except Exception as e:
-            raise Exception(f"Erreur lors de la requête API: {str(e)}")
+            raise Exception(f"Erreur lors de la requête API: {str(e)}") from e
         finally:
             self._cleanup_owned_image(cleanup_path)
+        raise Exception(f"Erreur lors de la requête API ({http_error})")
 
     @staticmethod
-    def _models_base_url(endpoint_url, is_ollama):
-        return _models_base_url(endpoint_url, is_ollama)
+    def _models_base_url(endpoint_url, is_ollama, lmstudio=False):
+        return _models_base_url(endpoint_url, is_ollama, lmstudio=lmstudio)
 
     @staticmethod
     def fetch_available_models(
@@ -1204,7 +1439,9 @@ class OpenAIClient(QObject):
                 and _looks_like_ollama_endpoint(endpoint_url)
             )
             candidates = []
-            base_url = _models_base_url(endpoint_url, is_ollama)
+            base_url = _models_base_url(
+                endpoint_url, is_ollama, lmstudio=endpoint_type == "lmstudio"
+            )
             if is_ollama:
                 candidates.append(f"{base_url}/api/tags")
             elif endpoint_type == "lmstudio":

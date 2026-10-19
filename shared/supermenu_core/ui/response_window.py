@@ -58,6 +58,8 @@ class BaseResponseWindow(QWidget):
 
         # Create the status bar
         self.status_label = QLabel("Prêt")
+        # Statuses can quote user prompts or server errors: never as HTML.
+        self.status_label.setTextFormat(Qt.PlainText)
         self.status_label.setAlignment(Qt.AlignCenter)
         self.content_layout.addWidget(self.status_label)
         self._set_status("info")
@@ -86,6 +88,8 @@ class BaseResponseWindow(QWidget):
         self.paste_target = None
         self._pending_paste_text = None
         self._active_text_inserter = None
+        # An error message can be copied or retried, never pasted as an answer.
+        self.has_error = False
 
     def _set_status(self, level):
         set_ui_property(self.status_label, "status", level)
@@ -143,12 +147,14 @@ class BaseResponseWindow(QWidget):
         self.masked_response = None
         self.final_response = None
         self.think_visible = False
+        self.has_error = False
         self.think_toggle_button.setVisible(False)
         self.think_toggle_button.setEnabled(False)
         self.retry_button.setEnabled(False)
         self.copy_button.setEnabled(False)
         self.write_button.setEnabled(False)
-        self.response_text.setText(status)
+        # The status is the user's own prompt message: keep it plain text.
+        self.response_text.setPlainText(status)
         self.title_label.setText("⏳ SuperMenu - Chargement…")
         self.status_label.setText(status)
 
@@ -156,6 +162,7 @@ class BaseResponseWindow(QWidget):
         """Set the response text"""
         self.raw_response = response
         self.think_visible = False
+        self.has_error = False
 
         masked_response, has_thinking = self._mask_thinking(response)
         self.masked_response = masked_response
@@ -185,6 +192,24 @@ class BaseResponseWindow(QWidget):
         self.copy_button.setEnabled(True)
         self.write_button.setEnabled(True)
 
+    def set_error(self, message):
+        """Show a failed request: copy and retry it, but never insert it."""
+        text = str(message or "")
+        self.raw_response = None
+        self.masked_response = None
+        self.final_response = None
+        self.think_visible = False
+        self.has_error = True
+        self.think_toggle_button.setVisible(False)
+        self.think_toggle_button.setEnabled(False)
+        self.response_text.setPlainText(text)
+        self.title_label.setText("⚠️ SuperMenu - Erreur")
+        self.status_label.setText("❌ Échec de la requête")
+        self._set_status("error")
+        self.retry_button.setEnabled(True)
+        self.copy_button.setEnabled(bool(text))
+        self.write_button.setEnabled(False)
+
     def set_standalone_response(self, response, title="SuperMenu - Résultat"):
         """Display reusable plain text that did not come from an AI request."""
         text = str(response or "")
@@ -195,6 +220,7 @@ class BaseResponseWindow(QWidget):
         self.masked_response = text
         self.final_response = text
         self.think_visible = False
+        self.has_error = False
         self.think_toggle_button.setVisible(False)
         self.think_toggle_button.setEnabled(False)
         self.response_text.setPlainText(text)
@@ -272,6 +298,7 @@ class BaseResponseWindow(QWidget):
     def set_loading(self, is_loading):
         """Set the loading state"""
         if is_loading:
+            self.has_error = False
             self.title_label.setText("⏳ SuperMenu - Chargement...")
             self.status_label.setText("⏳ Traitement en cours...")
             self._set_status("info")
@@ -281,7 +308,7 @@ class BaseResponseWindow(QWidget):
         else:
             self.retry_button.setEnabled(True)
             self.copy_button.setEnabled(True)
-            self.write_button.setEnabled(True)
+            self.write_button.setEnabled(not self.has_error)
 
     def copy_response(self):
         """Copy the response to the clipboard"""
@@ -298,6 +325,10 @@ class BaseResponseWindow(QWidget):
 
     def write_response(self):
         """Paste the final response only into the captured target control."""
+        if self.has_error:
+            self.status_label.setText("⚠️ Une erreur ne peut pas être insérée")
+            self._set_status("warning")
+            return
         try:
             text = (
                 self.final_response
@@ -341,6 +372,10 @@ class BaseResponseWindow(QWidget):
                     ),
                     "target_changed": (
                         "⚠️ Insertion annulée : l’application active a changé"
+                    ),
+                    "window_changed": (
+                        "⚠️ Insertion annulée : une autre fenêtre de "
+                        "l’application cible est devenue active"
                     ),
                     "clipboard_failed": "⚠️ Presse-papiers indisponible",
                     "paste_failed": "⚠️ Commande Coller impossible",

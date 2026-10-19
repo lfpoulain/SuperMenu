@@ -74,7 +74,9 @@ Le module `src/utils/hotkey_manager.py` implémente les raccourcis globaux via l
 Contraintes :
 
 - Les modificateurs autorisés sont `Ctrl`, `Alt`, `Shift`
+- `Shift` seul n'est accepté qu'avec `F1` à `F24` : `RegisterHotKey` réserve la combinaison dans tout le système, donc `Shift+K` empêcherait de taper un K majuscule ailleurs
 - La touche `Win` n'est pas autorisée
+- Sur une disposition sans `²`, `Ctrl+²` et `Ctrl+Alt+²` utilisent la touche physique située sous Échap
 - Les raccourcis à une seule touche ne sont pas supportés
 - Les touches de fonction Windows `F1` à `F24` sont traduites directement vers leurs codes virtuels Win32
 
@@ -93,7 +95,7 @@ Le dialogue d'enregistrement d'un raccourci (`HotkeyRecorderDialog`) capture les
 1. L'utilisateur sélectionne du texte dans une application
 2. L'utilisateur appuie sur le raccourci clavier (par défaut: Ctrl+²)
 3. `HotkeyManager` détecte le raccourci et déclenche `show_context_menu()`
-4. `ContextMenuManager` récupère le texte sélectionné via diverses méthodes
+4. `ContextMenuManager` attend le relâchement de Shift, Ctrl, Alt et Win (2 s au plus), puis récupère le texte sélectionné via diverses méthodes
 5. `ContextMenuManager` affiche le menu contextuel avec les prompts configurés
 6. L'utilisateur sélectionne une action
 7. Le texte et le prompt sont envoyés à l'API OpenAI via `OpenAIClient`
@@ -104,6 +106,15 @@ Le dialogue d'enregistrement d'un raccourci (`HotkeyRecorderDialog`) capture les
 Chaque prompt textuel peut porter un champ `hotkey`. `PromptHotkeyManager` enregistre dynamiquement toutes les combinaisons après les raccourcis principaux de l'application et émet l'identifiant du prompt concerné. `ContextMenuManager` capture alors la cible et la sélection, puis envoie la requête sans ouvrir de menu. Le champ `insert_directly` du prompt reste l'unique source de vérité : s'il est actif, `TextInserter` remplace la sélection uniquement si la fenêtre cible est toujours valide et un `SimpleLoadingIndicator` non activable signale l'envoi et la fin ; sinon, `ResponseWindow` est préparée et affichée normalement.
 
 Les doublons entre prompts sont refusés par `Settings`. Les conflits Win32 sont détectés lors du réenregistrement et la modification du prompt est annulée sans désactiver ses autres réglages.
+
+Copie et collage synthétiques :
+
+- Le menu principal, le mode personnalisé et les raccourcis de prompt attendent le relâchement de Shift, Ctrl, Alt et Win (2 s au plus) avant d'envoyer la copie. Sinon, l'application cible recevrait une autre combinaison, par exemple Ctrl+Alt+C. Si la fenêtre active change pendant l'attente, rien n'est lu.
+- Ctrl+C et Ctrl+V passent par les codes virtuels `VK_C` et `VK_V`, indépendants de la disposition clavier.
+- Les consoles Windows et Windows Terminal reçoivent Ctrl+Insert, puis Ctrl+Shift+C. Les terminaux autonomes connus (mintty, PuTTY, KiTTY, ConEmu, WezTerm) ne reçoivent que Ctrl+Insert, pour ne jamais interrompre le programme en cours.
+- Une insertion directe refusée (cible changée ou absente) ne perd pas la réponse : elle est affichée dans `ResponseWindow`, ou copiée dans le presse-papiers si cette fenêtre attend déjà une autre réponse.
+- Les écritures internes du presse-papiers (sentinelle de copie, réponse à coller) sont exclues de l'historique Win+V et de la synchronisation cloud.
+- La restauration du presse-papiers attend plus longtemps lorsque la cible est un client Bureau à distance, Citrix ou VMware, qui lit le presse-papiers à la demande.
 
 #### Affichage et fermeture automatique des menus
 
@@ -202,9 +213,9 @@ Le fichier `VERSION` contient la prochaine version stable sous la forme `MAJOR.M
   sur Python 3.12 et construction d'un DMG de test pour les pull requests et
   les pushs sur `main`; aucune publication.
 - **Beta** (`beta-release.yml`) : exécution après la réussite du workflow CI d'un push sur `main`, ou lancement manuel depuis `main`; version `VERSION-beta.RUN_NUMBER`, tag roulant `beta`, prérelease GitHub, installateur `SuperMenu_Beta_Setup.exe` et checksums SHA-256.
-- **Stable** (`stable-release.yml`) : déclenchement uniquement par un tag exact `vMAJOR.MINOR.PATCH`; le tag doit correspondre à `VERSION`, la release n'est jamais remplacée et devient la release GitHub `Latest`.
+- **Stable** (`stable-release.yml`) : déclenchement uniquement par un tag exact `vMAJOR.MINOR.PATCH`; le tag doit correspondre à `VERSION`, la release n'est jamais remplacée et devient la release GitHub `Latest`. Son texte vient de `.github/STABLE_NOTES.md`, à mettre à jour avant le tag en y citant la version (par exemple « ## Nouveautés de SuperMenu 1.2.2 ») : le workflow s'arrête dès la première minute si elle n'y figure pas.
 
-L'updater télécharge en priorité le manifeste `update-stable.json` de la dernière release Stable ou `update-beta.json` du tag roulant Beta. Ces fichiers sont servis comme des artefacts GitHub classiques et n'utilisent pas le quota de l'API REST. Le manifeste est strictement validé (schéma, canal, version, type de release et tag) avant de construire l'URL exacte de l'installateur. Si le manifeste est absent, illisible ou momentanément inaccessible, l'updater utilise l'API GitHub comme solution de secours : `/releases/latest` pour Stable et le tag `beta` pour Beta.
+L'updater télécharge en priorité le manifeste `update-stable.json` de la dernière release Stable ou `update-beta.json` du tag roulant Beta. Ces fichiers sont servis comme des artefacts GitHub classiques et n'utilisent pas le quota de l'API REST. Le manifeste est strictement validé (schéma, canal, version, type de release et tag) avant de construire l'URL exacte de l'installateur. Il indique aussi le nom de l'installateur (`asset`) et son empreinte `sha256` : l'installateur est téléchargé dans un dossier temporaire privé (`tempfile.mkdtemp`), son empreinte est vérifiée puis revérifiée juste avant le lancement, et un fichier divergent est refusé. Les anciens manifestes sans empreinte restent acceptés, avec un avertissement dans les journaux. Si le manifeste est absent, illisible ou momentanément inaccessible, l'updater utilise l'API GitHub comme solution de secours : `/releases/latest` pour Stable et le tag `beta` pour Beta.
 
 Le choix du canal est conservé dans `QSettings`; un build beta neuf sélectionne Beta, tandis qu'un build stable sélectionne Stable. En cas de quota GitHub épuisé pendant le secours API, l'utilisateur reçoit un message compréhensible avec l'heure de réinitialisation et un lien vers les releases, au lieu de l'erreur HTTP brute.
 
@@ -241,7 +252,7 @@ Ce document est destiné aux développeurs souhaitant comprendre l'architecture 
 - `openai_models.py` / `Settings` : le catalogue partagé porte la source unique
   des modèles autorisés ; `Settings` valide, migre et persiste les choix propres
   à Windows.
-- `ContextMenuManager` (`src/utils/context_menu.py`) : Orchestre l'affichage du menu contextuel, la récupération du texte sélectionné, l'appel à `OpenAIClient` et l'affichage de la `ResponseWindow`. Il initialise et met à jour la configuration de `OpenAIClient` (clé API et modèle) en fonction des `Settings`.
+- `ContextMenuManager` (`src/utils/context_menu.py`) : Orchestre l'affichage du menu contextuel, la récupération du texte sélectionné, l'appel à `OpenAIClient` et l'affichage de la `ResponseWindow`. Il crée le client IA à partir des `Settings` et le recrée lorsque ces réglages changent.
 
 ### Flux de données (Exemple : Action sur Texte Sélectionné)
 
@@ -251,7 +262,7 @@ Ce document est destiné aux développeurs souhaitant comprendre l'architecture 
 4.  `ContextMenuManager` tente de récupérer le texte sélectionné.
 5.  L'utilisateur choisit une action (un prompt) dans le menu contextuel.
 6.  `ContextMenuManager` récupère le prompt correspondant depuis `Settings`.
-7.  `ContextMenuManager` s'assure que son instance de `OpenAIClient` est configurée avec la clé API et le modèle actuels (provenant de `Settings`).
+7.  `ContextMenuManager` utilise le client créé à partir des `Settings` actuels, ou un client dédié lorsque le prompt choisit son propre modèle.
 8.  `OpenAIClient` envoie la requête (texte sélectionné + prompt) à l'API OpenAI en utilisant le modèle configuré.
 9.  `OpenAIClient` reçoit la réponse et émet un signal.
 10. `ContextMenuManager` reçoit la réponse et l'affiche dans `ResponseWindow`.
@@ -262,5 +273,5 @@ Ce document est destiné aux développeurs souhaitant comprendre l'architecture 
  2.  L'utilisateur sélectionne un nouveau modèle et son effort de raisonnement (ou active un endpoint personnalisé) puis enregistre.
  3.  `MainWindow` sauvegarde le modèle et les efforts OpenAI/local dans des réglages distincts. `Settings` valide le choix contre la matrice de capacités et migre les anciens identifiants par rôle.
  4.  `MainWindow` appelle `context_menu_manager.update_client_config()`.
- 5.  `ContextMenuManager` appelle `api_client.set_model()` et `api_client.set_api_key()` pour mettre à jour l'instance `OpenAIClient` avec les nouvelles valeurs des `Settings`.
+ 5.  `ContextMenuManager.update_client_config()` recrée le client via `_create_api_client()` ; l'ancien client est retiré dès qu'il n'a plus de requête en cours. `send_request_sync`, `process_request` et les signaux non scopés sont conservés uniquement pour compatibilité.
  6.  Les requêtes suivantes utiliseront le nouveau modèle.

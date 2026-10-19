@@ -35,7 +35,17 @@ fourni explicitement par l'adaptateur de plateforme.
 - `config/prompt_transfer.py` partage l’import/export JSON des collections
   `text_prompts` et `voice_prompts`. Les anciens fichiers Mac avec `prompts`
   restent acceptés ; une collection absente est conservée. Les deux collections
-  sont validées avant toute écriture.
+  sont validées avant toute écriture. Le choix de modèle LM Studio / Ollama d’un
+  prompt suit toujours le serveur des réglages Texte : `endpoint` et
+  `endpoint_type` ne sont ni exportés ni importés, seuls le modèle et le poste
+  LM Link sont conservés. Les valeurs laissées par d’anciennes versions sont
+  ignorées à l’exécution et retirées à la lecture de la bibliothèque.
+- `config/model_target.py` valide le modèle choisi par prompt. Le cœur
+  n’importe pas le catalogue Foundry Local de Windows :
+  `register_foundry_models()` est appelé par `win32/src/config/foundry_models.py`
+  avec la liste des alias proposés, et `registered_foundry_models()` la relit
+  pour l’éditeur de prompt et le routage. Sans enregistrement (macOS), aucun
+  modèle Foundry n’est proposé.
 - `ui/theme_styles.py` centralise la palette d'origine, les états de sélection,
   les surfaces et les couleurs de statut. `ThemeManager` applique le thème à
   toute l'application ; les fenêtres ne définissent pas de styles locaux.

@@ -90,7 +90,9 @@ Les raccourcis par défaut sont :
 | Menu principal | `Ctrl+²` | `Cmd+Shift+Space` |
 | Mode personnalisé | `Ctrl+Alt+M` | `Cmd+Shift+M` |
 
-Tous les raccourcis sont modifiables dans les paramètres.
+Tous les raccourcis sont modifiables dans les paramètres. Sur un clavier non
+AZERTY, `Ctrl+²` correspond à la touche située sous Échap (par exemple
+``Ctrl+` `` en QWERTY ou `Ctrl+^` en QWERTZ).
 
 ## Documentation
 
@@ -184,7 +186,11 @@ python run.py --smoke-test
   construits en parallèle ; la prerelease roulante `beta` n’est remplacée que
   si les deux plateformes réussissent.
 - **Stable** démarre lors du push d’un tag `vMAJOR.MINOR.PATCH` correspondant à
-  `win32/VERSION`. La release est créée comme version stable immuable.
+  `win32/VERSION`. La release est créée comme version stable immuable. Avant de
+  créer le tag, mettez à jour `.github/STABLE_NOTES.md` avec les nouveautés en y
+  citant le numéro de version (par exemple « ## Nouveautés de SuperMenu 1.2.2 ») :
+  ce fichier devient le texte de la release, et le workflow s’arrête dès la
+  première minute si la version n’y figure pas.
 
 `win32/VERSION` et `macos/VERSION` sont indépendants. Une même release GitHub
 peut donc transporter deux numéros d’application et utilise des manifestes
@@ -196,8 +202,11 @@ distincts :
 | Beta | `update-beta.json` | `update-macos-beta.json` |
 
 Ces petits fichiers JSON indiquent à chaque updater la version, le canal, le
-tag et l’asset attendu. Ils empêchent notamment macOS de choisir un EXE et
-Windows de choisir un DMG.
+tag, le nom de l’installateur ou du DMG attendu (`asset`) et son empreinte
+`sha256`. Ils empêchent notamment macOS de choisir un EXE et Windows de choisir
+un DMG. Windows télécharge l’installateur dans un dossier temporaire privé,
+vérifie cette empreinte et refuse un fichier divergent. Les anciens manifestes
+sans empreinte restent acceptés, avec un avertissement dans les journaux.
 
 ## Données et sécurité
 

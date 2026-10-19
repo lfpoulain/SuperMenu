@@ -2,6 +2,33 @@
 
 import json
 
+# Server fields describe the Text settings, never a prompt. Older versions and
+# exported files stored them in each prompt; they are ignored and dropped so a
+# prompt always follows the configured LM Studio / Ollama server.
+SERVER_KEYS = ("endpoint", "endpoint_type")
+
+# Foundry Local aliases offered by this platform. The Windows adapter registers
+# its catalogue (src/config/foundry_models.py): the core never imports it.
+_foundry_models = ()
+
+
+def register_foundry_models(aliases):
+    global _foundry_models
+    _foundry_models = tuple(
+        alias for alias in aliases if isinstance(alias, str) and alias
+    )
+
+
+def registered_foundry_models():
+    return _foundry_models
+
+
+def without_server(target):
+    """Return a prompt target that follows the configured server."""
+    return {
+        key: value for key, value in (target or {}).items() if key not in SERVER_KEYS
+    }
+
 
 def normalize_model_target(value):
     if value in (None, {}):
@@ -104,7 +131,10 @@ class ModelTargetSettings:
 
     def __init__(self, settings, target):
         self.base = settings
-        self.target = normalize_model_target(target)
+        # Only the model and its LM Link device belong to the prompt. A server
+        # stored by an older version or carried by an imported file is ignored:
+        # text is never sent to a server other than the configured one.
+        self.target = without_server(normalize_model_target(target))
         if self.target.get("provider") == "openai":
             from .openai_models import AVAILABLE_MODELS, LEGACY_MODEL_MIGRATIONS
 
@@ -115,10 +145,14 @@ class ModelTargetSettings:
                 raise ValueError(
                     "Le modèle OpenAI choisi n’est pas proposé par cette version de SuperMenu."
                 )
-        if self.target.get("provider") == "foundry" and self.target["model"] not in {
-            "qwen3.5-4b",
-            "qwen3.5-9b",
-        }:
+        # Without a registered catalogue (macOS), the platform adapter refuses
+        # the Foundry engine itself with a clearer message.
+        foundry_models = registered_foundry_models()
+        if (
+            self.target.get("provider") == "foundry"
+            and foundry_models
+            and self.target["model"] not in foundry_models
+        ):
             raise ValueError(
                 "Le modèle Foundry choisi n’est pas proposé par cette version de SuperMenu."
             )
@@ -148,27 +182,47 @@ class ModelTargetSettings:
         return self.target["model"]
 
     def get_custom_endpoint(self):
-        return self.target.get("endpoint", self.base.get_custom_endpoint())
+        return self.base.get_custom_endpoint()
 
     def get_custom_endpoint_type(self):
-        return self.target.get("endpoint_type", self.base.get_custom_endpoint_type())
+        return self.base.get_custom_endpoint_type()
 
     def get_custom_model_target(self):
         return self.target
 
     def get_custom_endpoint_api_key(self):
-        # An imported prompt may name another server. Never send the configured
-        # server's credential to a different endpoint.
-        if self.get_custom_endpoint().rstrip(
-            "/"
-        ) != self.base.get_custom_endpoint().rstrip("/"):
-            return ""
+        # The request always goes to the configured server: its credential.
         return self.base.get_custom_endpoint_api_key()
+
+    def get_openai_reasoning_effort(self, model=None):
+        """Read the general effort for this model without ever rewriting it.
+
+        The application's getter may persist a normalized value when the stored
+        effort does not suit the requested model (gpt-5.4 has no "max"): a
+        prompt's own model must not change the general setting.
+        """
+        from .openai_models import (
+            get_default_reasoning_effort_for_model,
+            normalize_openai_model,
+            normalize_reasoning_effort,
+        )
+
+        model = normalize_openai_model(model or self.get_model())
+        store = getattr(self.base, "settings", None)
+        if callable(getattr(store, "value", None)):
+            effort = store.value(
+                "openai_reasoning_effort",
+                get_default_reasoning_effort_for_model(model),
+            )
+        else:
+            getter = getattr(self.base, "get_openai_reasoning_effort", None)
+            effort = getter() if getter else self.base.get_reasoning_effort()
+        return normalize_reasoning_effort(model, effort)
 
     def get_reasoning_effort(self):
         if self.get_use_custom_endpoint():
             return self.base.get_custom_reasoning_effort()
-        return self.base.get_openai_reasoning_effort(self.get_model())
+        return self.get_openai_reasoning_effort(self.get_model())
 
 
 def settings_for_prompt(settings, prompt_id):

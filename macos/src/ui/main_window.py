@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from datetime import date, datetime
 import sys
+import threading
 
-from PySide6.QtCore import QSignalBlocker, QThread, QTimer, QUrl, Qt, Signal
-from PySide6.QtGui import QAction, QDesktopServices, QIcon
+from PySide6.QtCore import QObject, QSignalBlocker, QTimer, QUrl, Qt, Signal
+from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -20,13 +21,12 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QStyle,
-    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
 from supermenu_core.ui.confirmations import confirm_action
-from supermenu_core.ui.prompt_restore import restore_library
-from supermenu_core.ui.controls import ChoiceBox, Menu, SidebarList, SIDEBAR_WIDTH
+from supermenu_core.ui.prompt_restore import restore_library, restore_previous_library
+from supermenu_core.ui.controls import ChoiceBox, SidebarList, SIDEBAR_WIDTH
 
 from src.config.build_info import APP_VERSION
 from src.api.apple_foundation_client import FoundationModelsRequest
@@ -61,7 +61,46 @@ from src.utils.permissions import (
 from supermenu_core.utils.validators import Validators
 
 
-class UpdateCheckWorker(QThread):
+class _BackgroundWorker(QObject):
+    """Run one blocking request on a daemon thread and report through signals.
+
+    A ``QThread`` still running when Python destroys it aborts the whole
+    process ("QThread: Destroyed while thread is still running"): quitting
+    during the startup update check or a model refresh was enough to produce a
+    macOS crash report. A daemon thread is simply abandoned at exit instead,
+    as ``CatalogWorker`` already does. The QThread-like ``start``,
+    ``isRunning`` and ``finished`` surface is kept for the callers.
+    """
+
+    finished = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self._thread = None
+
+    def isRunning(self):
+        thread = self._thread
+        return bool(thread is not None and thread.is_alive())
+
+    def start(self):
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        try:
+            self.run()
+        finally:
+            try:
+                self.finished.emit()
+            except RuntimeError:
+                # The window owning this worker was destroyed during exit.
+                pass
+
+    def run(self):
+        raise NotImplementedError
+
+
+class UpdateCheckWorker(_BackgroundWorker):
     finished_ok = Signal(dict)
     failed = Signal(str)
 
@@ -76,7 +115,7 @@ class UpdateCheckWorker(QThread):
             self.failed.emit(str(exc))
 
 
-class CustomModelsWorker(QThread):
+class CustomModelsWorker(_BackgroundWorker):
     finished_ok = Signal(list)
     failed = Signal(str)
 
@@ -123,7 +162,6 @@ class MainWindow(QMainWindow):
         self.prompt_hotkey_manager = prompt_hotkey_manager
         self.dictation_hotkey_manager = dictation_hotkey_manager
         self.tray_icon = None
-        self.tray_menu = None
         self._quitting = False
         self._loading_prompt = False
         self._update_worker = None
@@ -152,12 +190,15 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._create_about_tab(), "À propos")
         self.shell.content_layout.addLayout(close_footer(self.hide))
 
-        # Only polled while the configuration window is on screen. SuperMenu
-        # lives in the menu bar and is hidden most of the time; a permanent
-        # 1.5 s wake-up costs battery for a panel nobody is looking at.
+        # Polled while the configuration window is on screen. SuperMenu lives
+        # in the menu bar and is hidden most of the time; a permanent 1.5 s
+        # wake-up costs battery for a panel nobody is looking at. The only
+        # exception is a pending Accessibility grant: the monitors created
+        # before it must be recreated once macOS grants it, even if the user
+        # closed the window before opening System Settings.
         self._permission_timer = QTimer(self)
         self._permission_timer.setInterval(1500)
-        self._permission_timer.timeout.connect(self.refresh_permission_status)
+        self._permission_timer.timeout.connect(self._poll_permission_status)
 
     def _create_prompts_tab(self):
         tab = QWidget()
@@ -224,6 +265,9 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(scrollable_form(self.text_prompt_form), 1)
         self.prompt_actions = PromptActions(self.reset_prompt, lambda: self.save_current_prompt())
         self.prompt_actions.restore_requested.connect(self.restore_prompt_library)
+        self.prompt_actions.restore_previous_requested.connect(
+            self.restore_previous_prompt_library
+        )
         right_layout.addWidget(self.prompt_actions)
 
         splitter.addWidget(left)
@@ -576,24 +620,37 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Import impossible", str(exc))
             return
         if self.prompt_hotkey_manager is not None:
+            # The imported library is now the saved one, so its shortcuts get
+            # the tolerance of saved shortcuts: a backup restores as it was and
+            # a refused shortcut stays unbound instead of refusing everything.
+            # Only a conflict with another SuperMenu shortcut cancels.
+            imported_prompts = self.settings.get_prompts()
             valid, errors = self.prompt_hotkey_manager.validate_prompts(
-                self.settings.get_prompts()
+                imported_prompts
             )
             if not valid:
                 self.settings.set_prompts(previous_prompts)
                 self.settings.set_voice_prompts(previous_voice_prompts)
                 self.settings.sync()
-                message = next(iter(errors.values()), "Conflit de raccourci")
+                message = self._prompt_hotkey_error(errors, imported_prompts)
                 QMessageBox.warning(self, "Import impossible", message)
                 return
         self._reload_prompts()
         self.voice_prompt_editor.reload()
-        self._refresh_prompt_hotkeys()
-        QMessageBox.information(
-            self,
-            "Import terminé",
-            f"{count} prompt(s) importé(s).",
-        )
+        _success, hotkey_errors = self._refresh_prompt_hotkeys()
+        message = f"{count} prompt(s) importé(s)."
+        refused = {
+            prompt_id: error
+            for prompt_id, error in hotkey_errors.items()
+            if prompt_id != "registration"
+        }
+        if refused:
+            message += (
+                "\n\nRaccourci non activé — "
+                + self._prompt_hotkey_error(refused, self.settings.get_prompts())
+                + "\nRéenregistrez-le avec « Définir » dans l’onglet Prompts."
+            )
+        QMessageBox.information(self, "Import terminé", message)
 
     def export_prompts(self):
         from PySide6.QtWidgets import QFileDialog
@@ -649,7 +706,7 @@ class MainWindow(QMainWindow):
                 candidate_prompts
             )
             if not valid:
-                message = next(iter(errors.values()), "Conflit de raccourci")
+                message = self._prompt_hotkey_error(errors, candidate_prompts)
                 QMessageBox.warning(self, "Raccourci invalide", message)
                 return False
         try:
@@ -674,6 +731,21 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Prompt enregistré.", 5000)
         return True
 
+    @staticmethod
+    def _prompt_hotkey_error(errors, prompts):
+        """Name the prompt whose shortcut is refused, not only the reason.
+
+        The error can concern another prompt than the one on screen (a
+        conflict, or a refused shortcut reported after an import); the name
+        says which one to fix.
+        """
+        prompt_id, message = next(
+            iter(errors.items()), ("", "Conflit de raccourci")
+        )
+        prompt = prompts.get(prompt_id) if isinstance(prompts, dict) else None
+        name = str(prompt.get("name") or "").strip() if isinstance(prompt, dict) else ""
+        return f"« {name} » : {message}" if name else message
+
     def reset_prompt(self):
         from supermenu_core.ui.text_prompt_form import reset_text_prompt
         item = self.prompt_list.currentItem()
@@ -686,6 +758,10 @@ class MainWindow(QMainWindow):
 
     def restore_prompt_library(self):
         restore_library(self, self.settings, self._prompts_restored)
+
+    def restore_previous_prompt_library(self):
+        """Go back to the copy kept by the last restore, import or repair."""
+        restore_previous_library(self, self.settings, self._prompts_restored)
 
     def record_prompt_hotkey(self):
         self._open_hotkey_recorder(self.prompt_hotkey.setText)
@@ -1004,6 +1080,32 @@ class MainWindow(QMainWindow):
             results.append(prompt_ok)
         return all(results) if results else True
 
+    def refused_hotkey_messages(self):
+        """Describe the saved shortcuts that validation leaves inactive.
+
+        Recording them again fixes these; relaunching SuperMenu would refuse
+        the same saved value again.
+        """
+        messages = []
+        for label, manager in (
+            ("Menu principal", self.hotkey_manager),
+            ("Mode personnalisé", self.custom_hotkey_manager),
+            ("Dictée instantanée", getattr(self, "dictation_hotkey_manager", None)),
+        ):
+            error = getattr(manager, "refused_hotkey_error", "") if manager else ""
+            if error:
+                messages.append(f"{label} : {error}")
+        if self.prompt_hotkey_manager is not None:
+            errors = dict(getattr(self.prompt_hotkey_manager, "errors", {}) or {})
+            # A service failure is not a refused shortcut.
+            errors.pop("registration", None)
+            prompts = self.settings.get_prompts()
+            for prompt_id, error in errors.items():
+                messages.append(
+                    self._prompt_hotkey_error({prompt_id: error}, prompts)
+                )
+        return messages
+
     def refresh_permission_status(self, force_reload=False):
         status = current_permission_status()
         state = status.accessibility
@@ -1074,7 +1176,13 @@ class MainWindow(QMainWindow):
             if self.prompt_hotkey_manager is not None
             else {}
         )
-        if listeners_registered and hotkeys_ok and not prompt_errors:
+        hotkeys_active = listeners_registered and hotkeys_ok and not prompt_errors
+        # macOS creates the AppKit monitors even without Accessibility; they
+        # just never receive a key. Registered monitors only prove the
+        # shortcuts work when the permission is granted or cannot be read.
+        if hotkeys_active and (
+            status.all_granted or not status.accessibility_check_available
+        ):
             message = "✅ Raccourcis globaux actifs"
             if not status.all_granted:
                 message += (
@@ -1090,6 +1198,7 @@ class MainWindow(QMainWindow):
             )
             granted = False
         else:
+            refused = self.refused_hotkey_messages()
             errors = [
                 manager.last_register_error
                 for manager in hotkey_managers
@@ -1097,10 +1206,18 @@ class MainWindow(QMainWindow):
             ]
             errors.extend(str(error) for error in prompt_errors.values() if error)
             detail = errors[0] if errors else "redémarrage requis"
-            message = (
-                "⚠️ Autorisations accordées, mais les raccourcis ne sont "
-                f"pas encore actifs ({detail}). Quitte puis relance SuperMenu."
-            )
+            if refused:
+                # A saved shortcut refused by validation: relaunching would
+                # refuse it again, recording a new one fixes it.
+                message = (
+                    f"⚠️ Raccourci inactif — {refused[0]}. "
+                    "Réenregistre-le avec « Définir »."
+                )
+            else:
+                message = (
+                    "⚠️ Autorisations accordées, mais les raccourcis ne sont "
+                    f"pas encore actifs ({detail}). Quitte puis relance SuperMenu."
+                )
             granted = False
         self._set_status_label(
             self.hotkey_service_status,
@@ -1182,75 +1299,41 @@ class MainWindow(QMainWindow):
             return success, errors
         return True, {}
 
+    def _status_menu_entries(self):
+        """Describe the menu-bar menu once; ``None`` is a separator."""
+        return [
+            ("Ouvrir SuperMenu", self.show_main_window),
+            ("Afficher le menu des prompts", self.show_prompt_menu),
+            ("Dicter du texte…", self.start_dictation),
+            ("Afficher la dernière réponse", lambda: self.context_menu_manager
+             and self.context_menu_manager.show_response_window()),
+            ("Vérifier les mises à jour", lambda: self.check_for_updates(False)),
+            ("Autorisations macOS…", self.show_permission_setup),
+            None,
+            ("Quitter", self.quit_application),
+        ]
+
     def setup_tray_icon(self):
         if self.tray_icon is not None:
             return True
-        if sys.platform == "darwin":
-            from src.ui.status_item import NativeStatusItem
-            try:
-                self.tray_icon = NativeStatusItem(
-                    resource_path("resources", "icons", "icon.png"),
-                    [
-                        ("Ouvrir SuperMenu", self.show_main_window),
-                        ("Afficher le menu des prompts", self.show_prompt_menu),
-                        ("Dicter du texte…", self.start_dictation),
-                        ("Afficher la dernière réponse", lambda: self.context_menu_manager
-                         and self.context_menu_manager.show_response_window()),
-                        ("Vérifier les mises à jour", lambda: self.check_for_updates(False)),
-                        ("Autorisations macOS…", self.show_permission_setup),
-                        None,
-                        ("Quitter", self.quit_application),
-                    ], self,
-                )
-                QApplication.instance().aboutToQuit.connect(self.tray_icon.hide)
-                return True
-            except Exception as exc:
-                log(f"Barre des menus native indisponible : {exc}")
-                return False
-        if not QSystemTrayIcon.isSystemTrayAvailable():
+        if sys.platform != "darwin":
+            # Only the native AppKit status item ships on macOS: Qt's
+            # QSystemTrayIcon crashed there and is not used any more.
+            log("Barre des menus native indisponible hors macOS")
             return False
-        icon = QIcon(resource_path("resources", "icons", "icon.png"))
-        tray = QSystemTrayIcon(icon, self)
-        tray.setToolTip("SuperMenu")
-        menu = Menu(self)
-        open_action = QAction("Ouvrir SuperMenu", self)
-        open_action.triggered.connect(self.show_main_window)
-        menu.addAction(open_action)
-        prompt_menu_action = QAction("Afficher le menu des prompts", self)
-        prompt_menu_action.triggered.connect(self.show_prompt_menu)
-        menu.addAction(prompt_menu_action)
-        dictation_action = QAction("Dicter du texte…", self)
-        dictation_action.triggered.connect(self.start_dictation)
-        menu.addAction(dictation_action)
-        response_action = QAction("Afficher la dernière réponse", self)
-        response_action.triggered.connect(
-            lambda: self.context_menu_manager
-            and self.context_menu_manager.show_response_window()
-        )
-        menu.addAction(response_action)
-        update_action = QAction("Vérifier les mises à jour", self)
-        update_action.triggered.connect(lambda: self.check_for_updates(False))
-        menu.addAction(update_action)
-        permission_action = QAction("Autorisations macOS…", self)
-        permission_action.triggered.connect(self.show_permission_setup)
-        menu.addAction(permission_action)
-        menu.addSeparator()
-        quit_action = QAction("Quitter", self)
-        quit_action.triggered.connect(self.quit_application)
-        menu.addAction(quit_action)
-        tray.setContextMenu(menu)
-        tray.activated.connect(self._tray_activated)
-        tray.show()
-        self.tray_icon = tray
-        self.tray_menu = menu
-        return True
+        try:
+            from src.ui.status_item import NativeStatusItem
 
-    def _tray_activated(self, reason):
-        if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            # On macOS, clicking a status item already opens the QMenu assigned
-            # with setContextMenu(). Showing the configuration window here as
-            # well makes both interfaces appear for the same click.
-            log("Clic sur l’icône de barre des menus : menu natif affiché")
+            self.tray_icon = NativeStatusItem(
+                resource_path("resources", "icons", "icon.png"),
+                self._status_menu_entries(),
+                self,
+            )
+            QApplication.instance().aboutToQuit.connect(self.tray_icon.hide)
+            return True
+        except Exception as exc:
+            log(f"Barre des menus native indisponible : {exc}")
+            return False
 
     def show_main_window(self):
         # Record where the user came from before SuperMenu takes the
@@ -1329,19 +1412,35 @@ class MainWindow(QMainWindow):
             self.tray_icon.hide()
         QApplication.quit()
 
+    @staticmethod
+    def _awaiting_accessibility(status):
+        """Whether macOS can still report the Accessibility grant later."""
+        return bool(
+            status.accessibility_check_available and not status.accessibility
+        )
+
+    def _poll_permission_status(self):
+        status = self.refresh_permission_status()
+        if not self.isVisible() and not self._awaiting_accessibility(status):
+            self._permission_timer.stop()
+
     def showEvent(self, event):
         super().showEvent(event)
         self._permission_timer.start()
 
     def hideEvent(self, event):
-        self._permission_timer.stop()
+        if self._quitting or not self._awaiting_accessibility(
+            current_permission_status()
+        ):
+            self._permission_timer.stop()
         super().hideEvent(event)
 
     def closeEvent(self, event):
-        self._permission_timer.stop()
         if self._quitting:
+            self._permission_timer.stop()
             self._cancel_apple_probe()
             event.accept()
         else:
             event.ignore()
+            # hideEvent decides whether the permission watch keeps running.
             self.hide()

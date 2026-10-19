@@ -18,6 +18,17 @@ _VERSION_PATTERN = re.compile(
     r"v?(\d+\.\d+\.\d+(?:-(?:beta|rc)\.\d+)?)",
     re.IGNORECASE,
 )
+# "macOS version: X" (metadata line) or "macOS Apple Silicon : `X`" (beta
+# summary line). Windows lines are only detected, never used as a version.
+_MACOS_VERSION_LINE = re.compile(
+    rf"macOS(?:\s+version|\s+Apple\s+Silicon)?\s*:\s*`?{_VERSION_PATTERN.pattern}",
+    re.IGNORECASE,
+)
+_WINDOWS_VERSION_LINE = re.compile(
+    rf"Windows(?:\s+version)?\s*:\s*`?{_VERSION_PATTERN.pattern}",
+    re.IGNORECASE,
+)
+_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 __all__ = [
     "REPOSITORY_RELEASES_URL",
@@ -110,11 +121,19 @@ def _release_from_manifest(payload: dict, expected_channel: str) -> dict:
     if payload.get("asset") != asset_name:
         raise ValueError("Le DMG déclaré dans le manifeste est incorrect.")
 
+    # Older manifests have no fingerprint; a declared one must be valid.
+    sha256 = ""
+    if payload.get("sha256") is not None:
+        sha256 = str(payload.get("sha256")).strip().lower()
+        if not _SHA256_PATTERN.fullmatch(sha256):
+            raise ValueError("L'empreinte SHA-256 du manifeste macOS est invalide.")
+
     return {
         "channel": expected_channel,
         "version": version,
         "url": f"{_REPOSITORY_DOWNLOADS_URL}/{tag}/{asset_name}",
         "release_url": f"{REPOSITORY_RELEASES_URL}/tag/{tag}",
+        "sha256": sha256,
     }
 
 
@@ -165,9 +184,14 @@ def _get_release_from_api(channel: str, timeout_s: int) -> dict:
     download_url = find_dmg_download_url(release, channel)
     if not download_url:
         raise ValueError("Cette release ne contient aucun DMG macOS compatible.")
+    version = extract_version(release)
+    if not version:
+        raise ValueError(
+            "Impossible de déterminer la version macOS de cette release."
+        )
     return {
         "channel": channel,
-        "version": extract_version(release),
+        "version": version,
         "url": download_url,
         "release_url": release.get("html_url") or REPOSITORY_RELEASES_URL,
     }
@@ -186,13 +210,14 @@ def check_latest_release(channel: str, timeout_s: int = 15) -> dict:
 
 def extract_version(release: dict) -> str:
     body = str(release.get("body") or "")
-    macos_match = re.search(
-        rf"macOS\s+version\s*:\s*{_VERSION_PATTERN.pattern}",
-        body,
-        re.IGNORECASE,
-    )
-    if macos_match:
-        return macos_match.group(1)
+    # The metadata lines are appended after the human notes: the last wins.
+    macos_versions = _MACOS_VERSION_LINE.findall(body)
+    if macos_versions:
+        return macos_versions[-1]
+    if _WINDOWS_VERSION_LINE.search(body):
+        # Both platforms keep separate versions; the tag, the name and the
+        # rest of the body then describe Windows, never this Mac build.
+        return ""
 
     for value in (release.get("tag_name"), release.get("name"), body):
         match = _VERSION_PATTERN.search(str(value or ""))

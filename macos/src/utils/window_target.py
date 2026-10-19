@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
+
+from src.utils.accessibility_text import (
+    focused_window_of_application,
+    same_accessibility_element,
+)
 
 
 try:
@@ -106,11 +111,23 @@ def activate_current_application(*, force: bool = False) -> bool:
 _last_external_target = None
 
 
+def _capture_focused_window(process_id):
+    """Best effort: an unknown window only disables the window-level check."""
+    try:
+        return focused_window_of_application(process_id)
+    except Exception:
+        return None
+
+
 @dataclass(frozen=True)
 class PasteTarget:
     process_id: int
     bundle_identifier: str = ""
     application_name: str = ""
+    # Accessibility element of the window that had focus at capture time.
+    # It is not part of the identity, and stays None whenever Accessibility
+    # cannot answer -- only the application is then verified, as before.
+    focused_window: object = field(default=None, compare=False, repr=False)
 
     @classmethod
     def capture(
@@ -128,13 +145,22 @@ class PasteTarget:
             if not allow_current_process and process_id == os.getpid():
                 if fall_back_to_last_known and _last_external_target is not None:
                     if _last_external_target._running_application() is not None:
-                        return _last_external_target
+                        # The window remembered back then is not necessarily
+                        # the one the selection will be read from once the
+                        # application is reactivated: verify the application
+                        # only, as before the window-level check existed.
+                        return _last_external_target.application_only()
                     _last_external_target = None
                 return None
             target = cls(
                 process_id=process_id,
                 bundle_identifier=str(application.bundleIdentifier() or ""),
                 application_name=str(application.localizedName() or ""),
+                focused_window=(
+                    _capture_focused_window(process_id)
+                    if process_id != os.getpid()
+                    else None
+                ),
             )
         except Exception:
             return None
@@ -171,6 +197,32 @@ class PasteTarget:
             return True
         except Exception:
             return False
+
+    def focused_window_matches(self) -> bool:
+        """Return False only when another window of the target has focus.
+
+        is_current() stops at the application. Re-activating it brings back
+        its last key window, which may be another draft or document than the
+        one the text came from. Whatever Accessibility cannot tell -- no
+        captured window, no answer now -- keeps the previous behaviour.
+        """
+        if self.focused_window is None:
+            return True
+        current = _capture_focused_window(self.process_id)
+        if current is None:
+            return True
+        return same_accessibility_element(self.focused_window, current) is not False
+
+    def application_only(self):
+        """The same target, verified at the application level only.
+
+        Used where pasting into another window of the application may be
+        intended -- the explicit « Écrire » button -- or where the remembered
+        window may be stale.
+        """
+        if self.focused_window is None:
+            return self
+        return replace(self, focused_window=None)
 
     def _running_application(self):
         if NSRunningApplication is None:

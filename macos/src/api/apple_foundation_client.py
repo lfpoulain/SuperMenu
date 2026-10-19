@@ -24,7 +24,7 @@ ERROR_MESSAGES = {
         "Réglages Système et laissez le téléchargement se terminer, puis actualisez."
     ),
     "helper_missing": (
-        "Le composant Apple manque dans cette installation. Réinstallez la bêta macOS."
+        "Le composant Apple manque dans cette installation. Réinstallez SuperMenu."
     ),
     "unavailable": "Apple Intelligence n’est pas disponible sur ce Mac actuellement.",
     "context_exceeded": (

@@ -2,9 +2,12 @@
 # -*- coding: utf-8 -*-
 
 import os
-import tempfile
+import shutil
 import subprocess
+import sys
+import tempfile
 import ctypes
+import threading
 from datetime import date
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -13,9 +16,9 @@ from PySide6.QtWidgets import (
     QMessageBox, QSystemTrayIcon, QApplication, QDialog,
     QStyle, QInputDialog, QFileDialog, QListWidgetItem, QAbstractItemView, QSplitter
 )
-from PySide6.QtCore import Qt, Signal, QTimer, QThread
+from PySide6.QtCore import Qt, Signal, QTimer, QObject
 from PySide6.QtGui import QIcon, QAction
-from supermenu_core.ui.prompt_restore import restore_library
+from supermenu_core.ui.prompt_restore import restore_library, restore_previous_library
 from supermenu_core.ui.controls import ChoiceBox, Menu, SidebarList, SIDEBAR_WIDTH
 
 from src.config.build_info import APP_VERSION
@@ -42,7 +45,173 @@ from src.utils.hotkey_manager import HotkeyRecorderDialog
 from src.utils.paths import resource_path
 
 
-class _UpdateCheckWorker(QThread):
+# ShellExecuteW returns this code when Windows refuses to start the file
+# (UAC prompt declined, policy block): nothing was launched.
+_SE_ERR_ACCESSDENIED = 5
+
+
+def _running_app_version(installed_version):
+    """Version compared with the release: the running build when it is known.
+
+    The portable executable has no Inno registry entry, and the registry may
+    describe another copy than the one running. Source runs ("dev") keep the
+    installed version.
+    """
+    if APP_VERSION and APP_VERSION != "dev":
+        return APP_VERSION
+    return installed_version
+
+
+def _installed_app_locations(app_id_guid):
+    """Folders where the Inno installer put SuperMenu, read from Uninstall."""
+    try:
+        import winreg
+    except Exception:
+        return []
+
+    uninstall_subkey = rf"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{{{app_id_guid}}}_is1"
+    locations = []
+    for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        for view_flag in (
+            getattr(winreg, "KEY_WOW64_64KEY", 0),
+            getattr(winreg, "KEY_WOW64_32KEY", 0),
+        ):
+            try:
+                with winreg.OpenKey(root, uninstall_subkey, 0, winreg.KEY_READ | view_flag) as key:
+                    for value_name in ("InstallLocation", "Inno Setup: App Path"):
+                        try:
+                            value, _ = winreg.QueryValueEx(key, value_name)
+                        except OSError:
+                            continue
+                        if isinstance(value, str) and value.strip():
+                            locations.append(value.strip())
+            except OSError:
+                continue
+    return locations
+
+
+def _comparable_path(path):
+    try:
+        path = os.path.realpath(path)
+    except (OSError, ValueError):
+        path = os.path.abspath(path)
+    return os.path.normcase(os.path.normpath(path)).rstrip("\\/")
+
+
+def _is_portable_build(app_id_guid, executable=None, frozen=None):
+    """True for the portable executable: a packaged build outside {app}.
+
+    The installer cannot update that file, it only adds a second copy under
+    Program Files. Source runs are never portable.
+    """
+    if frozen is None:
+        frozen = getattr(sys, "frozen", False)
+    if not frozen:
+        return False
+    running_folder = _comparable_path(os.path.dirname(executable or sys.executable))
+    return all(
+        _comparable_path(location) != running_folder
+        for location in _installed_app_locations(app_id_guid)
+    )
+
+
+# Same prefix as the private folder of updater.download_verified_installer.
+_UPDATE_FOLDER_PREFIX = "SuperMenu_update_"
+
+
+def _remove_update_folder(installer_path):
+    """Delete the private folder of a downloaded installer that will not run.
+
+    Each download gets a new folder of about 100 MB: one declined or refused
+    at launch would otherwise stay in %TEMP%.
+    """
+    if not installer_path:
+        return
+    folder = os.path.dirname(os.path.abspath(installer_path))
+    temp_dir = os.path.abspath(tempfile.gettempdir())
+    if os.path.basename(folder).startswith(_UPDATE_FOLDER_PREFIX) and (
+        os.path.normcase(os.path.dirname(folder)) == os.path.normcase(temp_dir)
+    ):
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def _process_is_elevated():
+    """True when SuperMenu itself runs with an administrator token."""
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def _open_through_user_shell(path, cwd):
+    """Start a file through the user's Explorer, with its standard token.
+
+    An elevated process passes its token to what it starts: the Inno loader
+    would skip the UAC prompt and relaunch SuperMenu as administrator again.
+    Returns False when Explorer cannot be used.
+    """
+    # Explorer reads commas as argument separators.
+    if "," in path:
+        return False
+    windows_folder = os.environ.get("SystemRoot") or os.environ.get("WINDIR") or r"C:\Windows"
+    try:
+        subprocess.Popen([os.path.join(windows_folder, "explorer.exe"), path], cwd=cwd)
+    except OSError:
+        return False
+    return True
+
+
+def _hotkey_error(manager):
+    """Registration error of a shortcut Windows refused, "" when it is active."""
+    if manager is None:
+        return ""
+    error = getattr(manager, "last_error", "")
+    if error and not getattr(manager, "registered", False):
+        return error
+    return ""
+
+
+class _BackgroundWorker(QObject):
+    """Run one blocking request on a daemon thread and report through signals.
+
+    A QThread still running when Python destroys it aborts the whole process
+    ("QThread: Destroyed while thread is still running"): quitting during the
+    startup update check, a download or a model refresh was enough. A daemon
+    thread is simply abandoned at exit instead, as CatalogWorker already does.
+    The QThread-like start, isRunning and finished surface is kept for callers.
+    """
+
+    finished = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self._thread = None
+
+    def isRunning(self):
+        thread = self._thread
+        return bool(thread is not None and thread.is_alive())
+
+    def start(self):
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        try:
+            self.run()
+        except RuntimeError:
+            # The window owning this worker was destroyed during exit.
+            pass
+        finally:
+            try:
+                self.finished.emit()
+            except RuntimeError:
+                pass
+
+    def run(self):
+        raise NotImplementedError
+
+
+class _UpdateCheckWorker(_BackgroundWorker):
     finished_ok = Signal(dict)
     failed = Signal(str)
 
@@ -66,15 +235,19 @@ class _UpdateCheckWorker(QThread):
                 release,
                 asset_name,
             )
+            asset_sha256 = app_updater.find_asset_sha256(release, asset_name)
             installed_version = app_updater.get_installed_app_version(self.app_id_guid)
+            portable = _is_portable_build(self.app_id_guid)
 
             self.finished_ok.emit(
                 {
                     "channel": self.channel,
                     "installed_version": installed_version,
+                    "portable": portable,
                     "latest_version": latest_version,
                     "asset_name": asset_name,
                     "asset_url": asset_url,
+                    "asset_sha256": asset_sha256,
                     "release_url": release.get("html_url"),
                 }
             )
@@ -82,24 +255,30 @@ class _UpdateCheckWorker(QThread):
             self.failed.emit(f"Canal {self.channel} : {e}")
 
 
-class _UpdateDownloadWorker(QThread):
+class _UpdateDownloadWorker(_BackgroundWorker):
     finished_ok = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, url: str, dest_path: str):
+    def __init__(self, url: str, file_name: str, expected_sha256: str | None = None):
         super().__init__()
         self.url = url
-        self.dest_path = dest_path
+        self.file_name = file_name
+        self.expected_sha256 = expected_sha256
 
     def run(self):
         try:
-            app_updater.download_to_file(self.url, self.dest_path)
-            self.finished_ok.emit(self.dest_path)
+            # Private mkdtemp folder, checked against the published SHA-256.
+            installer_path = app_updater.download_verified_installer(
+                self.url,
+                self.file_name,
+                self.expected_sha256,
+            )
+            self.finished_ok.emit(installer_path)
         except Exception as e:
             self.failed.emit(str(e))
 
 
-class _CustomModelsWorker(QThread):
+class _CustomModelsWorker(_BackgroundWorker):
     finished_ok = Signal(list)
     failed = Signal(str)
 
@@ -158,6 +337,7 @@ class MainWindow(QMainWindow):
         
         self._update_check_worker = None
         self._update_download_worker = None
+        self._update_expected_sha256 = None
         self._update_loading = None
         self._update_check_silent = False
         self._custom_models_worker = None
@@ -261,6 +441,10 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(scrollable_form(self.text_prompt_form), 1)
         self.prompt_actions = PromptActions(self.reset_prompt, self.save_prompt)
         self.prompt_actions.restore_requested.connect(self.restore_prompt_library)
+        # Offered by the shared actions once they expose the kept copies.
+        restore_previous = getattr(self.prompt_actions, "restore_previous_requested", None)
+        if restore_previous is not None:
+            restore_previous.connect(self.restore_previous_prompt_library)
         right_layout.addWidget(self.prompt_actions)
 
         # Connect prompt selection change
@@ -477,6 +661,11 @@ class MainWindow(QMainWindow):
         self.screenshot_hotkey_label = hotkey_group.add_shortcut("Capture d’écran", self.settings.get_screenshot_hotkey(), self.change_screenshot_hotkey)
         if self.context_menu_manager:
             hotkey_group.add_test(self.context_menu_manager.show_menu)
+        for manager, _field, _hotkey in self._core_hotkey_rows():
+            registration_failed = getattr(manager, "registration_failed", None)
+            if registration_failed is not None:
+                registration_failed.connect(self._on_hotkey_registration_failed)
+        self._refresh_hotkey_states()
 
         # Shared voice controls keep the speech engine independent of text settings.
         from supermenu_core.ui.speech_settings import SpeechSettingsWidget
@@ -582,11 +771,13 @@ class MainWindow(QMainWindow):
         ), "À propos")
 
     def _get_installed_version_display(self):
+        # The running build comes first: the registry describes an installed
+        # copy, absent for the portable executable and possibly older.
+        if APP_VERSION != "dev":
+            return APP_VERSION
         version = app_updater.get_installed_app_version("C8F9E2A0-1F3A-4E5D-B6A9-D5C8E4E0F2A1")
         if version:
             return version
-        if APP_VERSION != "dev":
-            return APP_VERSION
         return "dev"
 
     def _refresh_update_channel_ui(self):
@@ -632,7 +823,7 @@ class MainWindow(QMainWindow):
             self._update_loading.close()
             self._update_loading = None
 
-        installed_version = data.get("installed_version")
+        installed_version = _running_app_version(data.get("installed_version"))
         latest_version = data.get("latest_version")
         channel = app_updater.normalize_update_channel(data.get("channel"))
         channel_label = "Beta" if channel == "beta" else "Stable"
@@ -641,6 +832,7 @@ class MainWindow(QMainWindow):
         )
         asset_url = data.get("asset_url")
         silent = self._update_check_silent
+        portable = bool(data.get("portable"))
 
         if not latest_version:
             if not silent:
@@ -657,7 +849,9 @@ class MainWindow(QMainWindow):
                 )
             return
 
-        if silent and not installed_version:
+        # Only an installed copy is notified in the background: the installer
+        # cannot update the portable executable nor a source run.
+        if silent and (portable or not data.get("installed_version")):
             return
 
         if not app_updater.is_newer_version(installed_version, latest_version):
@@ -666,16 +860,34 @@ class MainWindow(QMainWindow):
                     self,
                     "Mise à jour",
                     f"Vous êtes déjà à jour sur le canal {channel_label}.\n\n"
-                    f"Version installée : {installed_version or 'inconnue'}\n"
+                    f"Version actuelle : {installed_version or 'inconnue'}\n"
                     f"Dernière version : {latest_version}",
                 )
+            return
+
+        if portable:
+            # The installer would add a second copy under Program Files and
+            # leave this executable as it is: point to the downloads instead.
+            reply = QMessageBox.question(
+                self,
+                f"Mise à jour {channel_label} disponible",
+                f"Une mise à jour du canal {channel_label} est disponible.\n\n"
+                f"Version actuelle : {installed_version or 'inconnue'}\n"
+                f"Nouvelle version : {latest_version}\n\n"
+                "Cette version portable ne peut pas être mise à jour par l'installateur. "
+                "Ouvrir la page des téléchargements ?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            if reply == QMessageBox.Yes:
+                self.open_releases_page()
             return
 
         reply = QMessageBox.question(
             self,
             f"Mise à jour {channel_label} disponible",
             f"Une mise à jour du canal {channel_label} est disponible.\n\n"
-            f"Version installée : {installed_version or 'inconnue'}\n"
+            f"Version actuelle : {installed_version or 'inconnue'}\n"
             f"Nouvelle version : {latest_version}\n\n"
             "Télécharger et installer maintenant ?",
             QMessageBox.Yes | QMessageBox.No,
@@ -685,11 +897,8 @@ class MainWindow(QMainWindow):
             return
 
         asset_stem, asset_extension = os.path.splitext(asset_name)
-        dest_path = os.path.join(
-            tempfile.gettempdir(),
-            f"{asset_stem}_{latest_version}{asset_extension}",
-        )
-        self._start_download_installer(asset_url, dest_path)
+        file_name = f"{asset_stem}_{latest_version}{asset_extension}"
+        self._start_download_installer(asset_url, file_name, data.get("asset_sha256"))
 
     def _on_update_check_failed(self, error: str):
         if self._update_loading:
@@ -699,14 +908,16 @@ class MainWindow(QMainWindow):
             return
         QMessageBox.warning(self, "Mise à jour", f"Erreur lors de la vérification des mises à jour :\n\n{error}")
 
-    def _start_download_installer(self, url: str, dest_path: str):
+    def _start_download_installer(self, url: str, file_name: str, expected_sha256: str | None = None):
         if self._update_download_worker and self._update_download_worker.isRunning():
             return
 
+        # Checked again right before the launch (see _launch_installer_and_quit).
+        self._update_expected_sha256 = expected_sha256
         self._update_loading = SimpleLoadingIndicator("Téléchargement de l'installateur...")
         self._update_loading.show()
 
-        self._update_download_worker = _UpdateDownloadWorker(url, dest_path)
+        self._update_download_worker = _UpdateDownloadWorker(url, file_name, expected_sha256)
         self._update_download_worker.finished_ok.connect(self._on_download_ok)
         self._update_download_worker.failed.connect(self._on_download_failed)
         self._update_download_worker.start()
@@ -724,6 +935,8 @@ class MainWindow(QMainWindow):
             QMessageBox.Yes,
         )
         if reply != QMessageBox.Yes:
+            # A later update downloads it again: do not keep a copy in %TEMP%.
+            _remove_update_folder(installer_path)
             return
 
         self._launch_installer_and_quit(installer_path)
@@ -736,15 +949,45 @@ class MainWindow(QMainWindow):
 
     def _launch_installer_and_quit(self, installer_path: str):
         try:
+            # The file may have been replaced while the confirmation was shown.
+            app_updater.verify_installer_sha256(installer_path, self._update_expected_sha256)
+        except app_updater.UpdateIntegrityError as e:
+            _remove_update_folder(installer_path)
+            QMessageBox.warning(self, "Mise à jour", str(e))
+            return
+        except OSError as e:
+            _remove_update_folder(installer_path)
+            QMessageBox.warning(self, "Mise à jour", f"Impossible de lancer l'installateur :\n\n{e}")
+            return
+
+        try:
             params = ""
             cwd = os.path.dirname(installer_path)
-            rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", installer_path, params, cwd, 1)
-            if rc <= 32:
-                subprocess.Popen([installer_path], cwd=cwd)
+            # Already elevated (relaunched by an earlier "runas" update), any
+            # direct start would keep that token: go through the user's shell.
+            launched = _process_is_elevated() and _open_through_user_shell(installer_path, cwd)
+            if not launched:
+                # "open", not "runas": the Inno loader asks for elevation itself and
+                # relaunches SuperMenu with the user's rights. Started already
+                # elevated, it would relaunch SuperMenu as administrator.
+                rc = ctypes.windll.shell32.ShellExecuteW(None, "open", installer_path, params, cwd, 1)
+                if rc == _SE_ERR_ACCESSDENIED:
+                    # Retrying would only show a second prompt: keep SuperMenu open.
+                    _remove_update_folder(installer_path)
+                    QMessageBox.warning(
+                        self,
+                        "Mise à jour",
+                        "Windows n'a pas lancé l'installateur. SuperMenu reste ouvert ; "
+                        "vous pourrez relancer la mise à jour plus tard.",
+                    )
+                    return
+                if rc <= 32:
+                    subprocess.Popen([installer_path], cwd=cwd)
         except Exception:
             try:
                 os.startfile(installer_path)
             except Exception as e:
+                _remove_update_folder(installer_path)
                 QMessageBox.warning(self, "Mise à jour", f"Impossible de lancer l'installateur :\n\n{e}")
                 return
 
@@ -803,7 +1046,7 @@ class MainWindow(QMainWindow):
         
         if prompt_data:
             self.prompt_name_input.setText(prompt_data["name"])
-            self.prompt_text_input.setText(prompt_data["prompt"])
+            self.prompt_text_input.setPlainText(prompt_data["prompt"])
             self.prompt_status_input.setText(prompt_data["status"])
             self.prompt_insert_directly.setChecked(prompt_data.get("insert_directly", False))
             self.text_prompt_form.reasoning.set_mode(prompt_data.get("reasoning_mode", "default"))
@@ -854,30 +1097,22 @@ class MainWindow(QMainWindow):
             # Cette situation ne devrait plus se produire si HotkeyManager est toujours passé
             QMessageBox.warning(self, "Erreur", "HotkeyManager non initialisé.")
             return
-        
-        # Désactiver temporairement le raccourci actuel
-        self.hotkey_manager.unregister_hotkey()
-        
-        # Afficher le dialogue d'enregistrement de raccourci
-        success = self.hotkey_manager.show_hotkey_recorder()
-        
-        if success:
-            # Mettre à jour l'étiquette avec le nouveau raccourci
-            self.hotkey_label.setText(self.settings.get_hotkey())
-            
-            # Le raccourci a déjà été enregistré par show_hotkey_recorder()
-            # Informer l'utilisateur que c'est fait
+
+        if self._change_core_hotkey(self.hotkey_manager):
             QMessageBox.information(
                 self,
                 "Raccourci modifié",
                 f"Le raccourci a été modifié avec succès en {self.settings.get_hotkey()}.\n\n"
                 "Le nouveau raccourci est maintenant actif."
             )
-        else:
-            # L'utilisateur a annulé, réenregistrer l'ancien raccourci
-            self.hotkey_manager.register_hotkey()
 
-    def record_dictation_hotkey(self):
+    def _record_hotkey_with_shortcuts_released(self):
+        """Show the recorder with every SuperMenu shortcut released.
+
+        Windows consumes a registered shortcut before the dialog sees it: the
+        combination would trigger its feature instead of being recorded.
+        Returns the recorded shortcut, or None when the dialog is cancelled.
+        """
         managers = [manager for manager in (
             self.hotkey_manager, self.voice_hotkey_manager,
             self.custom_hotkey_manager, self.screenshot_hotkey_manager,
@@ -885,18 +1120,41 @@ class MainWindow(QMainWindow):
         ) if manager is not None]
         for manager in managers:
             manager.unregister_hotkey()
-        if self.prompt_hotkey_manager:
+        if self.prompt_hotkey_manager is not None:
             self.prompt_hotkey_manager.unregister_hotkeys()
-        shortcut = None
         try:
             dialog = HotkeyRecorderDialog(self)
-            if dialog.exec() == QDialog.Accepted and dialog.recorded_hotkey:
-                shortcut = dialog.recorded_hotkey
+            if dialog.exec() == QDialog.DialogCode.Accepted and dialog.recorded_hotkey:
+                return dialog.recorded_hotkey
+            return None
         finally:
             for manager in managers:
                 manager.register_hotkey()
-            if self.prompt_hotkey_manager:
+            if self.prompt_hotkey_manager is not None:
                 self.prompt_hotkey_manager.refresh_hotkeys()
+
+    def _change_core_hotkey(self, manager):
+        """Record and apply a main shortcut; True once the new one is active."""
+        try:
+            hotkey = self._record_hotkey_with_shortcuts_released()
+            if not hotkey:
+                return False
+            # Every other shortcut is registered again at this point, so a
+            # combination already used by SuperMenu is refused and rolled back.
+            if manager.set_hotkey(hotkey):
+                return True
+            QMessageBox.warning(
+                self,
+                "Erreur",
+                f"Impossible d'enregistrer le raccourci '{hotkey}'.\n\n"
+                f"{getattr(manager, 'last_error', '')}",
+            )
+            return False
+        finally:
+            self._refresh_hotkey_states()
+
+    def record_dictation_hotkey(self):
+        shortcut = self._record_hotkey_with_shortcuts_released()
         if shortcut:
             self.dictation_shortcut_settings.set_shortcut(shortcut)
 
@@ -905,33 +1163,9 @@ class MainWindow(QMainWindow):
         if self.prompt_combo.count() == 0:
             return
 
-        core_managers = [
-            self.hotkey_manager,
-            self.voice_hotkey_manager,
-            self.custom_hotkey_manager,
-            self.screenshot_hotkey_manager,
-            self.dictation_hotkey_manager,
-        ]
-        active_core_managers = [
-            manager for manager in core_managers if manager is not None
-        ]
-        for manager in active_core_managers:
-            manager.unregister_hotkey()
-        if self.prompt_hotkey_manager is not None:
-            self.prompt_hotkey_manager.unregister_hotkeys()
-
-        try:
-            dialog = HotkeyRecorderDialog(self)
-            if (
-                dialog.exec() == QDialog.DialogCode.Accepted
-                and dialog.recorded_hotkey
-            ):
-                self.prompt_hotkey_input.setText(dialog.recorded_hotkey)
-        finally:
-            for manager in active_core_managers:
-                manager.register_hotkey()
-            if self.prompt_hotkey_manager is not None:
-                self.prompt_hotkey_manager.refresh_hotkeys()
+        shortcut = self._record_hotkey_with_shortcuts_released()
+        if shortcut:
+            self.prompt_hotkey_input.setText(shortcut)
 
     def clear_prompt_hotkey(self):
         """Clear the shortcut editor; the change is applied when saving."""
@@ -943,28 +1177,14 @@ class MainWindow(QMainWindow):
             # Cette situation ne devrait plus se produire
             QMessageBox.warning(self, "Erreur", "VoiceHotkeyManager non initialisé.")
             return
-        
-        # Désactiver temporairement le raccourci actuel
-        self.voice_hotkey_manager.unregister_hotkey()
-        
-        # Afficher le dialogue d'enregistrement de raccourci
-        success = self.voice_hotkey_manager.show_hotkey_recorder()
-        
-        if success:
-            # Mettre à jour l'étiquette avec le nouveau raccourci
-            self.voice_hotkey_label.setText(self.settings.get_voice_hotkey())
-            
-            # Le raccourci a déjà été enregistré par show_hotkey_recorder()
-            # Informer l'utilisateur que c'est fait
+
+        if self._change_core_hotkey(self.voice_hotkey_manager):
             QMessageBox.information(
                 self,
                 "Raccourci modifié",
                 f"Le raccourci vocal a été modifié avec succès en {self.settings.get_voice_hotkey()}.\n\n"
                 "Le nouveau raccourci est maintenant actif."
             )
-        else:
-            # L'utilisateur a annulé, réenregistrer l'ancien raccourci
-            self.voice_hotkey_manager.register_hotkey()
 
     def change_custom_hotkey(self):
         """Modifier le raccourci du mode personnalisé"""
@@ -972,22 +1192,13 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Erreur", "CustomHotkeyManager non initialisé.")
             return
 
-        old_hotkey = self.settings.get_custom_hotkey()
-        self.custom_hotkey_manager.unregister_hotkey()
-
-        success = self.custom_hotkey_manager.show_hotkey_recorder()
-
-        if success:
-            self.custom_hotkey_label.setText(self.settings.get_custom_hotkey())
+        if self._change_core_hotkey(self.custom_hotkey_manager):
             QMessageBox.information(
                 self,
                 "Raccourci modifié",
                 f"Le raccourci du mode personnalisé a été modifié avec succès en {self.settings.get_custom_hotkey()}.\n\n"
                 "Le nouveau raccourci est maintenant actif."
             )
-        else:
-            self.custom_hotkey_manager._set_configured_hotkey(old_hotkey)
-            self.custom_hotkey_manager.register_hotkey()
 
     def change_screenshot_hotkey(self):
         """Modifier le raccourci de capture d'écran"""
@@ -995,28 +1206,57 @@ class MainWindow(QMainWindow):
             # Cette situation ne devrait plus se produire
             QMessageBox.warning(self, "Erreur", "ScreenshotHotkeyManager non initialisé.")
             return
-        
-        # Désactiver temporairement le raccourci actuel
-        self.screenshot_hotkey_manager.unregister_hotkey()
-        
-        # Afficher le dialogue d'enregistrement de raccourci
-        success = self.screenshot_hotkey_manager.show_hotkey_recorder()
-        
-        if success:
-            # Mettre à jour l'étiquette avec le nouveau raccourci
-            self.screenshot_hotkey_label.setText(self.settings.get_screenshot_hotkey())
-            
-            # Le raccourci a déjà été enregistré par show_hotkey_recorder()
-            # Informer l'utilisateur que c'est fait
+
+        if self._change_core_hotkey(self.screenshot_hotkey_manager):
             QMessageBox.information(
                 self,
                 "Raccourci modifié",
                 f"Le raccourci de capture d'écran a été modifié avec succès en {self.settings.get_screenshot_hotkey()}.\n\n"
                 "Le nouveau raccourci est maintenant actif."
             )
-        else:
-            # L'utilisateur a annulé, réenregistrer l'ancien raccourci
-            self.screenshot_hotkey_manager.register_hotkey()
+
+    def _core_hotkey_rows(self):
+        """(manager, field, configured shortcut) of the Shortcuts tab rows."""
+        return (
+            (self.hotkey_manager, self.hotkey_label, self.settings.get_hotkey),
+            (self.custom_hotkey_manager, self.custom_hotkey_label, self.settings.get_custom_hotkey),
+            (self.voice_hotkey_manager, self.voice_hotkey_label, self.settings.get_voice_hotkey),
+            (self.screenshot_hotkey_manager, self.screenshot_hotkey_label, self.settings.get_screenshot_hotkey),
+        )
+
+    def _refresh_hotkey_states(self):
+        """Show the configured shortcuts, marking those Windows refused."""
+        for manager, field, configured_hotkey in self._core_hotkey_rows():
+            hotkey = configured_hotkey()
+            error = _hotkey_error(manager)
+            if error:
+                field.setText(f"{hotkey} (inactif)" if hotkey else "Inactif")
+                field.setToolTip(f"Inactif : {error}")
+            else:
+                field.setText(hotkey)
+                field.setToolTip("")
+
+    def _on_hotkey_registration_failed(self, _error):
+        self._refresh_hotkey_states()
+
+    def _inactive_core_hotkeys(self):
+        """Main shortcuts Windows refused: list of (feature, shortcut, error)."""
+        failures = []
+        for manager in (
+            self.hotkey_manager,
+            self.custom_hotkey_manager,
+            self.voice_hotkey_manager,
+            self.screenshot_hotkey_manager,
+            self.dictation_hotkey_manager,
+        ):
+            error = _hotkey_error(manager)
+            if error:
+                failures.append((
+                    getattr(manager, "feature_name", "Raccourci"),
+                    getattr(manager, "hotkey", "") or "aucun",
+                    error,
+                ))
+        return failures
 
     def restart_application(self):
         """Redémarrer l'application"""
@@ -1119,6 +1359,10 @@ class MainWindow(QMainWindow):
     def restore_prompt_library(self):
         restore_library(self, self.settings, self._prompts_restored)
 
+    def restore_previous_prompt_library(self):
+        """Go back to the copy kept by the last restore, import or repair."""
+        restore_previous_library(self, self.settings, self._prompts_restored)
+
     def reset_all_settings(self):
         """Reset all settings to defaults"""
         # Confirm reset
@@ -1141,12 +1385,18 @@ class MainWindow(QMainWindow):
 
             # Reset settings
             self.settings.reset_to_defaults()
+            if self.prompt_hotkey_manager is not None:
+                # A prompt may hold a default combination: release them first,
+                # otherwise the default shortcuts are refused and rolled back.
+                self.prompt_hotkey_manager.unregister_hotkeys()
             hotkeys_restored = self._reregister_all_hotkeys(previous_hotkeys)
             if self.prompt_hotkey_manager is not None:
                 self.prompt_hotkey_manager.refresh_hotkeys()
             
             # Update the UI
             self.populate_prompt_combo()
+            # The visible sidebar list, not only the hidden combo.
+            self.populate_prompt_order_list()
             self.voice_prompt_editor.reload()
             
             # Reload the API configuration
@@ -1174,10 +1424,7 @@ class MainWindow(QMainWindow):
             self.toggle_custom_endpoint()
             
             # Reload the hotkeys
-            self.hotkey_label.setText(self.settings.get_hotkey())
-            self.voice_hotkey_label.setText(self.settings.get_voice_hotkey())
-            self.custom_hotkey_label.setText(self.settings.get_custom_hotkey())
-            self.screenshot_hotkey_label.setText(self.settings.get_screenshot_hotkey())
+            self._refresh_hotkey_states()
 
             screenshot_mode = self.settings.get_screenshot_capture_mode()
             for i in range(self.screenshot_capture_mode_combo.count()):
@@ -1334,7 +1581,12 @@ class MainWindow(QMainWindow):
             self.show()
         self.raise_()
         self.activateWindow()
-        if self.prompt_hotkey_manager is not None and self.prompt_hotkey_manager.errors:
+        self._refresh_hotkey_states()
+        failures = self._inactive_core_hotkeys()
+        if failures:
+            name, hotkey, detail = failures[0]
+            self.statusBar().showMessage(f"Raccourci inactif — {name} ({hotkey}) : {detail}")
+        elif self.prompt_hotkey_manager is not None and self.prompt_hotkey_manager.errors:
             errors = self.prompt_hotkey_manager.errors
             prompt_id, detail = next(iter(errors.items()))
             prompt = self.settings.get_prompt(prompt_id) or {}
@@ -1641,6 +1893,14 @@ class MainWindow(QMainWindow):
                         self.load_prompt(0)
                     else:
                         self.clear_prompt_editor()
+                    # The sidebar list is the visible selector: rebuild it too.
+                    populate_prompt_order_list = getattr(
+                        self,
+                        "populate_prompt_order_list",
+                        None,
+                    )
+                    if populate_prompt_order_list is not None:
+                        populate_prompt_order_list()
                     
                     if shortcut_errors:
                         QMessageBox.warning(

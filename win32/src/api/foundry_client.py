@@ -21,6 +21,39 @@ from src.api.foundry_worker import platform_error
 from src.config.foundry_models import MAX_INPUT_CHARS
 from supermenu_core.config.model_memory import MODEL_IDLE_CHOICES
 
+# Silence budgets: every progress message of the active request re-arms its
+# budget, so a download that keeps progressing is never killed.
+OPERATION_TIMEOUTS_MS = {"download": 1800000, "generate": 600000, "probe": 1800000}
+DEFAULT_TIMEOUT_MS = 90000
+# Reasoning allows 8192 output tokens instead of 2048: same throughput budget.
+REASONING_GENERATION_TIMEOUT_MS = 4 * OPERATION_TIMEOUTS_MS["generate"]
+# A killed worker may need a few seconds to release native (CUDA) memory.
+RETIRE_GRACE_MS = 15000
+TIMEOUT_MESSAGES = {
+    "download": (
+        "Le téléchargement du modèle ne progresse plus. "
+        "Vérifiez la connexion, puis relancez le téléchargement."
+    ),
+    "probe": (
+        "La vérification de Foundry Local n'a pas abouti à temps. "
+        "Vérifiez la connexion et le pilote GPU, puis réessayez."
+    ),
+    "generate": "Foundry Local a dépassé le délai. Essayez le modèle 4B ou un texte plus court.",
+}
+REASONING_TIMEOUT_MESSAGE = (
+    "Foundry Local a dépassé le délai. Essayez sans raisonnement, "
+    "avec le modèle 4B ou avec un texte plus court."
+)
+DEFAULT_TIMEOUT_MESSAGE = "Le moteur local n'a pas répondu à temps. Réessayez."
+# The worker runs one native operation at a time.
+WAIT_MESSAGES = {
+    "download": "En attente de la fin du téléchargement d'un modèle local…",
+    "probe": "En attente de la fin de la vérification de Foundry Local…",
+}
+# Replace a wait notice once that download or probe is over.
+QUEUE_MESSAGE = "En attente de la fin d'une autre requête locale…"
+START_MESSAGE = "Démarrage du traitement local…"
+
 
 def worker_command():
     if getattr(sys, "frozen", False):
@@ -50,24 +83,27 @@ class FoundryService(QObject):
         self.loaded = False
         self.idle_seconds = 300
         self._idle_since = None
-        self._process = QProcess(self)
-        self._process.setStandardErrorFile(QProcess.nullDevice())
+        # One QProcess per worker launch; a killed worker still exiting is
+        # "retiring" and its late signals are ignored.
+        self._process = None
+        self._retiring = None
+        # Request id -> wait notice last shown to that queued request.
+        self._wait_notices = {}
         environment = QProcessEnvironment.systemEnvironment()
         environment.insert("PYTHONIOENCODING", "utf-8")
         if getattr(sys, "frozen", False):
             # Reuse the running onefile extraction for this private child.
             environment.remove("PYINSTALLER_RESET_ENVIRONMENT")
-        self._process.setProcessEnvironment(environment)
-        self._process.started.connect(self._write_active)
-        self._process.readyReadStandardOutput.connect(self._read)
-        self._process.finished.connect(self._exited)
-        self._process.errorOccurred.connect(self._process_error)
+        self._environment = environment
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._timeout)
         self._idle_timer = QTimer(self)
         self._idle_timer.setSingleShot(True)
         self._idle_timer.timeout.connect(self.unload_idle)
+        self._retire_timer = QTimer(self)
+        self._retire_timer.setSingleShot(True)
+        self._retire_timer.timeout.connect(self._retire_expired)
 
     @property
     def busy(self):
@@ -92,9 +128,15 @@ class FoundryService(QObject):
             return False
         self._idle_timer.stop()
         self._idle_since = None
-        if self.loaded and self._process.state() != QProcess.NotRunning:
+        if self.loaded and self._running():
             self.submit("unload")
         return True
+
+    def _running(self):
+        return (
+            self._process is not None
+            and self._process.state() != QProcess.NotRunning
+        )
 
     def submit(self, operation, *, request_id=None, **payload):
         request_id = request_id or uuid.uuid4().hex
@@ -107,29 +149,88 @@ class FoundryService(QObject):
         return request_id
 
     def _next(self):
-        if self._closed or self._active or not self._queue:
+        if self._closed or not self._queue:
             return
+        if self._active:
+            self._announce_wait()
+            return
+        if self._retiring is not None:
+            self._announce_wait()  # A cancelled download no longer blocks.
+            return  # Resumed once the killed worker has really exited.
         self._idle_timer.stop()
         self._idle_since = None
         self._active = self._queue.popleft()
         self.state_changed.emit()
-        timeout = {"download": 1800000, "generate": 600000, "probe": 1800000}
-        self._timer.start(timeout.get(self._active["operation"], 90000))
-        if self._process.state() == QProcess.NotRunning:
-            self._buffer = b""
-            program, args = self._command
-            self._process.start(program, args)
+        self._timer.start(self._timeout_ms(self._active))
+        if not self._running():
+            self._launch()
         else:
             self._write_active()
+        self._announce_wait()
+
+    def _launch(self):
+        previous = self._process
+        if previous is not None and previous.state() == QProcess.NotRunning:
+            previous.deleteLater()
+        process = self._process = QProcess(self)
+        process.setStandardErrorFile(QProcess.nullDevice())
+        process.setProcessEnvironment(self._environment)
+        process.started.connect(
+            lambda: self._write_active() if self._process is process else None
+        )
+        process.readyReadStandardOutput.connect(
+            lambda: self._read() if self._process is process else None
+        )
+        process.finished.connect(
+            lambda *_args: self._exited() if self._process is process else None
+        )
+        process.errorOccurred.connect(
+            lambda error: self._process_error(error) if self._process is process else None
+        )
+        self._buffer = b""
+        program, args = self._command
+        process.start(program, args)
+
+    @staticmethod
+    def _timeout_ms(request, details=None):
+        operation = request.get("operation")
+        if (
+            operation == "generate"
+            and request.get("reasoning_mode") == "on"
+            and isinstance(details, dict)
+            and details.get("phase") == "generate"
+        ):
+            return REASONING_GENERATION_TIMEOUT_MS
+        return OPERATION_TIMEOUTS_MS.get(operation, DEFAULT_TIMEOUT_MS)
+
+    def _announce_wait(self):
+        # Explain why text actions queued behind a long download do not start,
+        # and replace that notice as soon as it no longer applies.
+        stage = WAIT_MESSAGES.get(self._active["operation"]) if self._active else None
+        notices, self._wait_notices = self._wait_notices, {}
+        if self._active and self._active["id"] in notices:
+            self.progress.emit(
+                self._active["id"], {"phase": "start", "stage": START_MESSAGE}
+            )
+        for request in list(self._queue):
+            notice = stage or (QUEUE_MESSAGE if request["id"] in notices else None)
+            if notice:
+                self._wait_notices[request["id"]] = notice
+                if notices.get(request["id"]) != notice:
+                    self.progress.emit(
+                        request["id"], {"phase": "queue", "stage": notice}
+                    )
 
     def _write_active(self):
-        if self._active:
+        if self._active and self._process is not None:
             payload = (
                 json.dumps(self._active, ensure_ascii=False).encode("utf-8") + b"\n"
             )
             self._process.write(payload)
 
     def _read(self):
+        if self._process is None:
+            return
         self._buffer += bytes(self._process.readAllStandardOutput())
         if len(self._buffer) > 1024 * 1024:
             self._abort("Réponse locale invalide. Réessayez.")
@@ -149,6 +250,8 @@ class FoundryService(QObject):
                 details = message["progress"]
                 if isinstance(details, dict) and "elapsed_seconds" in details:
                     logging.getLogger("SuperMenu.Foundry").info("Foundry phase=%s duration=%.3fs", details.get("phase"), details["elapsed_seconds"])
+                # The worker is alive and progressing: re-arm its silence budget.
+                self._timer.start(self._timeout_ms(self._active, details))
                 self.progress.emit(request_id, details)
                 continue
             operation = self._active["operation"]
@@ -173,11 +276,37 @@ class FoundryService(QObject):
         self._idle_timer.stop()
         self._idle_since = None
         self.loaded = False
-        if self._process.state() != QProcess.NotRunning:
-            self._process.kill()
-            self._process.waitForFinished(1000)
+        process, self._process = self._process, None
+        if process is not None:
+            if process.state() != QProcess.NotRunning:
+                process.kill()
+                if not process.waitForFinished(1000):
+                    # Releasing native memory can outlast the wait: never write
+                    # the next request to this dying worker.
+                    self._retire(process)
+                    process = None
+            if process is not None:
+                process.deleteLater()
         self._buffer = b""
         self.state_changed.emit()
+
+    def _retire(self, process):
+        self._retiring = process
+        process.finished.connect(lambda *_args: self._retired(process))
+        self._retire_timer.start(RETIRE_GRACE_MS)
+
+    def _retired(self, process):
+        process.deleteLater()
+        if self._retiring is process:
+            self._retiring = None
+            self._retire_timer.stop()
+            QTimer.singleShot(0, self._next)
+
+    def _retire_expired(self):
+        # Never block the queue forever on a worker that cannot exit.
+        if self._retiring is not None:
+            self._retiring = None
+            QTimer.singleShot(0, self._next)
 
     def _abort(self, message):
         active, self._active = self._active, None
@@ -188,9 +317,13 @@ class FoundryService(QObject):
         QTimer.singleShot(0, self._next)
 
     def _timeout(self):
-        self._abort(
-            "Foundry Local a dépassé le délai. Essayez le modèle 4B ou un texte plus court."
-        )
+        active = self._active or {}
+        operation = active.get("operation")
+        if operation == "generate" and active.get("reasoning_mode") == "on":
+            message = REASONING_TIMEOUT_MESSAGE
+        else:
+            message = TIMEOUT_MESSAGES.get(operation, DEFAULT_TIMEOUT_MESSAGE)
+        self._abort(message)
 
     def _exited(self, *_args):
         if self._active:
@@ -207,7 +340,7 @@ class FoundryService(QObject):
     def _process_error(self, error):
         if error == QProcess.FailedToStart:
             self._abort(
-                "Impossible de démarrer le moteur Foundry embarqué. Réinstallez la bêta."
+                "Impossible de démarrer le moteur Foundry embarqué. Réinstallez SuperMenu."
             )
 
     def cancel(self, request_id):
@@ -224,6 +357,7 @@ class FoundryService(QObject):
         self._queue.clear()
         self._timer.stop()
         self._idle_timer.stop()
+        self._retire_timer.stop()
         self._stop()
 
 

@@ -136,6 +136,7 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements-dev.txt
 bash scripts/build_foundation_helper.sh
+bash scripts/build_speech_helper.sh
 python run.py
 ```
 

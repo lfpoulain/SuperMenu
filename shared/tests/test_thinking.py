@@ -43,3 +43,50 @@ def test_the_client_and_the_window_share_one_parser():
 
     assert OpenAIClient._split_inline_thinking(sample)[0] == "visible"
     assert BaseResponseWindow._mask_thinking(None, sample) == ("visible", True)
+
+
+def test_an_orphan_closing_tag_ends_the_reasoning():
+    """Templates that inject <think> in the prompt only emit the closing tag."""
+    visible, reasoning = thinking.split_inline_thinking(
+        "L'utilisateur veut une correction…\n</think>\n\nBonjour…"
+    )
+
+    assert visible == "Bonjour…"
+    assert reasoning == "L'utilisateur veut une correction…"
+    assert thinking.mask_thinking("calcul[/think]\n\nréponse") == ("réponse", True)
+
+
+def test_a_literal_tag_inside_a_sentence_does_not_swallow_the_answer():
+    text = "Voici le code HTML : <think> est une balise"
+
+    assert thinking.split_inline_thinking(text) == (text, "")
+
+
+def test_a_closing_tag_quoted_in_a_line_stays_in_the_answer():
+    """Templates emit the orphan tag on its own line; a quoted one is text."""
+    for text in (
+        "Dans Qwen3, la balise </think> ferme le raisonnement ; le texte qui suit est la réponse.",
+        'THINK_CLOSE = re.compile(r"</think>")  # ferme le bloc\nprint("ok")',
+        "Le format [/think] ferme le bloc entre crochets.",
+    ):
+        assert thinking.split_inline_thinking(text) == (text, "")
+        # Nothing is hidden, so the window offers no reasoning toggle.
+        assert thinking.mask_thinking(text) == (text, False)
+
+
+def test_an_orphan_closing_tag_that_opens_its_line_still_ends_the_reasoning():
+    visible, reasoning = thinking.split_inline_thinking(
+        "L'utilisateur veut une correction…\n</think>Bonjour…"
+    )
+
+    assert visible == "Bonjour…"
+    assert reasoning == "L'utilisateur veut une correction…"
+
+
+def test_blocks_then_an_orphan_closing_tag_keep_every_trace():
+    visible, reasoning = thinking.split_inline_thinking(
+        "<think>a</think>b</think>\n\nréponse"
+    )
+
+    assert visible == "réponse"
+    assert reasoning == "a\n\nb"

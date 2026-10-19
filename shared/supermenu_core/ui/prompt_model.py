@@ -8,13 +8,18 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushBu
 from .controls import ChoiceBox
 from .model_catalog import (
     configure_model_combo,
+    device_label,
     populate_model_catalog,
     selected_model_id,
     selected_model_target,
     restore_model_target,
     DeviceNameButton,
 )
-from supermenu_core.config.model_target import normalize_model_target
+from supermenu_core.config.model_target import (
+    normalize_model_target,
+    registered_foundry_models,
+    without_server,
+)
 from supermenu_core.config.openai_models import AVAILABLE_MODELS
 
 _catalog_workers = set()
@@ -119,11 +124,23 @@ class PromptModelChoice(QWidget):
                 self.saved["model"] if same else self.settings.get_model()
             )
         elif provider == "foundry":
-            # The Windows provider exposes exactly these supported aliases.
-            self.model.addItems(["qwen3.5-4b", "qwen3.5-9b"])
-            self.model.setCurrentText(self.saved["model"] if same else "qwen3.5-4b")
+            # The Windows adapter registers the aliases it supports. Elsewhere
+            # an imported choice is only shown as it is (added below).
+            aliases = list(registered_foundry_models())
+            getter = getattr(self.settings, "get_foundry_model", None)
+            if not aliases and getter is not None:
+                aliases = [getter()]
+            self.model.addItems(aliases)
+            if same:
+                self.model.setCurrentText(self.saved["model"])
+            elif aliases:
+                self.model.setCurrentText(aliases[0])
         elif provider == "custom":
-            target = self.saved if same else self.settings.get_custom_model_target()
+            target = (
+                self._current_device_label(self.saved)
+                if same
+                else self.settings.get_custom_model_target()
+            )
             model = target.get("model", self.settings.get_custom_model())
             if model:
                 self.model.addItem(model, model)
@@ -146,25 +163,51 @@ class PromptModelChoice(QWidget):
             "Ce prompt utilisera le moteur et le modèle des réglages généraux."
             if provider == "default"
             else (
-                "Le serveur des réglages Texte fournit la liste. Actualisez, puis choisissez le modèle et son poste."
+                self._server_help()
                 if provider == "custom"
                 else "Ce choix s’applique uniquement à ce prompt."
             )
         )
 
-    def _endpoint(self):
+    def _server_help(self):
+        endpoint = str(self._endpoint() or "").strip()
+        if not endpoint:
+            return "Renseignez le serveur dans Réglages > Texte, puis enregistrez-le."
         return (
-            self.saved.get("endpoint", self.settings.get_custom_endpoint())
-            if self.saved.get("provider") == "custom"
-            else self.settings.get_custom_endpoint()
+            "Serveur des réglages Texte : "
+            + endpoint
+            + ". Ce prompt suivra ce serveur s’il change. Actualisez, puis choisissez le modèle et son poste."
         )
 
+    def _current_device_label(self, target):
+        """Name the saved device on the configured server, not on an old one.
+
+        The prompt follows the server of the Text settings, so a stored label
+        such as "Sur 192.168.1.20" may describe a previous server, and an
+        imported prompt carries none.
+        """
+        if "device" not in target:
+            return target
+        endpoint = str(self._endpoint() or "").strip()
+        device = target["device"]
+        if device is None:
+            # The server's own machine: always described by the current server.
+            label = device_label(None, {}, endpoint)
+        else:
+            getter = getattr(self.settings, "get_model_device_names", None)
+            names = getter(endpoint) if getter is not None and endpoint else {}
+            if not names.get(device):
+                return target
+            label = device_label(device, names, endpoint)
+        return {**target, "device_name": label}
+
+    # The prompt always follows the server of the Text settings: a server
+    # stored by an older version or an imported file is never reused.
+    def _endpoint(self):
+        return self.settings.get_custom_endpoint()
+
     def _endpoint_type(self):
-        return (
-            self.saved.get("endpoint_type", self.settings.get_custom_endpoint_type())
-            if self.saved.get("provider") == "custom"
-            else self.settings.get_custom_endpoint_type()
-        )
+        return self.settings.get_custom_endpoint_type()
 
     def target(self):
         provider = self.provider.currentData()
@@ -173,10 +216,13 @@ class PromptModelChoice(QWidget):
         if provider == "apple":
             return {"provider": "apple", "model": "apple-foundation"}
         if provider == "custom":
-            target = selected_model_target(self.model)
-            target.update(
-                endpoint=self._endpoint(), endpoint_type=self._endpoint_type()
-            )
+            # An empty choice stays invalid instead of meaning "default".
+            target = without_server(selected_model_target(self.model)) or {
+                "provider": "custom",
+                "model": "",
+            }
+            if "device" in target and self._endpoint_type() != "lmstudio":
+                raise ValueError("Le choix du poste nécessite un serveur LM Studio.")
         else:
             target = {"provider": provider, "model": selected_model_id(self.model)}
         return normalize_model_target(target)
@@ -198,11 +244,7 @@ class PromptModelChoice(QWidget):
                 "Renseignez le serveur dans Réglages > Texte, puis enregistrez-le."
             )
             return
-        key = (
-            self.settings.get_custom_endpoint_api_key()
-            if endpoint.rstrip("/") == self.settings.get_custom_endpoint().rstrip("/")
-            else None
-        )
+        key = self.settings.get_custom_endpoint_api_key()
         worker = self.worker = CatalogWorker(endpoint, self._endpoint_type(), key)
         _catalog_workers.add(worker)
         worker.result.connect(self._loaded)

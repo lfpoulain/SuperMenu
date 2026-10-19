@@ -21,14 +21,22 @@ def create_speech_backend(settings, options):
         raise ValueError(
             "La dictée locale Apple Speech nécessite macOS 26 ou une version ultérieure."
         )
+    frozen = getattr(sys, "frozen", False)
     parts = (
         ("native", "SuperMenuSpeech")
-        if getattr(sys, "frozen", False)
+        if frozen
         else ("build", "native", "SuperMenuSpeech")
     )
     helper = Path(resource_path(*parts))
     if not helper.is_file():
-        raise ValueError("Le composant vocal Apple manque. Réinstallez la bêta macOS.")
+        if frozen:
+            raise ValueError(
+                "Le composant vocal Apple manque dans cette installation. Réinstallez SuperMenu."
+            )
+        raise ValueError(
+            "Le composant vocal Apple n’est pas compilé. Lancez "
+            "« bash scripts/build_speech_helper.sh » depuis le dossier macos."
+        )
     if options.get("action", "start") in {"probe", "download"}:
         return ProcessSpeechBackend((str(helper), []), options)
     return ResidentSpeechBackend(

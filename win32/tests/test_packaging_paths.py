@@ -125,7 +125,8 @@ def test_release_workflows_keep_ci_beta_and_stable_separate():
     assert "workflow_run:" in beta
     assert "github.event.workflow_run.conclusion == 'success'" in beta
     assert "schedule:" not in beta
-    assert "tag: beta" in beta
+    assert 'releases/tags/beta"' in beta
+    assert "gh release upload beta " in beta
     assert "SuperMenu_Beta_Setup.exe" in beta
     assert "update-beta.json" in beta
     assert beta.index("Validate source") < beta.index(
@@ -199,8 +200,10 @@ def test_macos_pull_requests_build_a_test_dmg():
     ).read_text(encoding="utf-8")
 
     assert "pull_request:" in workflow
-    assert "build-dmg:" in workflow
-    assert "scripts/build_dmg.sh" in workflow
+    # An exact job name: "build-dmg:" alone would also match "macos-build-dmg:".
+    dmg_job = _job(workflow, "macos-build-dmg")
+    assert "scripts/build_dmg.sh" in dmg_job
+    assert "if:" not in dmg_job.split("steps:")[0]
     # SuperMenu is distributed for Apple Silicon only; the slice is part of
     # the artifact name so an Intel user cannot pick up a bundle that will
     # not launch.
