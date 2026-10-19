@@ -21,6 +21,7 @@ from src.api.foundry_worker import platform_error
 from src.config.foundry_models import MAX_INPUT_CHARS
 from supermenu_core.config.feature_modes import effective_text_idle_seconds
 from supermenu_core.config.model_memory import MODEL_IDLE_CHOICES
+from supermenu_core.utils.jsonl import JsonLineBuffer, encode_json_line
 
 # Silence budgets: every progress message of the active request re-arms its
 # budget, so a download that keeps progressing is never killed.
@@ -79,7 +80,7 @@ class FoundryService(QObject):
         self._command = command or worker_command()
         self._queue = deque()
         self._active = None
-        self._buffer = b""
+        self._lines = JsonLineBuffer(max_bytes=1024 * 1024)
         self._closed = False
         self.loaded = False
         self.idle_seconds = 300
@@ -188,7 +189,7 @@ class FoundryService(QObject):
         process.errorOccurred.connect(
             lambda error: self._process_error(error) if self._process is process else None
         )
-        self._buffer = b""
+        self._lines.clear()
         program, args = self._command
         process.start(program, args)
 
@@ -224,20 +225,18 @@ class FoundryService(QObject):
 
     def _write_active(self):
         if self._active and self._process is not None:
-            payload = (
-                json.dumps(self._active, ensure_ascii=False).encode("utf-8") + b"\n"
-            )
+            payload = encode_json_line(self._active, ensure_ascii=False)
             self._process.write(payload)
 
     def _read(self):
         if self._process is None:
             return
-        self._buffer += bytes(self._process.readAllStandardOutput())
-        if len(self._buffer) > 1024 * 1024:
+        self._lines.feed(self._process.readAllStandardOutput())
+        if self._lines.overflowed:
             self._abort("Réponse locale invalide. Réessayez.")
             return
-        while b"\n" in self._buffer:
-            line, self._buffer = self._buffer.split(b"\n", 1)
+        while self._lines.has_line():
+            line = self._lines.pop_line()
             try:
                 message = json.loads(line)
                 if not isinstance(message, dict):
@@ -288,7 +287,7 @@ class FoundryService(QObject):
                     process = None
             if process is not None:
                 process.deleteLater()
-        self._buffer = b""
+        self._lines.clear()
         self.state_changed.emit()
 
     def _retire(self, process):
@@ -335,7 +334,7 @@ class FoundryService(QObject):
             self.loaded = False
             self._idle_since = None
             self._idle_timer.stop()
-            self._buffer = b""
+            self._lines.clear()
             self.state_changed.emit()
 
     def _process_error(self, error):
