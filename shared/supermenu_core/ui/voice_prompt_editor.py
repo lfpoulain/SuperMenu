@@ -25,6 +25,7 @@ from .settings_panel import form_layout, scrollable_form
 from .page_actions import PromptActions
 from .confirmations import confirm_action, confirm_unsaved_changes
 from .prompt_restore import restore_library, restore_previous_library
+from .text_prompt_form import INSTRUCTIONS_MAX_HEIGHT
 from .prompt_reasoning import PromptReasoningChoice
 from .prompt_model import PromptModelChoice
 
@@ -105,7 +106,8 @@ class VoicePromptEditor(QWidget):
         self.name_input = QLineEdit()
         form.addRow("Nom", self.name_input)
         self.instruction_input = QTextEdit()
-        self.instruction_input.setMinimumHeight(100)
+        self.instruction_input.setMinimumHeight(90)
+        self.instruction_input.setMaximumHeight(INSTRUCTIONS_MAX_HEIGHT)
         form.addRow("Instructions", self.instruction_input)
         self.model_choice = PromptModelChoice(settings)
         form.addRow("Modèle de texte après transcription", self.model_choice)

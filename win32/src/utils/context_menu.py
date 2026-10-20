@@ -709,7 +709,7 @@ class ContextMenuManager(PromptRequestCoordinator):
 
         if custom_prompt:
             self._prepare_response_window(
-                "Traitement en cours...", custom_prompt, selected_text, target
+                "Traitement en cours…", custom_prompt, selected_text, target
             )
             # Lancer la requête API en arrière-plan
             self._send_request(custom_prompt, selected_text)
@@ -770,7 +770,7 @@ class ContextMenuManager(PromptRequestCoordinator):
                     
                     # Préparer la fenêtre là où la capture a été demandée
                     self._prepare_response_window(
-                        "Traitement de la capture d'écran...",
+                        "Traitement de la capture d’écran…",
                         prompt,
                         content,
                         paste_target,
@@ -931,7 +931,7 @@ class ContextMenuManager(PromptRequestCoordinator):
                     full_prompt = compose_voice_prompt({"prompt": custom_prompt}, text)
                     
                     self._prepare_response_window(
-                        "Traitement du prompt personnalisé...", full_prompt, "", target
+                        "Traitement du prompt personnalisé…", full_prompt, "", target
                     )
 
                     # Lancer la requête API en arrière-plan

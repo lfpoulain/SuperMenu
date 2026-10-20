@@ -97,12 +97,12 @@ La fenêtre comporte quatre onglets :
   - **Raccourcis** : raccourcis globaux, dictée instantanée et mode de capture
     d’écran ;
   - **Application** : thème, canal de mise à jour, interrupteurs **Fonctions**,
-    fenêtre de correction, import et export des prompts, dossiers et
+    fenêtre de réponse, import et export des prompts, dossiers et
     réinitialisation ;
 - **À propos** : version, licence et lien vers les versions publiées.
 
 Les options rarement utiles sont regroupées dans des sections repliables, comme
-**Options avancées**. **Enregistrer** valide les rubriques Texte et Dictée,
+**Plus d’options**. **Enregistrer** valide les rubriques Texte et Dictée,
 **Appliquer** la rubrique Application ; un raccourci global s’applique dès
 qu’il est défini.
 
@@ -119,7 +119,7 @@ termine avec l’ancienne.
 2. Choisissez le **Modèle** : `gpt-5.6-sol` (qualité maximale, par défaut),
    `gpt-5.6-terra` (équilibre entre qualité et coût), `gpt-5.6-luna` (rapide
    et économique) ou `gpt-5.4`.
-3. Dans **Options avancées**, réglez si besoin le **Raisonnement** : `none`,
+3. Dans **Plus d’options**, réglez si besoin le **Raisonnement** : `none`,
    `low`, `medium`, `high`, `xhigh` ou `max` pour GPT-5.6 ; les mêmes niveaux
    sauf `max` pour GPT-5.4.
 
@@ -130,7 +130,7 @@ modèles phares vers Sol, variantes mini vers Terra, variantes nano vers Luna.
 
 1. Saisissez l’**URL de l’endpoint**, par exemple `http://localhost:11434`
    pour Ollama.
-2. Dans **Options avancées**, choisissez le **Type d’endpoint** (**Ollama** ou
+2. Dans **Plus d’options**, choisissez le **Type d’endpoint** (**Ollama** ou
    **LM Studio / Bionic**), un éventuel **Jeton de l’endpoint** et le réglage
    **Raisonnement / think**, adapté aux capacités annoncées par le modèle.
    Choisissez **LM Studio / Bionic** pour LM Studio, Bionic ou tout autre
@@ -315,7 +315,7 @@ d’erreur : **Copier** et **Réessayer** restent disponibles, **Insérer le
 texte** est désactivé.
 
 Pour retrouver la dernière réponse, choisissez **Afficher la dernière
-réponse** dans le menu de l’icône, ou **Ouvrir la fenêtre de correction** dans
+réponse** dans le menu de l’icône, ou **Ouvrir la fenêtre de réponse** dans
 **Réglages > Application > Fenêtre de correction**.
 
 ### Insertion directe
@@ -448,10 +448,10 @@ modifié par le modèle choisi pour un prompt.
 - **Tout restaurer…** remplace la liste de l’onglet (Prompts ou Voix) par les
   prompts d’origine, après confirmation. Les prompts personnels sont retirés ;
   les réglages des moteurs ne changent pas.
-- **Revenir à la copie…** remet la copie précédente de la liste, après
-  confirmation ; le message indique sa date, son origine et le nombre de
-  prompts. La liste remplacée est elle-même gardée en copie. Chaque nouvel
-  usage remonte d’une copie, jusqu’à la plus ancienne des cinq conservées.
+- **Restaurer une sauvegarde…** remet la sauvegarde précédente de la liste,
+  après confirmation ; le message indique sa date, son origine et le nombre de
+  prompts. La liste remplacée est elle-même sauvegardée. Chaque nouvel usage
+  remonte d’une sauvegarde, jusqu’à la plus ancienne des cinq conservées.
 
 SuperMenu garde les cinq dernières copies de chaque liste. Une copie est
 faite avant une restauration, un import ou une réinitialisation de tous les
@@ -512,7 +512,7 @@ Dans **Réglages > Dictée** :
 5. Cliquez sur **Enregistrer**. Tant que la page diffère des réglages
    enregistrés, « Modifications non enregistrées » s’affiche.
 
-**Options avancées** contient le **Calcul local** (**Automatique — CUDA en
+**Plus d’options** contient le **Calcul local** (**Automatique — CUDA en
 priorité** ou **CPU uniquement**), le vocabulaire et le contexte facultatifs
 pour OpenAI et, avec les fonctions avancées, la mémoire du modèle vocal. Les
 mots-clés doivent rester courts et correspondre à des termes susceptibles
@@ -596,8 +596,8 @@ Disponible avec les [fonctions expérimentales](#fonctions-avancées-et-expérim
 4. La réponse s’affiche dans la fenêtre de réponse ; **Réessayer** réutilise
    la même image.
 
-Le mode se règle dans **Réglages > Raccourcis > Capture d’écran**, puis
-**Enregistrer le mode de capture** :
+Le mode se règle dans **Réglages > Raccourcis > Capture d’écran** ; il est
+enregistré dès que vous le choisissez :
 
 - **Plein écran** : l’écran principal ;
 - **Sélection de zone** : sur l’écran où se trouve le curseur, au pixel près,

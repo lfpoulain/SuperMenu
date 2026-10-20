@@ -31,7 +31,7 @@ class SimpleLoadingIndicator(QDialog):
     # read it. A visible indicator now keeps itself alive until it is hidden.
     _visible_indicators = set()
 
-    def __init__(self, message="⏳ Chargement...", parent=None):
+    def __init__(self, message="⏳ Chargement…", parent=None):
         """
         Initialise l'indicateur simple.
 
@@ -105,7 +105,7 @@ class SimpleLoadingIndicator(QDialog):
         self.move(max(area.left(), x), max(area.top(), y))
 
     @staticmethod
-    def show_simple(message="⏳ Chargement...", duration_ms=None):
+    def show_simple(message="⏳ Chargement…", duration_ms=None):
         """
         Affiche un indicateur simple.
 
@@ -136,7 +136,7 @@ class SimpleLoadingIndicator(QDialog):
         return indicator
 
     @staticmethod
-    def show_near_cursor(message="⏳ Chargement...", duration_ms=None):
+    def show_near_cursor(message="⏳ Chargement…", duration_ms=None):
         """Show a small, non-blocking notification close to the active selection."""
         indicator = SimpleLoadingIndicator(message)
         indicator.move_near_cursor()

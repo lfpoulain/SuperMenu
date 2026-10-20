@@ -83,7 +83,7 @@ class PromptDialog(QDialog):
 
         self.prompt_input = QTextEdit()
         self.prompt_input.setPlaceholderText(
-            "Exemple : Résume ce texte en 3 points clés..."
+            "Exemple : Résume ce texte en 3 points clés…"
         )
         self.prompt_input.setMinimumHeight(150)
         layout.addWidget(self.prompt_input)
@@ -154,7 +154,7 @@ class PromptDialog(QDialog):
 
         # Mettre à jour le placeholder du prompt
         self.prompt_input.setPlaceholderText(
-            "Exemple : Décris cette image en détail..."
+            "Exemple : Décris cette image en détail…"
         )
 
         # Mettre à jour le titre de la fenêtre

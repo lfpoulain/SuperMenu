@@ -79,7 +79,7 @@ def test_response_window_masks_thinking_when_no_final_answer():
 
     window.set_response("<think>raisonnement seulement</think>")
 
-    assert "Aucune reponse finale" in window.response_text.toPlainText()
+    assert "Aucune réponse finale" in window.response_text.toPlainText()
     window.toggle_thinking_visibility()
     assert "raisonnement seulement" in window.response_text.toPlainText()
 

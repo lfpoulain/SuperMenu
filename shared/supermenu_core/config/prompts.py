@@ -18,39 +18,22 @@ _DEFAULT_TEXT_PROMPTS = {
     "corriger": {
         "name": "Corriger",
         "prompt": (
-            "Envoi directement le résultat : Corrige l'orthographe, la grammaire "
-            "et la conjugaison de ce texte. Conserve le ton, le style et le "
-            "formatage :"
+            "Corrige l'orthographe, la grammaire et la conjugaison de ce texte. "
+            "Conserve le ton, le style et le formatage. Réponds uniquement avec "
+            "le texte corrigé :"
         ),
-        "status": "En cours de correction...",
+        "status": "En cours de correction…",
         "insert_directly": False,
         "position": 10,
-    },
-    "corrections_montage": {
-        "name": "Corrections Montage",
-        "prompt": (
-            "Envoi directement le résultat : Corrige l'orthographe, la grammaire "
-            "et la conjugaison de ce texte, sans me parler, en tenant compte du "
-            "contexte spécifique : il s'agit de phrases ou de mots qui seront "
-            "affichés en surimpression sur des vidéos YouTube majoritairement en "
-            "rapport avec l'électronique, le DIY, le Bricolage, la domotique et "
-            "l'impression 3D. Parfois, un seul mot peut être employé donc utilise "
-            "le contexte pour le corriger. "
-            "Conserve le ton, le style et le formatage :"
-        ),
-        "status": "En cours de correction pour montage...",
-        "insert_directly": False,
-        "position": 20,
     },
     "reformuler": {
         "name": "Reformuler",
         "prompt": (
-            "Envoi directement le résultat : Reformule le texte ou le paragraphe "
-            "suivant pour assurer la clarté, la concision et un flux naturel. "
-            "La révision doit préserver le ton, le style et le formatage du texte "
-            "original :"
+            "Reformule le texte suivant pour qu'il soit clair, concis et naturel. "
+            "Préserve le ton, le style et le formatage d'origine. Réponds "
+            "uniquement avec le texte reformulé :"
         ),
-        "status": "En cours de reformulation...",
+        "status": "En cours de reformulation…",
         "insert_directly": False,
         "position": 30,
     },
@@ -60,28 +43,25 @@ _DEFAULT_TEXT_PROMPTS = {
             "Résume ce qui suit tout en conservant l'intégralité des "
             "informations importantes et pertinentes :"
         ),
-        "status": "En cours de résumé...",
+        "status": "En cours de résumé…",
         "insert_directly": False,
         "position": 40,
     },
     "expliquer": {
         "name": "Expliquer",
         "prompt": "Explique ce qui suit :",
-        "status": "En cours d'explication...",
+        "status": "En cours d'explication…",
         "insert_directly": False,
         "position": 50,
     },
     "extraire_passages_importants": {
-        "name": "Extraire Passages Importants",
+        "name": "Extraire les passages importants",
         "prompt": (
-            "Voici un texte issu d'une vidéo YouTube en cours de montage en "
-            "rapport avec l'électronique, le DIY, le Bricolage, la domotique ou "
-            "l'impression 3D. Extrait de ce texte une liste chronologiquement "
-            "logique des passages importants à inclure dans le montage de la "
-            "vidéo. Pour chaque passage, explique en une phrase pourquoi il est "
-            "pertinent. Voici le texte de la vidéo :"
+            "Extrais de ce texte les passages les plus importants, dans l'ordre "
+            "où ils apparaissent. Pour chaque passage, explique en une phrase "
+            "pourquoi il compte :"
         ),
-        "status": "Extraction des passages importants en cours...",
+        "status": "Extraction des passages importants en cours…",
         "insert_directly": False,
         "position": 60,
     },
@@ -95,7 +75,7 @@ _DEFAULT_TEXT_PROMPTS = {
             "a pas de longueur minimale ou maximale définie. Voici ce que j'essaie "
             "de dire :"
         ),
-        "status": "En cours de développement...",
+        "status": "En cours de développement…",
         "insert_directly": False,
         "position": 70,
     },
@@ -109,14 +89,14 @@ _DEFAULT_TEXT_PROMPTS = {
             "n'importe quelle longueur, à condition qu'elles communiquent "
             "efficacement la réponse à l'expéditeur initial :"
         ),
-        "status": "En cours de génération de réponse...",
+        "status": "En cours de génération de réponse…",
         "insert_directly": False,
         "position": 80,
     },
     "trouver_actions": {
         "name": "Trouver les actions à faire",
         "prompt": "Trouve les actions à faire et présente-les dans une liste :",
-        "status": "En cours de recherche des actions à faire...",
+        "status": "En cours de recherche des actions à faire…",
         "insert_directly": False,
         "position": 90,
     },
@@ -128,7 +108,7 @@ _DEFAULT_TEXT_PROMPTS = {
             "La traduction doit préserver le ton, le style et le formatage du "
             "texte original :"
         ),
-        "status": "En cours de traduction en anglais...",
+        "status": "En cours de traduction en anglais…",
         "insert_directly": False,
         "position": 100,
     },
@@ -140,7 +120,7 @@ _DEFAULT_TEXT_PROMPTS = {
             "voulue. La traduction doit préserver le ton, le style et le "
             "formatage du texte original :"
         ),
-        "status": "En cours de traduction en français...",
+        "status": "En cours de traduction en français…",
         "insert_directly": False,
         "position": 110,
     },
@@ -153,7 +133,7 @@ _DEFAULT_VOICE_PROMPTS = {
             "Analyse et décris en détail ce qui suit, en fournissant un contexte "
             "pertinent et des explications claires :"
         ),
-        "status": "Analyse de la réponse vocale en cours...",
+        "status": "Analyse de la réponse vocale en cours…",
         "insert_directly": True,
         "position": 10,
         "include_selected_text": False,
@@ -165,7 +145,7 @@ _DEFAULT_VOICE_PROMPTS = {
             "Résume ce qui suit tout en conservant l'intégralité des "
             "informations importantes et pertinentes :"
         ),
-        "status": "Résumé de la réponse vocale en cours...",
+        "status": "Résumé de la réponse vocale en cours…",
         "insert_directly": True,
         "position": 20,
         "include_selected_text": False,
@@ -177,7 +157,7 @@ _DEFAULT_VOICE_PROMPTS = {
             "Génère une traduction en anglais du texte suivant, en veillant à ce "
             "que la traduction transmette avec précision le sens ou l'idée voulue :"
         ),
-        "status": "Traduction en anglais en cours...",
+        "status": "Traduction en anglais en cours…",
         "insert_directly": True,
         "position": 30,
         "include_selected_text": False,

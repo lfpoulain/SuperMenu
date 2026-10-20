@@ -76,8 +76,9 @@ features.
   English or French…
 - **Your own prompts**: create, edit, reorder, import and export them.
   **Tout restaurer…** (Restore all) brings back the original prompts and
-  **Revenir à la copie…** (Go back to a copy) restores an earlier version of
-  your library; each further use goes back one more copy, among the five kept.
+  **Restaurer une sauvegarde…** (Restore a backup) restores an earlier version
+  of your library; each further use goes back one more backup, among the five
+  kept.
 - **Custom mode** (`Ctrl+Alt+M` / `Cmd+Shift+M`) to type a free-form
   instruction, with or without selected text.
 - **Answer window**: **Copier**, **Insérer le texte**, **Réessayer** and

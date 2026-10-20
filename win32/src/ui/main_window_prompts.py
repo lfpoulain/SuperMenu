@@ -267,7 +267,7 @@ class PromptPageMixin:
             prompt_id,
             prompt_name,
             "",
-            "Traitement en cours...",
+            "Traitement en cours…",
             False,
             999,
             hotkey="",

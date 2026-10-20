@@ -74,8 +74,8 @@ qu’avec les fonctions expérimentales.
   les actions à faire, traduire en anglais ou en français…
 - **Vos propres prompts** : création, modification, réordonnancement, import
   et export. **Tout restaurer…** revient aux prompts d’origine et
-  **Revenir à la copie…** rétablit une version précédente de votre
-  bibliothèque ; chaque nouvel usage remonte d’une copie, parmi les cinq
+  **Restaurer une sauvegarde…** rétablit une version précédente de votre
+  bibliothèque ; chaque nouvel usage remonte d’une sauvegarde, parmi les cinq
   conservées.
 - **Mode personnalisé** (`Ctrl+Alt+M` / `Cmd+Shift+M`) pour écrire une
   instruction libre, avec ou sans texte sélectionné.

@@ -37,6 +37,9 @@ def reset_text_prompt(settings, prompt_id, parent, refreshed):
                           "Rétablir les instructions et options d’origine ?", restore)
 
 
+INSTRUCTIONS_MAX_HEIGHT = 140
+
+
 class TextPromptForm(QGroupBox):
     record_requested = Signal()
     clear_requested = Signal()
@@ -51,7 +54,10 @@ class TextPromptForm(QGroupBox):
         form.addRow("Nom", self.name)
         # Plain text only, even when an adapter loads it with setText().
         self.instruction = PlainTextEdit()
-        self.instruction.setMinimumHeight(100)
+        # About six lines: the options below stay visible without scrolling
+        # the form; a longer instruction scrolls inside the editor.
+        self.instruction.setMinimumHeight(90)
+        self.instruction.setMaximumHeight(INSTRUCTIONS_MAX_HEIGHT)
         self.instruction.setPlaceholderText("Ex. : Corrige l’orthographe et la grammaire du texte suivant.")
         form.addRow("Instructions", self.instruction)
         self.model_choice = PromptModelChoice(settings)

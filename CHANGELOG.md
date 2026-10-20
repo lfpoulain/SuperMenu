@@ -10,6 +10,15 @@ numéro, indiqué à côté. Les bêtas roulantes ne sont pas détaillées une p
 
 ## [Non publié]
 
+### Changements
+
+- Premier lancement : SuperMenu ouvre **Réglages > Texte** pour choisir le moteur IA et, sous Windows, indique le raccourci du menu.
+- Fenêtre de réponse : titres clairs (« Réponse en cours… », « Votre réponse », « La requête a échoué ») ; une clé API manquante ou refusée propose **Ouvrir les réglages**.
+- Prompts par défaut des nouvelles installations : retrait de « Corrections Montage », « Extraire les passages importants » rendu générique, consignes « Corriger » et « Reformuler » reformulées. Les bibliothèques existantes ne changent pas.
+- Libellés harmonisés : **Plus d’options** (au lieu d’« Options avancées »), **Restaurer une sauvegarde…**, **Fenêtre de réponse**, ponctuation et points de suspension.
+- Windows : le mode de capture d’écran est enregistré dès qu’il est choisi.
+- Éditeurs de prompts : zone **Instructions** plus compacte, pour garder les options visibles.
+
 ## [1.3.0] - 2026-10-19
 
 macOS : 1.3.0.

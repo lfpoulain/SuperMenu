@@ -273,7 +273,7 @@ def test_restore_then_import_two_steps_back_bring_personal_prompts_back(tmp_path
     for _ in range(3):
         restore_prompt_backup(settings)
         seen.append(sorted(settings.get_prompts())[0])
-    assert seen == ["autre", "corrections_montage", "perso"]
+    assert seen == ["autre", "corriger", "perso"]
     assert len(json.loads(settings.settings.value("prompts_backups"))) == 3
 
 

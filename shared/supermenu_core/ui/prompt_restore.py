@@ -67,16 +67,16 @@ def restore_previous_library(parent, settings, refreshed, *, voice=False):
         return _notify(
             parent,
             QMessageBox.Icon.Information,
-            "Aucune copie disponible",
-            f"Aucune copie précédente de la liste des prompts {label} n’est conservée.",
+            "Aucune sauvegarde disponible",
+            f"Aucune sauvegarde de la liste des prompts {label} n’est conservée.",
         )
     index = next_prompt_backup(settings, voice=voice)
     if index is None:
         return _notify(
             parent,
             QMessageBox.Icon.Information,
-            "Aucune copie disponible",
-            f"Les copies conservées de la liste des prompts {label} sont identiques "
+            "Aucune sauvegarde disponible",
+            f"Les sauvegardes de la liste des prompts {label} sont identiques "
             "à la liste actuelle ou illisibles.",
         )
     latest = backups[index]
@@ -93,9 +93,9 @@ def restore_previous_library(parent, settings, refreshed, *, voice=False):
 
     return confirm_action(
         parent,
-        "Revenir à la liste précédente",
-        f"Remplacer les prompts {label} par la copie du {_format_date(latest['saved_at'])} "
+        "Restaurer une sauvegarde",
+        f"Remplacer les prompts {label} par la sauvegarde du {_format_date(latest['saved_at'])} "
         f"({latest['reason']}, {content}) ? "
-        "La liste actuelle sera conservée en copie.",
+        "La liste actuelle sera elle aussi sauvegardée.",
         restore,
     )

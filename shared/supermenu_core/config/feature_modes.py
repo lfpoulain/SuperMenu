@@ -51,6 +51,8 @@ class FeatureModesSettingsMixin:
 
     def initialize_feature_modes(self, existing_install):
         """Écrit les interrupteurs absents, sans jamais remplacer un choix."""
+        # Read by the startup sequence to welcome a brand-new installation.
+        self.first_launch = not bool(existing_install)
         enabled = bool(existing_install) or bool(NEW_INSTALL_ENABLED)
         written = False
         for key in (ADVANCED_FEATURES_SETTING, EXPERIMENTAL_FEATURES_SETTING):

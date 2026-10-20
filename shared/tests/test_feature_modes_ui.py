@@ -504,7 +504,7 @@ def test_hidden_retention_keeps_the_stored_delay_and_applies_the_default(
     widget.set_retention_visible(False)
     assert not widget.is_retention_visible()
     assert widget.memory_options.isHidden()
-    # The device choice keeps "Options avancées" useful for the local engine.
+    # The device choice keeps "Plus d’options" useful for the local engine.
     assert not widget.advanced.isHidden()
     assert not widget.has_unsaved_changes()
     assert widget.save()

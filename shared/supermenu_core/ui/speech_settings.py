@@ -380,7 +380,7 @@ class SpeechSettingsWidget(QGroupBox):
         provider = self.provider_combo.currentData()
         memory = provider != "openai" and self._retention_visible
         self.memory_options.setVisible(memory)
-        # No empty "Options avancées" (Apple Speech without retention).
+        # No empty "Plus d’options" (Apple Speech without retention).
         self.advanced.setVisible(provider in {"openai", "foundry"} or memory)
 
     def _busy(self, active):

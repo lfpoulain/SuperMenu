@@ -99,6 +99,9 @@ class SuperMenu(QObject):
             # A saved shortcut refused by validation would stay silently
             # inactive behind a hidden window; the status line names it.
             self.main_window.show_permission_setup()
+        elif getattr(getattr(self, "settings", None), "first_launch", False):
+            # A brand-new installation starts where the AI engine is chosen.
+            self.main_window.show_settings_page("text")
         else:
             self.main_window.hide()
         self.main_window.schedule_startup_update_check()

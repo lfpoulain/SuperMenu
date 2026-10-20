@@ -205,7 +205,7 @@ def test_previous_copy_button_sits_after_restore_all(app):
         actions.restore_button,
         actions.previous_button,
     ]
-    assert actions.previous_button.text() == "Revenir à la copie…"
+    assert actions.previous_button.text() == "Restaurer une sauvegarde…"
     assert "dernière restauration" in actions.previous_button.toolTip()
 
     actions.previous_button.click()

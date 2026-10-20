@@ -384,3 +384,17 @@ def test_startup_opens_the_configuration_when_a_shortcut_is_refused(
     SuperMenu._finish_startup(SimpleNamespace(main_window=window))
 
     assert window.calls == expected
+
+
+def test_a_brand_new_installation_opens_the_engine_settings(monkeypatch):
+    monkeypatch.setattr(main_module, "accessibility_is_trusted", lambda: True)
+    window = _StartupWindow([])
+    opened = []
+    window.show_settings_page = opened.append
+
+    SuperMenu._finish_startup(
+        SimpleNamespace(main_window=window, settings=SimpleNamespace(first_launch=True))
+    )
+
+    assert opened == ["text"]
+    assert "hide" not in window.calls

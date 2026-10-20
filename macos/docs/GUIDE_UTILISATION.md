@@ -124,7 +124,7 @@ La fenêtre comporte quatre onglets :
 - **À propos** : version, licence et lien vers les versions publiées.
 
 Les options rarement utiles sont regroupées dans des sections repliables, comme
-**Options avancées**. **Enregistrer** valide les rubriques Texte et Dictée,
+**Plus d’options**. **Enregistrer** valide les rubriques Texte et Dictée,
 **Appliquer** la rubrique Application ; un raccourci global s’applique dès
 qu’il est défini.
 
@@ -140,14 +140,14 @@ termine avec l’ancienne.
 1. Collez votre **Clé API**.
 2. Choisissez le **Modèle** : `gpt-5.6-sol` (par défaut), `gpt-5.6-terra`,
    `gpt-5.6-luna` ou `gpt-5.4`.
-3. Dans **Options avancées**, réglez si besoin le **Raisonnement** proposé
+3. Dans **Plus d’options**, réglez si besoin le **Raisonnement** proposé
    pour ce modèle.
 
 ### Ollama / LM Studio
 
 1. Saisissez l’URL de l’endpoint, par exemple `http://localhost:11434` pour
    Ollama.
-2. Dans **Options avancées**, choisissez le type d’endpoint (**Ollama** ou
+2. Dans **Plus d’options**, choisissez le type d’endpoint (**Ollama** ou
    **LM Studio / Bionic**), un éventuel jeton et le réglage **Raisonnement /
    think**, adapté aux capacités du modèle. Choisissez **LM Studio / Bionic**
    pour LM Studio, Bionic ou tout autre serveur compatible OpenAI, et
@@ -414,10 +414,10 @@ LM Studio.
   d’origine, y compris ceux supprimés. La confirmation indique que les prompts
   personnels et leurs raccourcis seront retirés ; les modèles et autres
   réglages ne changent pas.
-- **Revenir à la copie…** remet la copie précédente de la liste, après
-  confirmation ; le message indique sa date, son origine et le nombre de
-  prompts. La liste remplacée est elle-même gardée en copie. Chaque nouvel
-  usage remonte d’une copie, jusqu’à la plus ancienne des cinq conservées.
+- **Restaurer une sauvegarde…** remet la sauvegarde précédente de la liste,
+  après confirmation ; le message indique sa date, son origine et le nombre de
+  prompts. La liste remplacée est elle-même sauvegardée. Chaque nouvel usage
+  remonte d’une sauvegarde, jusqu’à la plus ancienne des cinq conservées.
 
 SuperMenu garde les cinq dernières copies de chaque liste, faites avant une
 restauration, avant un import ou lorsqu’une configuration partiellement

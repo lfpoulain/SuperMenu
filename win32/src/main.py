@@ -263,7 +263,7 @@ class SuperMenu:
         if not self.main_window.tray_icon:
             if self.main_window.setup_tray_icon():
                 # Démarrer réduit dans la zone de notification
-                self.main_window.hide()
+                self._show_hidden_or_welcome()
                 self.main_window.schedule_startup_update_check()
                 self._report_hotkey_failures()
                 return
@@ -279,9 +279,30 @@ class SuperMenu:
             return
 
         # Démarrer réduit dans la zone de notification
-        self.main_window.hide()
+        self._show_hidden_or_welcome()
         self.main_window.schedule_startup_update_check()
         self._report_hotkey_failures()
+
+    def _show_hidden_or_welcome(self):
+        """Start hidden, except on a brand-new installation.
+
+        A first launch shows where to choose the AI engine and says how to
+        open the menu, instead of disappearing into the notification area.
+        """
+        if not getattr(getattr(self, "settings", None), "first_launch", False):
+            self.main_window.hide()
+            return
+        self.main_window.show_settings_page("text")
+        tray_icon = getattr(self.main_window, "tray_icon", None)
+        if tray_icon is not None:
+            hotkey = self.settings.get_hotkey()
+            tray_icon.showMessage(
+                "SuperMenu est prêt",
+                f"Sélectionnez du texte puis appuyez sur {hotkey}. "
+                "Choisissez d’abord votre moteur IA dans les réglages.",
+                QSystemTrayIcon.Information,
+                10000,
+            )
 
     def _report_hotkey_failures(self):
         """Signaler au démarrage les raccourcis que Windows a refusés.

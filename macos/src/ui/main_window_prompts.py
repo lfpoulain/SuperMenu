@@ -116,6 +116,8 @@ class PromptPageMixin:
         selected_item = None
         for prompt_id, prompt in self._ordered_prompts():
             item = QListWidgetItem(prompt.get("name") or prompt_id)
+            # Long names are elided in the sidebar: the tooltip shows them whole.
+            item.setToolTip(item.text())
             item.setData(Qt.ItemDataRole.UserRole, prompt_id)
             self.prompt_list.addItem(item)
             if prompt_id == current:

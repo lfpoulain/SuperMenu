@@ -1,3 +1,6 @@
 ## Nouveautés de cette bêta
 
-- Première bêta de la future version 1.3.1 : elle reprend SuperMenu 1.3.0, sans nouveauté pour l’instant.
+- Premier lancement guidé : SuperMenu ouvre les réglages du moteur IA et rappelle le raccourci du menu.
+- Fenêtre de réponse plus claire ; une clé API manquante ou refusée propose **Ouvrir les réglages**.
+- Prompts par défaut des nouvelles installations revus ; vos prompts actuels ne changent pas.
+- Libellés et ponctuation harmonisés, mode de capture d’écran enregistré dès qu’il est choisi, éditeurs de prompts plus compacts.

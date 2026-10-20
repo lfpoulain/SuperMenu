@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import Qt, Signal
 from supermenu_core.utils.validators import Validators
 from src.ui.background_worker import _BackgroundWorker
 from supermenu_core.api.model_capabilities import (
@@ -95,12 +95,12 @@ class SettingsPageMixin:
         self.openai_group = QGroupBox("OpenAI")
         openai_layout = QVBoxLayout(self.openai_group)
 
-        api_key_label = QLabel("Clé API:")
+        api_key_label = QLabel("Clé API")
         self.api_key_input = QLineEdit()
         self.api_key_input.setEchoMode(QLineEdit.Password)
         self.api_key_input.setText(self.settings.get_api_key())
 
-        model_label = QLabel("Modèle:")
+        model_label = QLabel("Modèle")
         self.model_combo = ChoiceBox()
         self.model_combo.addItems(AVAILABLE_MODELS)
         self.model_combo.setCurrentText(self.settings.get_model())
@@ -141,7 +141,7 @@ class SettingsPageMixin:
             "Jeton distinct de la clé OpenAI"
         )
 
-        custom_endpoint_type_label = QLabel("Type d'endpoint :")
+        custom_endpoint_type_label = QLabel("Type d’endpoint")
         self.custom_endpoint_type_combo = ChoiceBox()
         self.custom_endpoint_type_combo.addItem("Ollama", "ollama")
         self.custom_endpoint_type_combo.addItem("LM Studio / Bionic", "lmstudio")
@@ -151,7 +151,7 @@ class SettingsPageMixin:
                 self.custom_endpoint_type_combo.setCurrentIndex(i)
                 break
 
-        custom_model_label = QLabel("Modèle:")
+        custom_model_label = QLabel("Modèle")
         custom_model_layout = QHBoxLayout()
         self.custom_model_combo = ChoiceBox()
         configure_model_combo(self.custom_model_combo)
@@ -234,13 +234,13 @@ class SettingsPageMixin:
         # Buttons
         buttons_layout = QHBoxLayout()
         
-        export_button = QPushButton("Exporter tous les Prompts")
+        export_button = QPushButton("Exporter tous les prompts")
         # Icône retirée
         export_button.clicked.connect(self.export_all_prompts)
         export_button.setMinimumHeight(30)
         buttons_layout.addWidget(export_button)
         
-        import_button = QPushButton("Importer tous les Prompts")
+        import_button = QPushButton("Importer tous les prompts")
         # Icône retirée
         import_button.clicked.connect(self.import_all_prompts)
         import_button.setMinimumHeight(30)
@@ -282,7 +282,7 @@ class SettingsPageMixin:
         screenshot_group = QGroupBox("Capture d'écran")
         self.screenshot_group = screenshot_group
         screenshot_layout = QVBoxLayout(screenshot_group)
-        screenshot_capture_mode_label = QLabel("Mode de capture d'écran :")
+        screenshot_capture_mode_label = QLabel("Mode de capture d’écran")
         screenshot_layout.addWidget(screenshot_capture_mode_label)
 
         self.screenshot_capture_mode_combo = ChoiceBox()
@@ -298,16 +298,13 @@ class SettingsPageMixin:
 
         self.screenshot_capture_mode_combo.currentIndexChanged.connect(self.on_screenshot_capture_mode_changed)
         screenshot_layout.addWidget(self.screenshot_capture_mode_combo)
-
-        self.save_screenshot_capture_mode_button = QPushButton("Enregistrer le mode de capture")
-        self.save_screenshot_capture_mode_button.setProperty("variant", "primary")
-        self.save_screenshot_capture_mode_button.clicked.connect(self.save_screenshot_capture_mode)
-        screenshot_layout.addWidget(self.save_screenshot_capture_mode_button)
-
-        self._update_screenshot_capture_mode_ui_state()
+        screenshot_capture_mode_info = QLabel("Le mode choisi est enregistré automatiquement.")
+        screenshot_capture_mode_info.setObjectName("mutedText")
+        screenshot_capture_mode_info.setWordWrap(True)
+        screenshot_layout.addWidget(screenshot_capture_mode_info)
 
         # Response window
-        response_window_group = QGroupBox("Fenêtre de correction")
+        response_window_group = QGroupBox("Fenêtre de réponse")
         response_window_layout = QVBoxLayout(response_window_group)
 
         response_window_info = QLabel(
@@ -316,7 +313,7 @@ class SettingsPageMixin:
         response_window_info.setWordWrap(True)
         response_window_layout.addWidget(response_window_info)
 
-        self.open_response_window_button = QPushButton("Ouvrir la fenêtre de correction")
+        self.open_response_window_button = QPushButton("Ouvrir la fenêtre de réponse")
         self.open_response_window_button.clicked.connect(self.open_response_window)
         self.open_response_window_button.setEnabled(self.context_menu_manager is not None)
         response_window_layout.addWidget(self.open_response_window_button)
@@ -356,32 +353,13 @@ class SettingsPageMixin:
         self.tab_widget.addTab(self.settings_panel, "Réglages")
 
     def on_screenshot_capture_mode_changed(self, *args):
-        self._update_screenshot_capture_mode_ui_state()
-
-    def _update_screenshot_capture_mode_ui_state(self):
-        try:
-            selected_index = self.screenshot_capture_mode_combo.currentIndex()
-            current_ui_value = self.screenshot_capture_mode_combo.itemData(selected_index)
-            saved_value = self.settings.get_screenshot_capture_mode()
-
-            is_saved = current_ui_value == saved_value
-            self.save_screenshot_capture_mode_button.setEnabled(not is_saved)
-        except Exception:
-            pass
+        self.save_screenshot_capture_mode()
 
     def save_screenshot_capture_mode(self):
-        try:
-            selected_index = self.screenshot_capture_mode_combo.currentIndex()
-            mode = self.screenshot_capture_mode_combo.itemData(selected_index)
+        """Save the capture mode as soon as it is chosen, like the update channel."""
+        mode = self.screenshot_capture_mode_combo.currentData()
+        if mode and mode != self.settings.get_screenshot_capture_mode():
             self.settings.set_screenshot_capture_mode(mode)
-        except Exception:
-            pass
-
-        default_text = "💾 Enregistrer le mode de capture"
-        self.save_screenshot_capture_mode_button.setText("✅ Enregistré")
-        QTimer.singleShot(900, lambda: self.save_screenshot_capture_mode_button.setText(default_text))
-
-        self._update_screenshot_capture_mode_ui_state()
 
     def toggle_custom_endpoint(self):
         """Afficher les réglages du fournisseur sélectionné."""
@@ -446,7 +424,7 @@ class SettingsPageMixin:
             from PySide6.QtWidgets import QProgressDialog
 
             self._custom_models_progress = QProgressDialog(
-                "Récupération des modèles disponibles...", "Annuler", 0, 0, self
+                "Récupération des modèles disponibles…", "Annuler", 0, 0, self
             )
             self._custom_models_progress.setWindowModality(Qt.WindowModal)
             self._custom_models_progress.setMinimumDuration(0)

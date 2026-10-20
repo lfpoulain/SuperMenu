@@ -94,6 +94,11 @@ class MainWindow(SettingsPageMixin, PromptPageMixin, HotkeyActionsMixin, UpdateA
         self._applied_feature_modes = self._feature_modes()
         self._apply_feature_visibility()
 
+        # "Ouvrir les réglages" after a missing or refused API key.
+        response_window = getattr(self.context_menu_manager, "response_window", None)
+        if response_window is not None and hasattr(response_window, "settings_requested"):
+            response_window.settings_requested.connect(lambda: self.show_settings_page("text"))
+
         # Polled while the configuration window is on screen. SuperMenu lives
         # in the menu bar and is hidden most of the time; a permanent 1.5 s
         # wake-up costs battery for a panel nobody is looking at. The only
@@ -452,10 +457,14 @@ class MainWindow(SettingsPageMixin, PromptPageMixin, HotkeyActionsMixin, UpdateA
         log("Ouverture manuelle du menu des prompts")
         self.context_menu_manager.show_menu(from_ui=True)
 
-    def show_permission_setup(self):
+    def show_settings_page(self, key):
+        """Show the main window on one settings page ("text", "app"…)."""
         self.tabs.setCurrentWidget(self.settings_tab)
-        self.settings_panel.select_page("app")
+        self.settings_panel.select_page(key)
         self.show_main_window()
+
+    def show_permission_setup(self):
+        self.show_settings_page("app")
 
     def quit_application(self):
         self._quitting = True

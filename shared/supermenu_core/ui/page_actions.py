@@ -41,7 +41,7 @@ class PromptActions(PageActions):
         self.row.removeWidget(self.restore_button)
         self.row.insertWidget(1, self.restore_button)
         self.previous_button = self.add_action(
-            "Revenir à la copie…", self.restore_previous_requested.emit
+            "Restaurer une sauvegarde…", self.restore_previous_requested.emit
         )
         self.previous_button.setToolTip(
             "Remettre la liste conservée avant la dernière restauration ou le dernier import"

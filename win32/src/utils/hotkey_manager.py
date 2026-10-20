@@ -318,7 +318,7 @@ class HotkeyRecorderDialog(QDialog):
         self.layout.addWidget(self.label)
         
         # Affichage du raccourci actuel
-        self.current_hotkey_label = QLabel("⏳ Appuyez sur une combinaison de touches...")
+        self.current_hotkey_label = QLabel("⏳ Appuyez sur une combinaison de touches…")
         self.current_hotkey_label.setObjectName("hotkeyDisplay")
         self.current_hotkey_label.setObjectName("shortcutDisplay")
         self.current_hotkey_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -372,7 +372,7 @@ class HotkeyRecorderDialog(QDialog):
             key = event.key()
             if key in (Qt.Key.Key_Control, Qt.Key.Key_Shift, Qt.Key.Key_Alt, Qt.Key.Key_Meta):
                 if parts:
-                    self.current_hotkey_label.setText("+".join(parts) + "+...")
+                    self.current_hotkey_label.setText("+".join(parts) + "+…")
                 return
  
             if not parts:

@@ -38,7 +38,7 @@ def scrollable_form(form):
 
 
 class Disclosure(QWidget):
-    def __init__(self, title="Options avancées", parent=None):
+    def __init__(self, title="Plus d’options", parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

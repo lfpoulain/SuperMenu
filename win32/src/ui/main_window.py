@@ -296,6 +296,11 @@ class MainWindow(HotkeyActionsMixin, PromptPageMixin, SettingsPageMixin, QMainWi
         self._applied_feature_modes = self._current_feature_modes()
         self._apply_feature_visibility()
 
+        # "Ouvrir les réglages" after a missing or refused API key.
+        response_window = getattr(self.context_menu_manager, "response_window", None)
+        if response_window is not None and hasattr(response_window, "settings_requested"):
+            response_window.settings_requested.connect(lambda: self.show_settings_page("text"))
+
     def create_about_tab(self):
         from supermenu_core.ui.about_page import AboutPage
         from supermenu_core.ui.settings_panel import Disclosure
@@ -348,7 +353,7 @@ class MainWindow(HotkeyActionsMixin, PromptPageMixin, SettingsPageMixin, QMainWi
 
         self._update_check_silent = bool(silent)
         if not self._update_check_silent:
-            self._update_loading = SimpleLoadingIndicator("Vérification des mises à jour...")
+            self._update_loading = SimpleLoadingIndicator("Vérification des mises à jour…")
             self._update_loading.show()
 
         self._update_check_worker = _UpdateCheckWorker(
@@ -457,7 +462,7 @@ class MainWindow(HotkeyActionsMixin, PromptPageMixin, SettingsPageMixin, QMainWi
 
         # Checked again right before the launch (see _launch_installer_and_quit).
         self._update_expected_sha256 = expected_sha256
-        self._update_loading = SimpleLoadingIndicator("Téléchargement de l'installateur...")
+        self._update_loading = SimpleLoadingIndicator("Téléchargement de l’installateur…")
         self._update_loading.show()
 
         self._update_download_worker = _UpdateDownloadWorker(url, file_name, expected_sha256)
@@ -703,7 +708,6 @@ class MainWindow(HotkeyActionsMixin, PromptPageMixin, SettingsPageMixin, QMainWi
                 if self.screenshot_capture_mode_combo.itemData(i) == screenshot_mode:
                     self.screenshot_capture_mode_combo.setCurrentIndex(i)
                     break
-            self._update_screenshot_capture_mode_ui_state()
             self._refresh_update_channel_ui()
 
             self.dictation_shortcut_settings.shortcut.setText(self.settings.get_dictation_hotkey())
@@ -804,6 +808,12 @@ class MainWindow(HotkeyActionsMixin, PromptPageMixin, SettingsPageMixin, QMainWi
         """Handle tray icon activation"""
         if reason == QSystemTrayIcon.DoubleClick:
             self.show_main_window()
+
+    def show_settings_page(self, key):
+        """Show the main window on one settings page ("text", "app"…)."""
+        self.tab_widget.setCurrentWidget(self.settings_panel)
+        self.settings_panel.select_page(key)
+        self.show_main_window()
 
     def show_main_window(self):
         """Show and focus the main window (used at startup and tray activation)."""

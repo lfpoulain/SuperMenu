@@ -22,12 +22,33 @@ from supermenu_core.utils.thinking import mask_thinking
 
 logger = logging.getLogger("SuperMenu.core.ui")
 
+LOADING_TITLE = "⏳ Réponse en cours…"
+RESPONSE_TITLE = "💬 Votre réponse"
+ERROR_TITLE = "⚠️ La requête a échoué"
+NO_FINAL_ANSWER = "(Aucune réponse finale : le modèle n’a renvoyé que son raisonnement.)"
+
+# Errors the user fixes in the settings rather than by retrying.
+_SETTINGS_ERROR_PREFIXES = (
+    "Clé API non configurée",
+    "Configuration personnalisée incomplète",
+    "Erreur 401",
+    "Erreur 403",
+)
+_REJECTED_KEY_PREFIXES = ("Erreur 401", "Erreur 403")
+
+
+def error_needs_settings(message):
+    """True when a failed request is fixed in the settings (key, endpoint)."""
+    return str(message or "").lstrip().startswith(_SETTINGS_ERROR_PREFIXES)
+
 
 class BaseResponseWindow(QWidget):
     """Window to display API responses"""
 
     # Signal émis quand l'utilisateur clique sur Réessayer
     retry_requested = Signal()
+    # Emitted by "Ouvrir les réglages" after a key or configuration error.
+    settings_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -101,7 +122,7 @@ class BaseResponseWindow(QWidget):
         header_layout.setContentsMargins(0, 0, 0, 10)
 
         # Title
-        self.title_label = QLabel("💬 Votre réponse")
+        self.title_label = QLabel(RESPONSE_TITLE)
         self.title_label.setObjectName("pageTitle")
         self.title_label.setWordWrap(False)
         header_layout.addWidget(self.title_label)
@@ -132,6 +153,12 @@ class BaseResponseWindow(QWidget):
         self.think_toggle_button.setVisible(False)
         button_layout.addWidget(self.think_toggle_button)
 
+        # Shown only after an error the settings can fix (missing or refused key).
+        self.settings_button = QPushButton("Ouvrir les réglages")
+        self.settings_button.clicked.connect(self._open_settings)
+        self.settings_button.setVisible(False)
+        button_layout.addWidget(self.settings_button)
+
         # Write button
         button_layout.addStretch()
         self.write_button = QPushButton("Insérer le texte")
@@ -154,8 +181,9 @@ class BaseResponseWindow(QWidget):
         self.copy_button.setEnabled(False)
         self.write_button.setEnabled(False)
         # The status is the user's own prompt message: keep it plain text.
+        self.settings_button.setVisible(False)
         self.response_text.setPlainText(status)
-        self.title_label.setText("⏳ SuperMenu - Chargement…")
+        self.title_label.setText(LOADING_TITLE)
         self.status_label.setText(status)
 
     def set_response(self, response):
@@ -164,6 +192,7 @@ class BaseResponseWindow(QWidget):
         self.think_visible = False
         self.has_error = False
 
+        self.settings_button.setVisible(False)
         masked_response, has_thinking = self._mask_thinking(response)
         self.masked_response = masked_response
         self.final_response = masked_response if has_thinking else response
@@ -173,7 +202,7 @@ class BaseResponseWindow(QWidget):
             display_text = (
                 masked_response
                 if masked_response
-                else "(Aucune reponse finale; seul le raisonnement a ete renvoye.)"
+                else NO_FINAL_ANSWER
             )
             self.think_toggle_button.setVisible(True)
             self.think_toggle_button.setEnabled(True)
@@ -185,7 +214,7 @@ class BaseResponseWindow(QWidget):
         # setPlainText alone: setText auto-detects rich text, so a model answer
         # containing angle brackets was parsed as HTML before being discarded.
         self.response_text.setPlainText(display_text)
-        self.title_label.setText("💬 Votre réponse")
+        self.title_label.setText(RESPONSE_TITLE)
         self.status_label.setText("✅ Terminé")
         self._set_status("success")
         self.retry_button.setEnabled(True)
@@ -202,13 +231,20 @@ class BaseResponseWindow(QWidget):
         self.has_error = True
         self.think_toggle_button.setVisible(False)
         self.think_toggle_button.setEnabled(False)
-        self.response_text.setPlainText(text)
-        self.title_label.setText("⚠️ SuperMenu - Erreur")
+        displayed = text
+        if text.lstrip().startswith(_REJECTED_KEY_PREFIXES):
+            displayed = (
+                "Le fournisseur a refusé la clé API. Vérifiez-la dans les "
+                f"réglages.\n\nDétail : {text}"
+            )
+        self.response_text.setPlainText(displayed)
+        self.title_label.setText(ERROR_TITLE)
         self.status_label.setText("❌ Échec de la requête")
         self._set_status("error")
         self.retry_button.setEnabled(True)
         self.copy_button.setEnabled(bool(text))
         self.write_button.setEnabled(False)
+        self.settings_button.setVisible(error_needs_settings(text))
 
     def set_standalone_response(self, response, title="SuperMenu - Résultat"):
         """Display reusable plain text that did not come from an AI request."""
@@ -223,6 +259,7 @@ class BaseResponseWindow(QWidget):
         self.has_error = False
         self.think_toggle_button.setVisible(False)
         self.think_toggle_button.setEnabled(False)
+        self.settings_button.setVisible(False)
         self.response_text.setPlainText(text)
         self.title_label.setText(title)
         self.status_label.setText("✅ Terminé")
@@ -290,7 +327,7 @@ class BaseResponseWindow(QWidget):
             display_text = (
                 self.masked_response
                 if self.masked_response
-                else "(Aucune reponse finale; seul le raisonnement a ete renvoye.)"
+                else NO_FINAL_ANSWER
             )
             self.response_text.setPlainText(display_text)
             self.think_toggle_button.setText("Voir le raisonnement")
@@ -299,8 +336,9 @@ class BaseResponseWindow(QWidget):
         """Set the loading state"""
         if is_loading:
             self.has_error = False
-            self.title_label.setText("⏳ SuperMenu - Chargement...")
-            self.status_label.setText("⏳ Traitement en cours...")
+            self.title_label.setText(LOADING_TITLE)
+            self.status_label.setText("⏳ Traitement en cours…")
+            self.settings_button.setVisible(False)
             self._set_status("info")
             self.retry_button.setEnabled(False)
             self.copy_button.setEnabled(False)
@@ -310,10 +348,14 @@ class BaseResponseWindow(QWidget):
             self.copy_button.setEnabled(True)
             self.write_button.setEnabled(not self.has_error)
 
+    def _open_settings(self):
+        self.hide()
+        self.settings_requested.emit()
+
     def copy_response(self):
         """Copy the response to the clipboard"""
         QApplication.clipboard().setText(self.response_text.toPlainText())
-        self.copy_button.setText("✅ Copié!")
+        self.copy_button.setText("✅ Copié")
         self.copy_button.setEnabled(False)
 
         # Reset the button text after a delay
@@ -343,7 +385,7 @@ class BaseResponseWindow(QWidget):
                 self.status_label.setText("⚠️ Aucun texte à coller")
                 self._set_status("warning")
         except Exception as e:
-            self.status_label.setText(f"❌ Erreur: {str(e)}")
+            self.status_label.setText(f"❌ Erreur : {str(e)}")
             self._set_status("error")
 
     def _paste_text(self):
@@ -401,7 +443,7 @@ class BaseResponseWindow(QWidget):
     def retry_request(self):
         """Retry the API request"""
         if self.last_prompt is not None:
-            self.status_label.setText("🔄 Réessai...")
+            self.status_label.setText("🔄 Nouvel essai…")
             self._set_status("info")
             self.set_loading(True)
             self.retry_requested.emit()
