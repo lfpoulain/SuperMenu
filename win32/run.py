@@ -23,6 +23,10 @@ def run_packaged_smoke_test():
     from PySide6.QtCore import qVersion
     from PySide6.QtMultimedia import QAudioSource  # noqa: F401
     from PySide6.QtWebSockets import QWebSocket  # noqa: F401
+    from supermenu_core.config.anthropic_models import (
+        AVAILABLE_ANTHROPIC_MODELS,
+        DEFAULT_ANTHROPIC_MODEL,
+    )
     from supermenu_core.config.openai_models import (
         AVAILABLE_MODELS,
         DEFAULT_OPENAI_MODEL,
@@ -33,16 +37,17 @@ def run_packaged_smoke_test():
     status = packaged_resource_status()
     status["qt_version"] = qVersion()
     status["live_speech_modules_ok"] = True
-    expected_models = [
-        "gpt-5.6-sol",
-        "gpt-5.6-terra",
-        "gpt-5.6-luna",
-        "gpt-5.4",
-    ]
     status["models"] = AVAILABLE_MODELS
     status["default_model"] = DEFAULT_OPENAI_MODEL
+    status["anthropic_models"] = AVAILABLE_ANTHROPIC_MODELS
+    # Checks that both catalogues are packaged and consistent. The lists
+    # themselves are pinned by the test suites, not repeated here: a copy of
+    # the list in this file failed the release build when models were added.
     status["model_config_ok"] = (
-        AVAILABLE_MODELS == expected_models and DEFAULT_OPENAI_MODEL == "gpt-5.6-sol"
+        bool(AVAILABLE_MODELS)
+        and DEFAULT_OPENAI_MODEL in AVAILABLE_MODELS
+        and bool(AVAILABLE_ANTHROPIC_MODELS)
+        and DEFAULT_ANTHROPIC_MODEL in AVAILABLE_ANTHROPIC_MODELS
     )
     status["app_version"] = APP_VERSION
     status["build_channel"] = BUILD_CHANNEL

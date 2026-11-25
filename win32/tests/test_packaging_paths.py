@@ -30,6 +30,29 @@ def test_packaged_smoke_check_requires_the_application_icon(monkeypatch, tmp_pat
     assert result["icon"] == str(icon)
 
 
+def test_smoke_test_accepts_the_shipped_configuration(monkeypatch, tmp_path, capsys):
+    """The release build runs this check on the packaged executable.
+
+    It used to carry its own copy of the OpenAI model list: adding models
+    passed every test, then failed the Stable build at its last step.
+    """
+    import json
+
+    import run as launcher
+
+    icon = tmp_path / "resources" / "icons" / "icon.png"
+    icon.parent.mkdir(parents=True)
+    icon.write_bytes(b"icon")
+    monkeypatch.setattr(paths, "application_base_dir", lambda: str(tmp_path))
+
+    assert launcher.run_packaged_smoke_test() == 0
+
+    status = json.loads(capsys.readouterr().out)
+    assert status["ok"] is True and status["model_config_ok"] is True
+    assert status["default_model"] in status["models"]
+    assert status["anthropic_models"]
+
+
 def test_installer_does_not_duplicate_one_file_resources():
     content = Path(paths.resource_path("setup_supermenu.iss")).read_text(
         encoding="utf-8"
