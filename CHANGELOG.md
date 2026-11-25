@@ -8,6 +8,8 @@ Chaque entrée correspond à une release Stable, nommée d’après la version
 Windows (`win32/VERSION`) ; la version macOS (`macos/VERSION`) a son propre
 numéro, indiqué à côté. Les bêtas roulantes ne sont pas détaillées une par une.
 
+## [Non publié]
+
 ## [1.3.1] - 2026-11-25
 
 macOS : 1.3.1.
