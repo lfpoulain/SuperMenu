@@ -61,7 +61,7 @@ l’autorisation Enregistrement de l’écran sur Mac.
 ## Installation
 
 Configuration requise : Mac Apple Silicon sous macOS 13 Ventura ou plus
-récent. Les builds sont construits et testés sur macOS 14 et 15 ; Apple
+récent. Les builds sont construits et testés sur macOS 15 ; Apple
 Intelligence et Apple Speech demandent macOS 26 ou plus récent.
 
 1. Ouvrez la [dernière release](https://github.com/lfpoulain/SuperMenu/releases/latest).

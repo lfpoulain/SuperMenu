@@ -27,7 +27,7 @@ rapide, consultez le [README macOS](../README.md).
 - Mac **Apple Silicon** uniquement. Le nom de chaque DMG contient `arm64`
   pour éviter une installation sur un Mac Intel.
 - macOS 13 Ventura ou plus récent, version minimale de Qt 6.11. Les builds
-  sont construits et testés sur macOS 14 et 15. Apple Intelligence
+  sont construits et testés sur macOS 15. Apple Intelligence
   (moteur de texte local) et Apple Speech (dictée locale) demandent macOS 26
   ou plus récent.
 - La dictée demande l’autorisation Microphone. La capture d’écran est propre à
