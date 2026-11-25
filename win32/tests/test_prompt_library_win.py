@@ -102,7 +102,7 @@ def _bundle(tmp_path, prompts):
 
 def test_prompt_bound_to_an_unknown_model_is_left_out_not_rerouted(isolated_settings):
     library = default_text_prompts()
-    target = {"provider": "anthropic", "model": "claude"}
+    target = {"provider": "moteur-futur", "model": "modele"}
     library["local"] = {
         "name": "Local",
         "prompt": "Texte confidentiel",

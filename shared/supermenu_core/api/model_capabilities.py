@@ -50,11 +50,13 @@ def choose_reasoning_option(options, preferred=None, default=None):
         if "on" in allowed:
             return "on"
 
-    if default in allowed:
-        return default
-
+    # "No reasoning" on a model that cannot turn it off means its lightest
+    # level, as on the other engines, not the model's own (heavier) default.
     if preferred in {"none", "off"} and "low" in allowed:
         return "low"
+
+    if default in allowed:
+        return default
 
     return allowed[0]
 

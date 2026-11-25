@@ -84,7 +84,9 @@ def test_preflight(monkeypatch, tmp_path, system, version, machine, exists, expe
     if exists:
         binary.touch()
     monkeypatch.setattr(apple.sys, "platform", system)
-    monkeypatch.setattr(apple.platform, "mac_ver", lambda: (version, (), ""))
+    monkeypatch.setattr(
+        apple, "macos_major_version", lambda: int(version.split(".")[0])
+    )
     monkeypatch.setattr(apple.platform, "machine", lambda: machine)
     monkeypatch.setattr(apple, "helper_path", lambda: binary)
     assert apple.preflight_error() == expected

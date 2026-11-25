@@ -146,7 +146,8 @@ def normalize_hotkey(
         # SuperMenu itself posts Cmd+C and Cmd+V: such a binding would also
         # fire on every copy and paste, its own included.
         return None, "Ce raccourci est réservé à l’édition de texte macOS"
-    function_key = re.fullmatch(r"f(?:[1-9]|1[0-9]|2[0-4])", key_lower)
+    # macOS (and pynput's key table) knows F1 to F20 only.
+    function_key = re.fullmatch(r"f(?:[1-9]|1[0-9]|20)", key_lower)
     if key_lower in _SPECIAL_KEYS:
         key = f"<{_SPECIAL_KEYS[key_lower]}>"
     elif function_key:
@@ -161,7 +162,7 @@ def normalize_hotkey(
         # the selection before SuperMenu reads it.
         return None, (
             "Ajoutez Cmd ou Ctrl : Shift et Option seuls ne conviennent "
-            "qu’aux touches F1 à F24"
+            "qu’aux touches F1 à F20"
         )
     return "+".join(modifiers + [key]), ""
 
@@ -239,7 +240,7 @@ class HotkeyRecorderDialog(QDialog):
             QLabel("Appuyez sur la combinaison de touches à utiliser.")
         )
         self.current_hotkey_label = QLabel(
-            "Utilisez Cmd ou Ctrl (Shift ou Option seuls : F1 à F24)"
+            "Utilisez Cmd ou Ctrl (Shift ou Option seuls : F1 à F20)"
         )
         self.current_hotkey_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.current_hotkey_label.setObjectName("shortcutDisplay")
@@ -297,7 +298,7 @@ class HotkeyRecorderDialog(QDialog):
         key_map.update(
             {
                 getattr(Qt.Key, f"Key_F{number}"): f"F{number}"
-                for number in range(1, 25)
+                for number in range(1, 21)
             }
         )
         key_part = key_map.get(Qt.Key(key))
@@ -511,6 +512,27 @@ class _MacOSGlobalHotKeys:
             key = str(event.charactersIgnoringModifiers() or "").lower()
         return frozenset(modifiers), key, key_code
 
+    @staticmethod
+    def _typed_key(event, key):
+        """Return the character typed with the modifiers held, if it differs.
+
+        The recorder stores the key Qt reports, which follows the layout used
+        while Command is held. Layouts that switch to Latin letters under
+        Command (Russian, Greek, Hebrew, Arabic, Dvorak-QWERTY) report another
+        character through ``charactersIgnoringModifiers``: the shortcut would
+        be recorded but never fire.
+        """
+        reader = getattr(event, "characters", None)
+        if reader is None:
+            return None
+        try:
+            typed = str(reader() or "").lower()
+        except Exception:
+            return None
+        if len(typed) == 1 and typed.isprintable() and typed != key:
+            return typed
+        return None
+
     def _release_held(self, predicate=lambda key, modifiers: True):
         with self._bindings_lock:
             released = [key for key, (modifiers, callback) in self._held_bindings.items() if predicate(key, modifiers)]
@@ -536,6 +558,10 @@ class _MacOSGlobalHotKeys:
                 if self._suspended:
                     return
                 binding = self._bindings.get(signature)
+                if binding is None and key_code not in _MACOS_SPECIAL_KEY_CODES:
+                    typed = self._typed_key(event, key)
+                    if typed is not None:
+                        binding = self._bindings.get((modifiers, typed))
             # Never log a keystroke that is not a registered shortcut: the
             # global monitor sees what the user types in every application.
             if binding is None:

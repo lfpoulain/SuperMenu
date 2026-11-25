@@ -437,7 +437,11 @@ class MainWindow(SettingsPageMixin, PromptPageMixin, HotkeyActionsMixin, UpdateA
         PasteTarget.remember_frontmost()
         activate_current_application()
         self.refresh_permission_status()
-        self.show()
+        if self.isMinimized():
+            # show() alone leaves a minimized window in the Dock.
+            self.showNormal()
+        else:
+            self.show()
         self.raise_()
         self.activateWindow()
 

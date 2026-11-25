@@ -329,6 +329,14 @@ def _normalize_collection(
                         f"'{_prompt_label(prompt_id, prompt)}'."
                     )
                 prompt["hotkey"] = ""
+                if problems is not None:
+                    # Reported like any other repair: the stored library is
+                    # copied to the backups instead of being rewritten.
+                    problems.append(
+                        f"Le raccourci '{hotkey}' du prompt "
+                        f"'{_prompt_label(prompt_id, prompt)}' est déjà utilisé "
+                        f"par '{hotkey_owners[normalized_hotkey]}' : il est ignoré."
+                    )
             elif normalized_hotkey:
                 hotkey_owners[normalized_hotkey] = _prompt_label(prompt_id, prompt)
 

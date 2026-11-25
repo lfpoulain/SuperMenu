@@ -85,8 +85,10 @@ class Validators:
                 "Format d'URL invalide. L'URL doit commencer par http:// ou https://",
             )
 
-        # Vérifications supplémentaires de sécurité
-        if "javascript:" in url.lower() or "data:" in url.lower():
+        # Vérification supplémentaire de sécurité. "data:" is not looked for:
+        # the scheme test above already excludes data: URLs, and the word
+        # refused valid servers such as "http://bigdata:11434".
+        if "javascript:" in url.lower():
             return False, "URL potentiellement dangereuse détectée"
 
         if re.search(r"\s", url):

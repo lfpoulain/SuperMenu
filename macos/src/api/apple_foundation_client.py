@@ -11,6 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QProcess, QTimer, Signal
 
 from src.utils.paths import resource_path
+from src.utils.system_version import macos_major_version
 
 
 ERROR_MESSAGES = {
@@ -51,10 +52,7 @@ def helper_path() -> Path:
 def preflight_error() -> str | None:
     if sys.platform != "darwin":
         return "os_unsupported"
-    try:
-        if int(platform.mac_ver()[0].split(".")[0]) < 26:
-            return "os_unsupported"
-    except (ValueError, IndexError):
+    if macos_major_version() < 26:
         return "os_unsupported"
     if platform.machine().lower() not in {"arm64", "aarch64"}:
         return "device_not_eligible"

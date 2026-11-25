@@ -34,9 +34,9 @@ petite fenêtre, prête à être copiée ou insérée à la place de votre séle
   texte, là où vous l’écrivez, puis vous rend la main.
 - **Vos actions, vos raccourcis.** Une dizaine de prompts prêts à l’emploi,
   que vous pouvez modifier, compléter par les vôtres et réordonner.
-- **Le moteur de votre choix.** OpenAI dans le cloud, ou un modèle local
-  (Ollama, LM Studio, Foundry Local sous Windows, Apple Intelligence sous
-  macOS) quand le texte ne doit pas quitter votre machine.
+- **Le moteur de votre choix.** OpenAI ou Anthropic (Claude) dans le cloud,
+  ou un modèle local (Ollama, LM Studio, Foundry Local sous Windows, Apple
+  Intelligence sous macOS) quand le texte ne doit pas quitter votre machine.
 - **Simple par défaut.** Une nouvelle installation n’affiche que l’essentiel ;
   les fonctions avancées et expérimentales s’activent dans les réglages, quand
   vous en avez besoin.
@@ -95,8 +95,8 @@ qu’avec les fonctions expérimentales.
 Pour choisir finement quel modèle traite quoi.
 
 - **Un modèle par prompt** : pour chaque prompt, texte ou vocal, le moteur
-  (OpenAI, serveur Ollama ou LM Studio configuré, Foundry Local sous Windows ou
-  Apple Intelligence sous macOS), le modèle et, avec LM Studio, le poste LM Link
+  (OpenAI, Anthropic, serveur Ollama ou LM Studio configuré, Foundry Local sous
+  Windows ou Apple Intelligence sous macOS), le modèle et, avec LM Studio, le poste LM Link
   qui l’exécute. Copies locales et copies LM Link d’un même modèle sont
   distinguées.
 - **Un raccourci direct par prompt**, pour lancer une action sans ouvrir le
@@ -159,6 +159,7 @@ alors par le moteur de **Réglages > Texte**, qui peut être un service en ligne
 | Moteur | Où tourne le modèle | Windows | macOS | Ce qu’il faut |
 |---|---|:---:|:---:|---|
 | **OpenAI** | cloud OpenAI | ✅ | ✅ | une clé API OpenAI (facturation à l’usage) |
+| **Anthropic** — Claude | cloud Anthropic | ✅ | ✅ | une clé API Anthropic (facturation à l’usage) |
 | **Ollama** | votre machine ou le serveur indiqué | ✅ | ✅ | un serveur Ollama accessible |
 | **LM Studio**, y compris **LM Link** | votre machine, le serveur indiqué ou un poste relié par LM Link | ✅ | ✅ | un serveur LM Studio accessible |
 | **Foundry Local** — Qwen3.5 4B ou 9B | ce PC | ✅ | — | Windows 11 24H2 ou plus récent ; modèle à télécharger depuis les réglages ; 16 Go de RAM conseillés pour le 4B, 24 Go pour le 9B |
@@ -191,7 +192,7 @@ composants d’interface) et gardent chacune leurs intégrations natives.
 | Présence | icône dans la zone de notification | icône dans la barre des menus |
 | Menu de prompts, mode personnalisé, fenêtre de réponse | ✅ | ✅ |
 | Insertion de la réponse dans l’application d’origine | ✅ | ✅ |
-| OpenAI, Ollama, LM Studio et LM Link | ✅ | ✅ |
+| OpenAI, Anthropic, Ollama, LM Studio et LM Link | ✅ | ✅ |
 | IA locale intégrée | Foundry Local · Qwen3.5 (Windows 11 24H2+) | Apple Intelligence (macOS 26+) |
 | Fonctions avancées | ✅ | ✅ |
 | Prompts vocaux et dictée *(expérimental)* | OpenAI ou Nemotron 3.5 | OpenAI ou Apple Speech (macOS 26+) |
@@ -343,16 +344,17 @@ le système est signalé.
 - **Moteurs locaux** : avec Foundry Local, Apple Intelligence, Nemotron ou
   Apple Speech, le texte et la voix sont traités sur votre ordinateur ; avec
   Ollama ou LM Studio, sur le serveur que vous avez indiqué.
-- **Clés séparées** : la clé OpenAI n’est envoyée qu’à OpenAI, et le jeton
-  éventuel d’un serveur Ollama ou LM Studio qu’à ce serveur.
+- **Clés séparées** : la clé OpenAI n’est envoyée qu’à OpenAI, la clé
+  Anthropic qu’à Anthropic, et le jeton éventuel d’un serveur Ollama ou
+  LM Studio qu’à ce serveur.
 - **Prompts importés** : les adresses de serveur d’un fichier de prompts sont
   ignorées ; un prompt importé ne peut viser que les moteurs déjà configurés
   dans vos réglages. Avec les fonctions avancées, il peut toutefois choisir
   son propre moteur, par exemple OpenAI si votre clé est enregistrée, même si
   votre moteur habituel est local : vérifiez le modèle des prompts importés.
 - **Où sont stockés les secrets** :
-  - Windows : clé OpenAI et jeton de serveur dans le **Gestionnaire
-    d’identification Windows**, hors du fichier de réglages
+  - Windows : clés OpenAI et Anthropic et jeton de serveur dans le
+    **Gestionnaire d’identification Windows**, hors du fichier de réglages
     `%USERPROFILE%\SuperMenu.ini`. La désinstallation propose de supprimer
     réglages, journaux et clés ;
   - macOS : dans le fichier de réglages
@@ -567,6 +569,6 @@ se trouvent dans [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) et
 [licenses/](licenses). Les modèles d’IA téléchargés depuis SuperMenu ont leurs
 propres conditions.
 
-OpenAI, Ollama, LM Studio, Apple Intelligence et Microsoft Foundry Local sont
-des marques de leurs propriétaires respectifs ; SuperMenu n’est affilié à aucun
+OpenAI, Anthropic, Claude, Ollama, LM Studio, Apple Intelligence et Microsoft
+Foundry Local sont des marques de leurs propriétaires respectifs ; SuperMenu n’est affilié à aucun
 de ces fournisseurs.

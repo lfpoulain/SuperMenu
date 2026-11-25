@@ -27,6 +27,31 @@ def _feature_modes_of_updated_installs(monkeypatch):
     monkeypatch.setattr(feature_modes, "NEW_INSTALL_ENABLED", True)
 
 
+@pytest.fixture(autouse=True)
+def _in_memory_keyring(monkeypatch):
+    """Keep every test away from the real Windows Credential Manager.
+
+    Saving the settings stores the API keys with keyring: without this, a
+    test that saves a page writes (empty) credentials into the account of
+    whoever runs the suite. Tests that check the stored values patch these
+    functions again with their own store.
+    """
+    import keyring
+
+    store = {}
+    monkeypatch.setattr(
+        keyring, "get_password", lambda service, name: store.get((service, name))
+    )
+    monkeypatch.setattr(
+        keyring,
+        "set_password",
+        lambda service, name, value: store.__setitem__((service, name), value),
+    )
+    monkeypatch.setattr(
+        keyring, "delete_password", lambda service, name: store.pop((service, name), None)
+    )
+
+
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_protocol(item, nextitem):
     """Destroy the Qt objects a test leaves behind before the next one starts.

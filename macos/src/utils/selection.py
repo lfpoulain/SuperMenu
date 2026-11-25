@@ -107,8 +107,18 @@ class SelectionReader:
 
         def send_copy():
             nonlocal snapshot, clipboard_changed
-            snapshot = self._clipboard.capture_snapshot()
-            if not self._clipboard.set_clipboard_text_safe(sentinel):
+            try:
+                snapshot = self._clipboard.capture_snapshot()
+                written = self._clipboard.set_clipboard_text_safe(sentinel)
+            except Exception as exc:
+                # This step runs from a timer: an exception here would leave
+                # the caller waiting for a selection that never arrives.
+                log(
+                    f"Presse-papiers inaccessible pendant la lecture : {exc}",
+                    logging.ERROR,
+                )
+                written = False
+            if not written:
                 log(
                     "Lecture de la sélection impossible : presse-papiers "
                     "indisponible",

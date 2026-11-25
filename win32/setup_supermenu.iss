@@ -100,6 +100,7 @@ begin
   // sous "<nom>@SuperMenu" ; un identifiant absent est simplement ignoré.
   CredDelete('SuperMenu', CRED_TYPE_GENERIC, 0);
   CredDelete('openai_api_key@SuperMenu', CRED_TYPE_GENERIC, 0);
+  CredDelete('anthropic_api_key@SuperMenu', CRED_TYPE_GENERIC, 0);
   CredDelete('custom_endpoint_api_key@SuperMenu', CRED_TYPE_GENERIC, 0);
 end;
 

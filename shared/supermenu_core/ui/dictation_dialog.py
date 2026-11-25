@@ -33,6 +33,11 @@ class RecordingDialog(QDialog):
         self._started_at = time.monotonic()
         self.setWindowTitle("Dictée SuperMenu")
         self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
+        # Qt::Tool is an NSPanel on macOS, which AppKit hides as soon as the
+        # application is deactivated: the window vanished, microphone still
+        # open, when the user clicked back into the document, and again when
+        # the text was inserted into it. Ignored on other platforms.
+        self.setAttribute(Qt.WidgetAttribute.WA_MacAlwaysShowToolWindow, True)
         self.setModal(False)
         self.resize(560, 430)
         self.setMinimumSize(420, 340)

@@ -22,6 +22,7 @@ from supermenu_core.config.feature_modes import (
 from supermenu_core.config.model_target import settings_for_prompt
 from supermenu_core.ui.controls import Menu as QMenu, populate_prompt_menu, menu_contains_global_point
 from src.api.openai_client import OpenAIClient
+from supermenu_core.api.providers.common import endpoint_label
 from supermenu_core.ui.request_coordinator import PromptRequestCoordinator, RequestFeedback
 from supermenu_core.ui.safe_dialogs import SafeDialogs
 from src.ui.response_window import ResponseWindow
@@ -112,7 +113,7 @@ class ContextMenuManager(PromptRequestCoordinator):
 
     def _create_api_client(self, settings=None):
         settings = settings or self.settings
-        if settings.get_ai_provider() not in {"openai", "custom", "foundry"}:
+        if settings.get_ai_provider() not in {"openai", "anthropic", "custom", "foundry"}:
             raise ValueError("Le moteur choisi pour ce prompt est indisponible sur cet ordinateur.")
         if settings.get_ai_provider() == "foundry":
             from src.api.foundry_client import FoundryClient
@@ -611,10 +612,16 @@ class ContextMenuManager(PromptRequestCoordinator):
             return ""
         finally:
             if clipboard_needs_restore:
-                expected_text = selected_text if selected_text else sentinel
-                ClipboardManager.restore_if_unchanged(
-                    old_clipboard, expected_text
-                )
+                if selected_text:
+                    ClipboardManager.restore_if_unchanged(
+                        old_clipboard, selected_text
+                    )
+                else:
+                    # No text was read. Only SuperMenu's own copy ran since
+                    # the snapshot, within this call: whatever it left (the
+                    # sentinel, or the files or image that were selected
+                    # instead of text) is replaced by the user's content.
+                    ClipboardManager.restore_snapshot(old_clipboard)
 
         # Retourner le texte récupéré ou une chaîne vide si rien n'est sélectionné
         if not selected_text:
@@ -718,6 +725,22 @@ class ContextMenuManager(PromptRequestCoordinator):
         """Gérer l'action de capture d'écran"""
         if self._closed or not experimental_enabled(self.settings):
             return
+        # The capture hides SuperMenu's dialogs, which ends a modal one as if
+        # it had been cancelled (a prompt being typed was lost), and a second
+        # press nested a capture inside the first one.
+        if getattr(self, "_screen_capture_running", False):
+            log("Capture d'écran ignorée : une capture est déjà en cours", logging.DEBUG)
+            return
+        if QApplication.activeModalWidget() is not None:
+            log("Capture d'écran ignorée : un dialogue SuperMenu est ouvert", logging.DEBUG)
+            return
+        self._screen_capture_running = True
+        try:
+            self._run_screenshot_action()
+        finally:
+            self._screen_capture_running = False
+
+    def _run_screenshot_action(self):
         log("Démarrage de la capture d'écran...", logging.DEBUG)
         paste_target = PasteTarget.capture()
         
@@ -1094,9 +1117,16 @@ class ContextMenuManager(PromptRequestCoordinator):
         super().update_client_config()
 
         provider = self.settings.get_ai_provider()
-        endpoint_info = self.settings.get_custom_endpoint() if provider == "custom" else provider
+        # Never the raw address: it may carry credentials (user:password@).
+        endpoint_info = (
+            endpoint_label(self.settings.get_custom_endpoint())
+            if provider == "custom"
+            else provider
+        )
         model_info = (self.settings.get_foundry_model() if provider == "foundry" else
-                      self.settings.get_custom_model() if provider == "custom" else self.settings.get_model())
+                      self.settings.get_custom_model() if provider == "custom" else
+                      self.settings.get_anthropic_model() if provider == "anthropic" else
+                      self.settings.get_model())
         
         log(
             f"ContextMenuManager: Configuration du client API mise à jour. Endpoint: {endpoint_info}, Modèle: {model_info}",

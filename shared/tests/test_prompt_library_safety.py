@@ -60,7 +60,7 @@ def qt_app():
 def test_one_unknown_value_no_longer_hides_the_whole_library():
     raw = {
         "personnel": _prompt("Personnel", reasoning_mode="high", hotkey="Ctrl+Alt+P"),
-        "futur": _prompt("Futur", model_target={"provider": "anthropic", "model": "x"}),
+        "futur": _prompt("Futur", model_target={"provider": "moteur-futur", "model": "x"}),
         "position": _prompt("Position", position="3", future_option={"kept": True}),
         "casse": ["pas", "un", "objet"],
         "intact": _prompt("Intact", position=4),
@@ -92,7 +92,7 @@ def test_root_that_is_not_an_object_is_still_reported():
 def test_voice_library_with_a_future_provider_survives_reading_and_editing(tmp_path):
     settings = Settings(tmp_path / "settings.ini")
     library = default_voice_prompts()
-    target = {"provider": "anthropic", "model": "x"}
+    target = {"provider": "moteur-futur", "model": "x"}
     library["resumer_vocal"]["model_target"] = target
     stored = json.dumps(library)
     settings.settings.setValue("voice_prompts", stored)
@@ -131,7 +131,7 @@ def test_prompt_bound_to_an_unknown_model_is_never_run_by_the_general_engine():
                 "endpoint_type": "ollama",
             },
         ),
-        "futur": _prompt("Futur", model_target={"provider": "anthropic", "model": "x"}),
+        "futur": _prompt("Futur", model_target={"provider": "moteur-futur", "model": "x"}),
         "general": _prompt("Général", model_target={}),
     }
 

@@ -13,7 +13,9 @@ import logging
 import uuid
 from PySide6.QtCore import QObject, Signal, Slot
 from supermenu_core.config.openai_models import normalize_openai_model
+from supermenu_core.config.anthropic_models import normalize_anthropic_model
 from supermenu_core.api.providers import (
+    anthropic,
     catalog,
     common,
     lmstudio,
@@ -28,7 +30,25 @@ from supermenu_core.utils.thinking import split_inline_thinking
 # fresh TCP and TLS handshake -- 100 to 300 ms of latency on an app whose only
 # job is to feel instant. requests.Session is thread-safe for this usage: each
 # request runs on its own worker thread and shares the connection pool.
-_SESSION = requests.Session()
+class _DirectLocalSession(requests.Session):
+    """Pooled session that never sends local-network traffic to a proxy.
+
+    With HTTP(S)_PROXY set for Internet access, a request to Ollama or
+    LM Studio on this computer or on the LAN was handed to that proxy, with
+    the selected text and the endpoint token, and usually failed there.
+    Online providers keep using the configured proxy.
+    """
+
+    def merge_environment_settings(self, url, proxies, stream, verify, cert):
+        settings = super().merge_environment_settings(
+            url, proxies, stream, verify, cert
+        )
+        if common.is_local_url(url):
+            settings["proxies"] = {}
+        return settings
+
+
+_SESSION = _DirectLocalSession()
 
 
 def _session():
@@ -77,6 +97,8 @@ def clear_capabilities_cache():
     """Forget every capability probe shared between clients."""
     with _CAPABILITIES_CACHE_LOCK:
         _CAPABILITIES_CACHE.clear()
+    # Another Anthropic key may accept what the previous one rejected.
+    anthropic.reset_fallbacks()
 
 
 # Historical module-level name of the Ollama endpoint heuristic.
@@ -88,7 +110,7 @@ _models_base_url = common.models_base_url
 
 
 class OpenAIClient(QObject):
-    """Client for OpenAI API interactions"""
+    """Client for OpenAI, Anthropic, Ollama, LM Studio and compatible servers."""
 
     # Signals publics
     request_started = Signal()
@@ -141,6 +163,20 @@ class OpenAIClient(QObject):
         self.use_lmstudio_api = (
             self.use_custom_endpoint and self.custom_endpoint_type == "lmstudio"
         )
+        provider_getter = getattr(settings, "get_ai_provider", None)
+        self.use_anthropic_api = (
+            not self.use_custom_endpoint
+            and provider_getter is not None
+            and provider_getter() == "anthropic"
+        )
+        # Dedicated secret: it is only ever sent to api.anthropic.com, and the
+        # OpenAI key is never sent there.
+        self.anthropic_api_key = ""
+        if self.use_anthropic_api:
+            key_getter = getattr(settings, "get_anthropic_api_key", None)
+            self.anthropic_api_key = str(
+                (key_getter() if key_getter is not None else "") or ""
+            ).strip()
         self._ollama_capabilities_checked = False
         self._ollama_capabilities = None
         self._ollama_probe_failed_at = None
@@ -165,7 +201,16 @@ class OpenAIClient(QObject):
             else:
                 endpoint_kind = "personnalisé"
             log(
-                f"OpenAIClient: Utilisation du modèle {endpoint_kind} '{self.model}' avec endpoint {self.custom_endpoint}",
+                f"OpenAIClient: Utilisation du modèle {endpoint_kind} '{self.model}' "
+                f"avec endpoint {common.endpoint_label(self.custom_endpoint)}",
+                logging.INFO,
+            )
+        elif self.use_anthropic_api:
+            self.model = normalize_anthropic_model(
+                model or settings.get_anthropic_model()
+            )
+            log(
+                f"OpenAIClient: Utilisation du modèle Anthropic '{self.model}'",
                 logging.INFO,
             )
         else:
@@ -194,6 +239,8 @@ class OpenAIClient(QObject):
                 self._lmstudio_compat_url = f"{base_url}/v1/chat/completions"
             else:
                 self.api_url = self._build_custom_chat_url(self.custom_endpoint)
+        elif self.use_anthropic_api:
+            self.api_url = anthropic.API_URL
         else:
             # Utiliser OpenAI par défaut
             self.api_url = "https://api.openai.com/v1/chat/completions"
@@ -206,11 +253,9 @@ class OpenAIClient(QObject):
             return base
 
         if ollama:
-            if base.endswith("/api/chat"):
-                return base
-            if base.endswith("/api"):
-                return f"{base}/chat"
-            return f"{base}/api/chat"
+            # Whatever form was typed ("/api", "/v1", "/api/chat"...), the
+            # native chat endpoint hangs off the server root.
+            return f"{_models_base_url(base, True)}/api/chat"
 
         if base.endswith("/v1/chat/completions"):
             return base
@@ -352,6 +397,10 @@ class OpenAIClient(QObject):
             getter = getattr(self.settings, "get_custom_reasoning_effort", None)
             if getter:
                 return getter()
+        elif self.use_anthropic_api:
+            getter = getattr(self.settings, "get_anthropic_reasoning_effort", None)
+            if getter:
+                return getter(self.model)
         else:
             getter = getattr(self.settings, "get_openai_reasoning_effort", None)
             if getter:
@@ -388,6 +437,9 @@ class OpenAIClient(QObject):
         if self.use_lmstudio_api:
             return lmstudio.extract_response_parts(response_data)
 
+        if self.use_anthropic_api:
+            return anthropic.extract_response_parts(response_data)
+
         return openai_compatible.extract_response_parts(response_data)
 
     def _extract_response_text(self, response_data, include_reasoning=True):
@@ -418,11 +470,12 @@ class OpenAIClient(QObject):
 
     def set_model(self, model):
         """Set the model to use"""
-        selected_model = (
-            str(model or "").strip()
-            if self.use_custom_endpoint
-            else normalize_openai_model(model)
-        )
+        if self.use_custom_endpoint:
+            selected_model = str(model or "").strip()
+        elif self.use_anthropic_api:
+            selected_model = normalize_anthropic_model(model)
+        else:
+            selected_model = normalize_openai_model(model)
         with self._capabilities_lock:
             self.model = selected_model
             self._ollama_capabilities_checked = False
@@ -461,11 +514,8 @@ class OpenAIClient(QObject):
             return request_id
 
         # Vérifier si une clé API est requise
-        if not self.use_custom_endpoint and not self.api_key:
-            message = (
-                "Clé API non configurée. Veuillez configurer votre clé API "
-                "dans les paramètres."
-            )
+        message = self._missing_key_message()
+        if message:
             self.request_error.emit(message)
             self.request_error_scoped.emit(request_id, message)
             return request_id
@@ -502,6 +552,24 @@ class OpenAIClient(QObject):
             daemon=True,
         ).start()
         return request_id
+
+    def _missing_key_message(self):
+        """Name the missing API key of the active online provider, if any."""
+        if self.use_custom_endpoint:
+            return None
+        if self.use_anthropic_api:
+            if self.anthropic_api_key:
+                return None
+            return (
+                "Clé API Anthropic non configurée. Renseignez-la dans "
+                "Réglages > Texte."
+            )
+        if self.api_key:
+            return None
+        return (
+            "Clé API non configurée. Veuillez configurer votre clé API "
+            "dans les paramètres."
+        )
 
     def _make_request_with_retry(self, headers, data, timeout=60, api_url=None):
         """Effectue une requête avec retry logic.
@@ -543,8 +611,9 @@ class OpenAIClient(QObject):
                 if response.status_code == 200:
                     return response
 
-                # Si erreur 429 (rate limit) ou 503 (service unavailable), réessayer
-                if response.status_code in [429, 503, 502, 504]:
+                # Si erreur 429 (rate limit), 503 (service unavailable) ou
+                # 529 (Anthropic surchargé), réessayer
+                if response.status_code in [429, 503, 502, 504, 529]:
                     if attempt < self.max_retries - 1:
                         wait_time = self.retry_delay * (
                             2**attempt
@@ -585,6 +654,16 @@ class OpenAIClient(QObject):
 
             except requests.exceptions.ConnectionError as e:
                 last_exception = e
+                if self.use_custom_endpoint:
+                    # A local server that is not running will not be there a
+                    # second later either: answering after three attempts
+                    # kept the user waiting 10 to 20 seconds for nothing.
+                    raise Exception(
+                        "Serveur injoignable à l’adresse "
+                        f"{common.endpoint_label(self.custom_endpoint)}. "
+                        "Vérifiez qu’il est démarré et que l’adresse est "
+                        "correcte dans Réglages > Texte."
+                    ) from e
                 if attempt < self.max_retries - 1:
                     wait_time = self.retry_delay * (2**attempt)
                     log(
@@ -594,7 +673,9 @@ class OpenAIClient(QObject):
                     time.sleep(wait_time)
                 else:
                     raise Exception(
-                        f"Connection failed after {self.max_retries} attempts"
+                        "Connexion au fournisseur impossible après "
+                        f"{self.max_retries} tentatives. Vérifiez votre "
+                        "connexion Internet, puis réessayez."
                     ) from e
 
             except Exception:
@@ -624,12 +705,53 @@ class OpenAIClient(QObject):
                 data, self.model_target["device"], cancelled=self._closing,
                 timeout=timeout,
             )
+        if getattr(self, "use_anthropic_api", False):
+            response = self._make_request_with_retry(
+                anthropic.request_headers(headers, data),
+                data,
+                timeout=timeout,
+            )
+            if anthropic.uses_fallbacks(data) and anthropic.fallbacks_were_rejected(
+                response.status_code, getattr(response, "text", "")
+            ):
+                # The option is a beta an organization may not have: the
+                # request itself is valid, so send it once without it.
+                log(
+                    "Anthropic refuse l'option de repli : requête renvoyée sans elle",
+                    logging.WARNING,
+                )
+                response = self._make_request_with_retry(
+                    headers,
+                    anthropic.without_fallbacks(data),
+                    timeout=timeout,
+                )
+            return response
         response = self._make_request_with_retry(
             headers,
             data,
             timeout=timeout,
         )
         if not self.use_lmstudio_api:
+            if (
+                not self.use_custom_endpoint
+                and response.status_code == 400
+                and "reasoning_effort" in data
+                and "reasoning" in str(getattr(response, "text", "") or "").lower()
+            ):
+                # OpenAI changes the efforts a model accepts over time: let
+                # the model use its own default rather than fail the prompt.
+                log(
+                    "OpenAI refuse ce niveau de raisonnement : requête renvoyée "
+                    "avec le niveau par défaut du modèle",
+                    logging.WARNING,
+                )
+                without_effort = dict(data)
+                without_effort.pop("reasoning_effort", None)
+                return self._make_request_with_retry(
+                    headers,
+                    without_effort,
+                    timeout=timeout,
+                )
             if (
                 getattr(self, "use_ollama_api", False)
                 and response.status_code == 400
@@ -686,7 +808,20 @@ class OpenAIClient(QObject):
             return ollama.TRUNCATION_MESSAGE
         if self.use_custom_endpoint:
             return openai_compatible.custom_truncation_message()
+        if self.use_anthropic_api:
+            return anthropic.TRUNCATION_MESSAGE
         return openai_compatible.OPENAI_TRUNCATION_MESSAGE
+
+    def _refusal_message(self, response_data):
+        """Explain a request the provider declined, or return None."""
+        if self.use_anthropic_api:
+            return anthropic.refusal_message(response_data)
+        return None
+
+    def _http_error_message(self, response):
+        if self.use_anthropic_api:
+            return anthropic.error_message(response.status_code, response.text)
+        return f"Erreur {response.status_code}: {response.text}"
 
     def _process_request_thread(
         self,
@@ -728,6 +863,10 @@ class OpenAIClient(QObject):
             if response.status_code == 200:
                 # Analyser la réponse
                 response_data = response.json()
+                # A declined request has no answer to show or insert.
+                refusal = self._refusal_message(response_data)
+                if refusal:
+                    raise RuntimeError(refusal)
                 # A cut answer must never be inserted as if it were complete,
                 # nor a partial reasoning trace promoted to the final answer.
                 if self._response_was_truncated(response_data):
@@ -749,7 +888,7 @@ class OpenAIClient(QObject):
                     )
             else:
                 # Gérer l'erreur via signal interne thread-safe
-                error_message = f"Erreur {response.status_code}: {response.text}"
+                error_message = self._http_error_message(response)
                 if not self._closing.is_set():
                     self._internal_error.emit(request_id, error_message)
 
@@ -879,6 +1018,16 @@ class OpenAIClient(QObject):
             )
             return data, image_path
 
+        if self.use_anthropic_api:
+            data = anthropic.build_payload(
+                self.model,
+                prompt,
+                full_prompt,
+                image_data_url,
+                self._get_provider_reasoning_effort(reasoning_mode),
+            )
+            return data, image_path
+
         if not self.use_custom_endpoint:
             # The effort is read only once the model is known to be
             # supported (reading it may store a normalized value).
@@ -905,6 +1054,9 @@ class OpenAIClient(QObject):
         Returns:
             dict: En-têtes HTTP
         """
+        if getattr(self, "use_anthropic_api", False):
+            return anthropic.build_headers(self.anthropic_api_key)
+
         headers = {"Content-Type": "application/json"}
 
         if self.use_custom_endpoint and self.endpoint_api_key:
@@ -933,10 +1085,9 @@ class OpenAIClient(QObject):
                 "Configuration personnalisée incomplète. "
                 "Renseignez obligatoirement l'endpoint et le modèle."
             )
-        if not self.use_custom_endpoint and not self.api_key:
-            raise Exception(
-                "Clé API non configurée. Veuillez configurer votre clé API dans les paramètres."
-            )
+        missing_key = self._missing_key_message()
+        if missing_key:
+            raise Exception(missing_key)
 
         cleanup_path = None
         try:
@@ -959,6 +1110,9 @@ class OpenAIClient(QObject):
 
             if response.status_code == 200:
                 response_data = response.json()
+                refusal = self._refusal_message(response_data)
+                if refusal:
+                    raise RuntimeError(refusal)
                 if self._response_was_truncated(response_data):
                     raise RuntimeError(self._truncation_message())
                 response_text = self._extract_response_text(

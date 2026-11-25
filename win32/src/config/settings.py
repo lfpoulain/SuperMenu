@@ -8,6 +8,11 @@ import logging
 import keyring
 from PySide6.QtCore import QSettings
 from supermenu_core.config.model_target import ModelTargetSettingsMixin
+from supermenu_core.config.anthropic_models import (
+    DEFAULT_ANTHROPIC_MODEL,
+    AnthropicSettingsMixin,
+    get_default_anthropic_reasoning_effort,
+)
 from supermenu_core.audio.settings import SpeechSettingsMixin
 from supermenu_core.config.model_memory import TextMemorySettingsMixin
 from supermenu_core.config.feature_modes import FeatureModesSettingsMixin
@@ -40,6 +45,7 @@ _normalize_update_channel = normalize_update_channel
 
 class Settings(
     ModelTargetSettingsMixin,
+    AnthropicSettingsMixin,
     SpeechSettingsMixin,
     TextPromptSettingsMixin,
     VoicePromptSettingsMixin,
@@ -227,6 +233,25 @@ class Settings(
         """Set the OpenAI API key"""
         keyring.set_password("SuperMenu", "openai_api_key", api_key)
 
+    def get_anthropic_api_key(self):
+        """Get the Anthropic API key, stored apart from the OpenAI one."""
+        try:
+            return keyring.get_password("SuperMenu", "anthropic_api_key") or ""
+        except Exception as e:
+            log(
+                f"Error retrieving Anthropic key from keyring: {e}",
+                logging.WARNING,
+            )
+            return ""
+
+    def set_anthropic_api_key(self, api_key):
+        """Store the Anthropic API key in its own keyring entry."""
+        keyring.set_password(
+            "SuperMenu",
+            "anthropic_api_key",
+            str(api_key or "").strip(),
+        )
+
     def get_custom_endpoint_api_key(self):
         """Get the credential dedicated to the configured custom endpoint."""
         try:
@@ -302,12 +327,16 @@ class Settings(
             return "none"
         if self.get_use_custom_endpoint():
             return self.get_custom_reasoning_effort()
+        if self.get_ai_provider() == "anthropic":
+            return self.get_anthropic_reasoning_effort()
         return self.get_openai_reasoning_effort()
 
     def set_reasoning_effort(self, effort):
         """Set the effort for the active provider."""
         if self.get_use_custom_endpoint():
             self.set_custom_reasoning_effort(effort)
+        elif self.get_ai_provider() == "anthropic":
+            self.set_anthropic_reasoning_effort(effort)
         else:
             self.set_openai_reasoning_effort(effort)
 
@@ -365,12 +394,12 @@ class Settings(
 
     def get_ai_provider(self):
         provider = self.settings.value("ai_provider", "")
-        if provider in ("openai", "custom", "foundry"):
+        if provider in ("openai", "anthropic", "custom", "foundry"):
             return provider
         return "custom" if self.get_use_custom_endpoint() else "openai"
 
     def set_ai_provider(self, provider):
-        if provider not in ("openai", "custom", "foundry"):
+        if provider not in ("openai", "anthropic", "custom", "foundry"):
             provider = "openai"
         self.settings.setValue("ai_provider", provider)
         self.settings.setValue("use_custom_endpoint", provider == "custom")
@@ -560,6 +589,10 @@ class Settings(
         self.set_custom_endpoint(self.default_custom_endpoint)
         self.set_custom_model(self.default_custom_model)
         self.set_use_custom_endpoint(self.default_use_custom_endpoint)
+        self.set_anthropic_model(DEFAULT_ANTHROPIC_MODEL)
+        self.set_anthropic_reasoning_effort(
+            get_default_anthropic_reasoning_effort(DEFAULT_ANTHROPIC_MODEL)
+        )
         self.set_foundry_model(DEFAULT_FOUNDRY_MODEL)
         self.set_foundry_device("auto")
         self.set_speech_provider("openai")

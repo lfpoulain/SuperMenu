@@ -978,11 +978,7 @@ def test_voice_model_retention_follows_the_advanced_switch(
     helper = tmp_path / "SuperMenuSpeech"
     helper.write_text("")
     monkeypatch.setattr(speech_backend, "sys", SimpleNamespace(platform="darwin"))
-    monkeypatch.setattr(
-        speech_backend,
-        "platform",
-        SimpleNamespace(mac_ver=lambda: ("26.1", ("", "", ""), "")),
-    )
+    monkeypatch.setattr(speech_backend, "macos_major_version", lambda: 26)
     monkeypatch.setattr(speech_backend, "resource_path", lambda *_parts: str(helper))
     settings = _new_install(tmp_path, monkeypatch, advanced=advanced)
     settings.set_speech_idle_seconds(-1)

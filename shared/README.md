@@ -25,6 +25,8 @@ chaque application l’installe en mode éditable depuis son propre
   (`audio/settings.py`, `ui/speech_settings.py`, `ui/microphone_test.py`,
   `ui/model_catalog.py`) ; un nouveau comportement propre à un système passe
   par un hook.
+- La clé Anthropic n’est lue que pour le moteur Anthropic et n’est envoyée
+  qu’à `api.anthropic.com`.
 - Le client garde deux secrets distincts : la clé OpenAI n’est envoyée qu’à
   OpenAI, et le jeton d’un endpoint personnalisé est fourni explicitement par
   l’adaptateur de plateforme.
@@ -33,8 +35,11 @@ chaque application l’installe en mode éditable depuis son propre
 
 ### `api/` : fournisseurs et modèles
 
-- `openai_client.py` : `OpenAIClient`, utilisé pour OpenAI, Ollama, LM Studio
-  et les serveurs compatibles OpenAI. Il gère le raisonnement, les reprises
+- `openai_client.py` : `OpenAIClient`, utilisé pour OpenAI, Anthropic, Ollama,
+  LM Studio et les serveurs compatibles OpenAI. Sa session ne passe jamais par
+  le proxy de l’environnement pour une adresse locale (boucle locale, réseau
+  privé, nom sans point), et un serveur local injoignable est signalé dès la
+  première tentative. Il gère le raisonnement, les reprises
   (erreurs de connexion, 429 et 5xx), les signaux scopés par `request_id` et
   la normalisation des réponses. Une réponse tronquée est détectée pour tous
   les fournisseurs (`finish_reason`, `done_reason` d’Ollama,
@@ -46,8 +51,12 @@ chaque application l’installe en mode éditable depuis son propre
   Un texte sélectionné n’est jamais lu comme un chemin de fichier.
 - `providers/` : charges utiles, sondes de capacités et lecture des réponses
   de chaque fournisseur (`openai_compatible.py` pour OpenAI et les serveurs
-  compatibles, `ollama.py`, `lmstudio.py`), aides communes (`common.py`) et
-  découverte des modèles (`catalog.py`). `OpenAIClient` garde les threads, les
+  compatibles, `anthropic.py` pour l’API Messages de Claude, `ollama.py`,
+  `lmstudio.py`), aides communes (`common.py`) et découverte des modèles
+  (`catalog.py`). `anthropic.py` traite un refus (`stop_reason: refusal`)
+  comme une erreur, ne promeut jamais un résumé de raisonnement en réponse et
+  demande le repli côté serveur (`fallbacks`) pour les modèles qui l’offrent ;
+  si l’API rejette cette option, la requête repart une fois sans elle. `OpenAIClient` garde les threads, les
   reprises, les signaux et les replis ; tous les appels HTTP passent par sa
   session.
 - `lmstudio_transport.py` : exécution explicite sur le poste local ou sur un
@@ -59,8 +68,13 @@ chaque application l’installe en mode éditable depuis son propre
 
 ### `config/` : réglages et prompts
 
-- `openai_models.py` : catalogue des modèles OpenAI proposés, leurs niveaux de
-  raisonnement et la migration des anciens identifiants.
+- `openai_models.py` : catalogue des modèles OpenAI proposés (familles GPT-6
+  et GPT-5), leurs niveaux de raisonnement et la migration des identifiants
+  retirés. Si OpenAI refuse un niveau, la requête est renvoyée une fois avec
+  le niveau par défaut du modèle.
+- `anthropic_models.py` : catalogue des modèles Claude, leurs niveaux de
+  raisonnement et `AnthropicSettingsMixin` (modèle et niveau ; la clé reste
+  stockée par chaque application).
 - `prompts.py` : prompts par défaut, schéma, migrations et validation. En
   lecture, `repair_prompt_collection` répare chaque entrée invalide avec ses
   valeurs par défaut ou l’écarte, sans effacer les autres ; seule une racine
@@ -148,7 +162,9 @@ chaque application l’installe en mode éditable depuis son propre
 - Réglages : `settings_panel.py` (navigation, `Disclosure`, formulaires
   défilants), `application_settings.py` (thème, canal de mise à jour,
   `FeatureModeSettings`), `speech_settings.py`, `dictation_settings.py`,
-  `shortcut_settings.py`, `microphone_test.py`, `model_catalog.py`.
+  `shortcut_settings.py`, `microphone_test.py`, `model_catalog.py`,
+  `cloud_models.py` (listes de modèles OpenAI et Claude,
+  `AnthropicSettingsGroup` commun aux deux applications).
 - Prompts : `text_prompt_form.py`, `voice_prompt_editor.py`,
   `prompt_model.py`, `prompt_reasoning.py`, `prompt_restore.py`,
   `page_actions.py` (**Réinitialiser**, **Tout restaurer…**, **Revenir à la
@@ -177,8 +193,9 @@ par `set_ui_property` pour repeindre immédiatement.
 ### `utils/`
 
 - `thinking.py` : sépare la réponse visible du raisonnement, y compris une
-  balise `</think>` sans balise ouvrante ; une balise citée au milieu d’une
-  phrase reste du texte.
+  balise `</think>` sans balise ouvrante. Un bloc ne compte que si sa balise
+  ouvre une ligne : une balise ou une paire citée au milieu d’une phrase reste
+  du texte.
 - `validators.py` : validation des URL (noms sans point, IPv6, domaines
   `.internal`, ports) et des noms de modèles.
 - `updates.py` : règles de mise à jour communes (format et ordre des versions,

@@ -106,6 +106,11 @@ def _selection_environment(monkeypatch, manager, *, window_class, copied, pid=42
         "src.utils.context_menu.ClipboardManager.restore_if_unchanged",
         lambda snapshot, expected: env.restores.append((snapshot, expected)),
     )
+    env.unconditional_restores = []
+    monkeypatch.setattr(
+        "src.utils.context_menu.ClipboardManager.restore_snapshot",
+        lambda snapshot: env.unconditional_restores.append(snapshot),
+    )
     monkeypatch.setattr("src.utils.context_menu.win32gui.GetForegroundWindow", lambda: 100)
     monkeypatch.setattr("src.utils.context_menu.win32gui.GetClassName", lambda _hwnd: window_class)
     monkeypatch.setattr(
@@ -130,6 +135,39 @@ def test_copy_uses_layout_independent_virtual_key(monkeypatch):
     # The sentinel is an internal write kept out of the clipboard history.
     assert env.writes and env.writes[0][1] is True
     assert env.restores == [("snapshot", "sélection")]
+    manager.close()
+
+
+def test_copying_files_or_an_image_gives_the_clipboard_back(monkeypatch):
+    """Ctrl+C on selected files or an image leaves no text on the clipboard."""
+    _app()
+    manager = ContextMenuManager(FakeSettings())
+    env = _selection_environment(
+        monkeypatch, manager, window_class="CabinetWClass", copied=None, unreadable=True
+    )
+
+    assert manager._try_get_selected_text() == ""
+
+    # The user's previous content comes back even though the clipboard no
+    # longer holds the sentinel: only SuperMenu's own copy replaced it.
+    assert env.unconditional_restores == ["snapshot"]
+    assert env.restores == []
+    manager.close()
+
+
+def test_nothing_selected_restores_the_clipboard_too(monkeypatch):
+    _app()
+    manager = ContextMenuManager(FakeSettings())
+    env = _selection_environment(
+        monkeypatch, manager, window_class="Chrome_WidgetWin_1", copied=None
+    )
+
+    assert manager._try_get_selected_text() == ""
+
+    # The sentinel is still there: the usual conditional restore removes it.
+    assert [snapshot for snapshot, _expected in env.restores] == ["snapshot"]
+    assert env.restores[0][1].startswith("__SUPERMENU_EMPTY_SELECTION_")
+    assert env.unconditional_restores == []
     manager.close()
 
 

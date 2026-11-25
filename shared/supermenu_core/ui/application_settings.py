@@ -62,6 +62,7 @@ class ApplicationSettings(QGroupBox):
 
 TEXT_ENGINE_NAMES = {
     "openai": "OpenAI",
+    "anthropic": "Anthropic",
     "custom": "Ollama / LM Studio",
     "foundry": "Foundry Local",
     "apple": "Apple Intelligence",

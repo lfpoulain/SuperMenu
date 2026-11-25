@@ -38,9 +38,9 @@ selection.
   you are writing it, then gets out of the way.
 - **Your actions, your shortcuts.** A dozen ready-made prompts that you can
   edit, extend with your own and reorder.
-- **The engine of your choice.** OpenAI in the cloud, or a local model
-  (Ollama, LM Studio, Foundry Local on Windows, Apple Intelligence on macOS)
-  when your text must not leave your machine.
+- **The engine of your choice.** OpenAI or Anthropic (Claude) in the cloud,
+  or a local model (Ollama, LM Studio, Foundry Local on Windows, Apple
+  Intelligence on macOS) when your text must not leave your machine.
 - **Simple by default.** A new installation shows only the essentials; the
   advanced and experimental features can be turned on in the settings whenever
   you need them.
@@ -97,8 +97,8 @@ features.
 For fine control over which model handles what.
 
 - **One model per prompt**: for each prompt, text or voice, choose the engine
-  (OpenAI, the configured Ollama or LM Studio server, Foundry Local on Windows
-  or Apple Intelligence on macOS), the model and, with LM Studio, the LM Link
+  (OpenAI, Anthropic, the configured Ollama or LM Studio server, Foundry Local
+  on Windows or Apple Intelligence on macOS), the model and, with LM Studio, the LM Link
   device that runs it. Local copies and LM Link copies of the same model are
   told apart.
 - **A direct shortcut per prompt**, to run an action without opening the
@@ -162,6 +162,7 @@ service.
 | Engine | Where the model runs | Windows | macOS | What you need |
 |---|---|:---:|:---:|---|
 | **OpenAI** | OpenAI cloud | ✅ | ✅ | an OpenAI API key (pay as you go) |
+| **Anthropic** — Claude | Anthropic cloud | ✅ | ✅ | an Anthropic API key (pay as you go) |
 | **Ollama** | your machine or the server you specify | ✅ | ✅ | a reachable Ollama server |
 | **LM Studio**, including **LM Link** | your machine, the server you specify or a device connected through LM Link | ✅ | ✅ | a reachable LM Studio server |
 | **Foundry Local** — Qwen3.5 4B or 9B | this PC | ✅ | — | Windows 11 24H2 or later; model downloaded from the settings; 16 GB of RAM recommended for 4B, 24 GB for 9B |
@@ -194,7 +195,7 @@ and each keeps its own native integrations.
 | Where it lives | icon in the notification area | icon in the menu bar |
 | Prompt menu, custom mode, answer window | ✅ | ✅ |
 | Answer inserted into the original application | ✅ | ✅ |
-| OpenAI, Ollama, LM Studio and LM Link | ✅ | ✅ |
+| OpenAI, Anthropic, Ollama, LM Studio and LM Link | ✅ | ✅ |
 | Built-in local AI | Foundry Local · Qwen3.5 (Windows 11 24H2+) | Apple Intelligence (macOS 26+) |
 | Advanced features | ✅ | ✅ |
 | Voice prompts and dictation *(experimental)* | OpenAI or Nemotron 3.5 | OpenAI or Apple Speech (macOS 26+) |
@@ -346,16 +347,17 @@ is reported.
 - **Local engines**: with Foundry Local, Apple Intelligence, Nemotron or Apple
   Speech, text and voice are processed on your computer; with Ollama or
   LM Studio, on the server you specified.
-- **Separate keys**: the OpenAI key is only sent to OpenAI, and the optional
-  token of an Ollama or LM Studio server only to that server.
+- **Separate keys**: the OpenAI key is only sent to OpenAI, the Anthropic key
+  only to Anthropic, and the optional token of an Ollama or LM Studio server
+  only to that server.
 - **Imported prompts**: server addresses in an imported prompt file are
   ignored, so an imported prompt can only use engines already configured in
   your settings. With the advanced features, however, it can pick its own
   engine, for example OpenAI if your key is saved, even if your usual engine is
   local: check the model of imported prompts.
 - **Where secrets are stored**:
-  - Windows: the OpenAI key and the server token are kept in **Windows
-    Credential Manager**, outside the `%USERPROFILE%\SuperMenu.ini` settings
+  - Windows: the OpenAI and Anthropic keys and the server token are kept in
+    **Windows Credential Manager**, outside the `%USERPROFILE%\SuperMenu.ini` settings
     file. Uninstalling offers to delete settings, logs and keys;
   - macOS: in the settings file
     `~/Library/Application Support/SuperMenu/SuperMenu.ini`, readable only by
@@ -565,6 +567,6 @@ pynput…) that remain under their own licenses: the list and the texts are in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [licenses/](licenses).
 AI models downloaded from SuperMenu come with their own terms.
 
-OpenAI, Ollama, LM Studio, Apple Intelligence and Microsoft Foundry Local are
-trademarks of their respective owners; SuperMenu is not affiliated with any of
+OpenAI, Anthropic, Claude, Ollama, LM Studio, Apple Intelligence and Microsoft
+Foundry Local are trademarks of their respective owners; SuperMenu is not affiliated with any of
 these providers.

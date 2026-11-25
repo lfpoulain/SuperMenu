@@ -90,3 +90,23 @@ def test_blocks_then_an_orphan_closing_tag_keep_every_trace():
 
     assert visible == "réponse"
     assert reasoning == "a\n\nb"
+
+
+def test_a_pair_quoted_inside_a_sentence_stays_in_the_answer():
+    """Correcting a text about think tags must not delete the quoted block."""
+    for text in (
+        "Le modèle émet <think>son raisonnement</think> avant de répondre.",
+        "Entre crochets : [think]raisonnement[/think], selon le modèle.",
+        "Fermez le bloc ouvert par <think> avec </think>\nPuis répondez.",
+    ):
+        assert thinking.split_inline_thinking(text) == (text, "")
+        assert thinking.mask_thinking(text) == (text, False)
+
+
+def test_a_block_after_the_answer_is_still_reasoning():
+    visible, reasoning = thinking.split_inline_thinking(
+        "Début de réponse\n  <think>vérification</think>\nfin de réponse"
+    )
+
+    assert visible == "Début de réponse\n\nfin de réponse"
+    assert reasoning == "vérification"

@@ -88,9 +88,9 @@ def test_openai_payload_uses_explicit_model_capabilities(
 
 def test_explicit_legacy_openai_model_is_migrated_before_request():
     client = OpenAIClient(
-        FakeSettings(model="gpt-5.2", reasoning_effort="none"),
+        FakeSettings(model="gpt-5.1", reasoning_effort="none"),
         api_key="key",
-        model="gpt-5.2",
+        model="gpt-5.1",
     )
 
     data, _ = client._build_request_data("Question", "")

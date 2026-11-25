@@ -3,7 +3,9 @@
 
 """Helpers shared by the OpenAI, Ollama and LM Studio paths."""
 
+import ipaddress
 import logging
+from urllib.parse import urlsplit
 
 from supermenu_core.utils.thinking import split_inline_thinking
 
@@ -15,13 +17,61 @@ def log(message, level=logging.INFO):
     logger.log(level, message)
 
 
+def is_local_url(url):
+    """Whether ``url`` names this computer or a machine of the local network.
+
+    Loopback, private and link-local addresses, "localhost", ".local" names
+    and single-label names ("gpu-box") are reached directly, never through
+    the proxy configured for Internet access.
+    """
+    try:
+        host = (urlsplit(str(url or "")).hostname or "").lower()
+    except ValueError:
+        return False
+    if not host:
+        return False
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return (
+            host == "localhost"
+            or host.endswith((".localhost", ".local"))
+            or "." not in host
+        )
+    return address.is_loopback or address.is_private or address.is_link_local
+
+
+def endpoint_label(url):
+    """Describe a server for a log line, without any credential of its URL."""
+    try:
+        parts = urlsplit(str(url or ""))
+        host = parts.hostname or ""
+        port = f":{parts.port}" if parts.port else ""
+    except ValueError:
+        return "(adresse illisible)"
+    if not host:
+        return "(adresse absente)"
+    if ":" in host:  # IPv6 literal
+        host = f"[{host}]"
+    return f"{parts.scheme}://{host}{port}{parts.path}"
+
+
 def models_base_url(endpoint_url, is_ollama, lmstudio=False):
     base = (endpoint_url or "").rstrip("/")
     if is_ollama:
-        if base.endswith("/api/chat"):
-            return base[: -len("/api/chat")]
-        if base.endswith("/api"):
-            return base[: -len("/api")]
+        # Longest suffixes first. "http://localhost:11434/v1", the address
+        # Ollama documents for OpenAI clients, is the same server.
+        for suffix in (
+            "/v1/chat/completions",
+            "/v1/models",
+            "/api/generate",
+            "/api/chat",
+            "/api/tags",
+            "/api",
+            "/v1",
+        ):
+            if base.endswith(suffix):
+                return base[: -len(suffix)]
         return base
 
     if lmstudio:

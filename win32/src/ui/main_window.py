@@ -349,6 +349,12 @@ class MainWindow(HotkeyActionsMixin, PromptPageMixin, SettingsPageMixin, QMainWi
 
     def check_for_updates(self, silent=False):
         if self._update_check_worker and self._update_check_worker.isRunning():
+            if not silent and self._update_check_silent:
+                # A manual check while the silent one is running: report its
+                # result instead of ignoring the click.
+                self._update_check_silent = False
+                self._update_loading = SimpleLoadingIndicator("Vérification des mises à jour…")
+                self._update_loading.show()
             return
 
         self._update_check_silent = bool(silent)
@@ -680,6 +686,7 @@ class MainWindow(HotkeyActionsMixin, PromptPageMixin, SettingsPageMixin, QMainWi
             self.api_key_input.setText(self.settings.get_api_key())
             self.model_combo.setCurrentText(self.settings.get_model())
             self.update_reasoning_effort_ui()
+            self.anthropic_group.reload()
             # Reload custom endpoint configuration
             self.ai_provider_combo.setCurrentIndex(self.ai_provider_combo.findData(self.settings.get_ai_provider()))
             self.foundry_group.model_combo.setCurrentIndex(
@@ -776,7 +783,8 @@ class MainWindow(HotkeyActionsMixin, PromptPageMixin, SettingsPageMixin, QMainWi
         
         # Add actions to the tray menu
         open_action = QAction("Ouvrir SuperMenu", self)
-        open_action.triggered.connect(self.show)
+        # show() alone neither restores a minimized window nor raises it.
+        open_action.triggered.connect(lambda _checked=False: self.show_main_window())
         tray_menu.addAction(open_action)
 
         update_action = QAction("Vérifier les mises à jour", self)

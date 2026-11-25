@@ -96,7 +96,12 @@ def test_error_is_shown_as_failure_and_cannot_be_inserted(app):
     window.set_error(error)
     window.set_loading(False)
     assert window.has_error
-    assert window.response_text.toPlainText() == error
+    # The application's "Erreur:" wording is dropped: the cause says it once.
+    shown = (
+        "Le fournisseur a refusé la clé API. Vérifiez-la dans les réglages."
+        '\n\nDétail : Erreur 401: {"error": "invalid_api_key"}'
+    )
+    assert window.response_text.toPlainText() == shown
     assert "Terminé" not in window.status_label.text()
     assert window.status_label.property("status") == "error"
     assert not window.write_button.isEnabled()
@@ -107,7 +112,7 @@ def test_error_is_shown_as_failure_and_cannot_be_inserted(app):
     assert window.inserted == []
     assert window._pending_paste_text is None
     window.copy_response()
-    assert QApplication.clipboard().text() == error
+    assert QApplication.clipboard().text() == shown
     window.close()
 
 

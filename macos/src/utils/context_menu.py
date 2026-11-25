@@ -68,6 +68,7 @@ class ContextMenuManager(PromptRequestCoordinator):
         super().__init__(settings, ResponseWindow)
         self.selection_reader = selection_reader or SelectionReader()
         self._menu_open = False
+        self._menu_presentation_pending = False
         self._selection_pending = False
         self._active_inserters = []
         self._active_menu = None
@@ -76,7 +77,7 @@ class ContextMenuManager(PromptRequestCoordinator):
 
     def _create_api_client(self, settings=None):
         settings = settings or self.settings
-        if settings.get_ai_provider() not in {"openai", "custom", "apple"}:
+        if settings.get_ai_provider() not in {"openai", "anthropic", "custom", "apple"}:
             raise ValueError("Le moteur choisi pour ce prompt est indisponible sur cet ordinateur.")
         if settings.get_ai_provider() == "apple":
             from src.api.apple_foundation_client import AppleFoundationClient
@@ -124,11 +125,40 @@ class ContextMenuManager(PromptRequestCoordinator):
         if self._closed:
             log("Ouverture du menu ignorée : service fermé", logging.WARNING)
             return
+        self._recover_stale_menu_state()
         if self._menu_open or self._selection_pending:
             log("Ouverture du menu ignorée : un menu est déjà ouvert")
             return
         log("Préparation du menu contextuel")
         self._capture_selection(self._present_menu, from_ui=from_ui)
+
+    def _recover_stale_menu_state(self) -> None:
+        """Forget a menu that no longer exists, so the shortcut keeps working.
+
+        The menu flag is cleared by the menu's own signals. If one is ever
+        missed, the shortcuts must not stay ignored until SuperMenu restarts.
+        """
+        if not self._menu_open:
+            return
+        menu = self._active_menu
+        try:
+            alive = menu is not None and (
+                menu.isVisible()
+                or getattr(self, "_menu_presentation_pending", False)
+            )
+        except RuntimeError:  # The Qt menu was already destroyed.
+            alive = False
+        if alive:
+            return
+        log("État de menu obsolète réinitialisé", logging.WARNING)
+        self._active_menu = None
+        self._menu_open = False
+        self._menu_presentation_pending = False
+        if menu is not None:
+            try:
+                menu.deleteLater()
+            except RuntimeError:
+                pass
 
     def _present_menu(self, selected_text, target) -> None:
         if self._menu_open:
@@ -137,24 +167,36 @@ class ContextMenuManager(PromptRequestCoordinator):
         menu = QMenu()
         self._menu_open = True
         self._active_menu = menu
+        # True until Qt was asked to show the menu: a menu waiting for the
+        # application to become active is not stale.
+        self._menu_presentation_pending = True
         action_dispatched = False
-        populate_prompt_menu(
-            menu, self.settings.get_prompts(),
-            lambda prompt_id: ("prompt", prompt_id), enabled=bool(selected_text),
-        )
-        menu.addSeparator()
-        custom_action = menu.addAction("Mode personnalisé…")
-        custom_action.setData(("custom", None))
-        # Voice prompts and dictation belong to the experimental features.
-        if experimental_enabled(self.settings):
-            voice_menu = menu.addMenu("Voix")
-            populate_voice_menu(voice_menu, self.settings.get_voice_prompts(), lambda kind, key: (kind, key))
+        try:
+            populate_prompt_menu(
+                menu, self.settings.get_prompts(),
+                lambda prompt_id: ("prompt", prompt_id), enabled=bool(selected_text),
+            )
+            menu.addSeparator()
+            custom_action = menu.addAction("Mode personnalisé…")
+            custom_action.setData(("custom", None))
+            # Voice prompts and dictation belong to the experimental features.
+            if experimental_enabled(self.settings):
+                voice_menu = menu.addMenu("Voix")
+                populate_voice_menu(voice_menu, self.settings.get_voice_prompts(), lambda kind, key: (kind, key))
+        except Exception:
+            # A menu that cannot be built must not leave the shortcuts dead.
+            self._active_menu = None
+            self._menu_open = False
+            self._menu_presentation_pending = False
+            menu.deleteLater()
+            raise
 
         def cleanup_menu():
             if self._active_menu is not menu:
                 return
             self._active_menu = None
             self._menu_open = False
+            self._menu_presentation_pending = False
             menu.deleteLater()
             log("Menu contextuel fermé")
             if not action_dispatched and target is not None:
@@ -212,6 +254,7 @@ class ContextMenuManager(PromptRequestCoordinator):
                 # which is what the menu actually needed.
                 menu.popup(QCursor.pos())
                 menu.raise_()
+                self._menu_presentation_pending = False
                 log("Affichage du menu contextuel demandé à Qt")
                 QTimer.singleShot(
                     MENU_VISIBILITY_CHECK_DELAY_MS,
@@ -256,17 +299,21 @@ class ContextMenuManager(PromptRequestCoordinator):
             )
             QTimer.singleShot(MENU_FORCED_ACTIVATION_DELAY_MS, popup_menu)
 
-        menu.triggered.connect(handle_action)
-        menu.aboutToShow.connect(lambda: log("Signal Qt : menu prêt à apparaître"))
-        menu.aboutToHide.connect(lambda: QTimer.singleShot(0, cleanup_menu))
-        activation_requested = activate_current_application()
-        log(
-            "Demande d’activation moderne envoyée à macOS"
-            if activation_requested
-            else "Demande d’activation macOS indisponible",
-            logging.INFO if activation_requested else logging.WARNING,
-        )
-        QTimer.singleShot(0, popup_when_application_is_active)
+        try:
+            menu.triggered.connect(handle_action)
+            menu.aboutToShow.connect(lambda: log("Signal Qt : menu prêt à apparaître"))
+            menu.aboutToHide.connect(lambda: QTimer.singleShot(0, cleanup_menu))
+            activation_requested = activate_current_application()
+            log(
+                "Demande d’activation moderne envoyée à macOS"
+                if activation_requested
+                else "Demande d’activation macOS indisponible",
+                logging.INFO if activation_requested else logging.WARNING,
+            )
+            QTimer.singleShot(0, popup_when_application_is_active)
+        except Exception:
+            cleanup_menu()
+            raise
 
     def start_dictation(self, *, from_ui=False, target=None):
         # Read at use time: the status menu, the voice menu, the « Dicter »
@@ -280,6 +327,9 @@ class ContextMenuManager(PromptRequestCoordinator):
         if self._dictation is not None:
             self._dictation.cleanup()
             self._dictation.deleteLater()
+            # Cleared now: if the next session cannot be created (invalid
+            # dictation settings), no deleted object is kept for later calls.
+            self._dictation = None
 
         def insert(text, finished, active):
             inserter = TextInserter()
@@ -305,8 +355,24 @@ class ContextMenuManager(PromptRequestCoordinator):
             )
             activate_current_application()
             self._dictation.start_voice_recognition()
+            self._raise_dictation_window()
         except ValueError as exc:
             SafeDialogs.show_information("Réglages de dictée", str(exc))
+
+    def _raise_dictation_window(self):
+        """Put the dictation window above the application the user is in.
+
+        The cooperative activation requested just before may be declined by
+        macOS: the window must still be visible while the microphone is open.
+        """
+        dialog = getattr(self._dictation, "recording_dialog", None)
+        if dialog is None:
+            return
+        try:
+            dialog.raise_()
+            dialog.activateWindow()
+        except RuntimeError:  # Already closed by an immediate failure.
+            pass
 
     def start_instant_dictation(self):
         # Checked before touching _instant_session: finishing must never stop
@@ -346,6 +412,7 @@ class ContextMenuManager(PromptRequestCoordinator):
             )
             activate_current_application()
             self._dictation.start_voice_recognition()
+            self._raise_dictation_window()
         except ValueError as exc:
             SafeDialogs.show_information("Réglages de dictée", str(exc))
 

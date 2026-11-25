@@ -55,6 +55,33 @@ def test_configuration_errors_offer_to_open_the_settings(window, message):
     assert not window.isVisible()
 
 
+# Both applications show a failure through RequestFeedback.response_error:
+# "Erreur: {error}" on Windows, "Erreur : {error}" on macOS.
+@pytest.mark.parametrize("wrapper", ["Erreur: {error}", "Erreur : {error}"])
+@pytest.mark.parametrize(
+    "error",
+    [
+        "Clé API non configurée. Veuillez configurer votre clé API dans les paramètres.",
+        "Configuration personnalisée incomplète. Renseignez obligatoirement l'endpoint et le modèle.",
+        'Erreur 401: {"error": {"code": "invalid_api_key"}}',
+        "Clé API Anthropic non configurée. Renseignez-la dans Réglages > Texte.",
+        "Anthropic a refusé la clé API. Vérifiez-la dans Réglages > Texte. Détail : invalid x-api-key",
+    ],
+)
+def test_errors_as_the_applications_report_them_offer_the_settings(
+    window, wrapper, error
+):
+    message = wrapper.format(error=error)
+
+    window.set_error(message)
+
+    assert error_needs_settings(message)
+    assert not window.settings_button.isHidden()
+    # The wording added by the application is shown once, not twice.
+    assert "Erreur: Erreur" not in window.response_text.toPlainText()
+    assert "Erreur : Erreur" not in window.response_text.toPlainText()
+
+
 def test_other_errors_and_answers_do_not_offer_the_settings(window):
     window.set_error("Erreur: la connexion a été interrompue")
     assert window.settings_button.isHidden()

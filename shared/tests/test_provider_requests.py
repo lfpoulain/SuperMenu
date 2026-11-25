@@ -563,6 +563,66 @@ def test_connection_failures_are_still_retried(monkeypatch, failure):
     client.close()
 
 
+def test_overloaded_provider_is_retried(monkeypatch):
+    calls = []
+
+    def fake_post(*_args, **_kwargs):
+        calls.append(1)
+        return SimpleNamespace(status_code=529 if len(calls) < 3 else 200)
+
+    monkeypatch.setattr(client_module._SESSION, "post", fake_post)
+    client = OpenAIClient(FakeSettings(), api_key="test", retry_delay=0)
+
+    assert client._make_request_with_retry({}, {"model": "x"}, timeout=60).status_code == 200
+    assert len(calls) == 3
+    client.close()
+
+
+# OpenAI changes the efforts a model accepts: a prompt must not fail on it.
+
+def test_openai_effort_the_model_rejects_falls_back_to_its_default(monkeypatch):
+    client = _client("openai", "gpt-6.2-sol")
+    sent = []
+
+    def fake_post(headers, data, timeout=60, api_url=None):
+        sent.append(dict(data))
+        if "reasoning_effort" in data:
+            return SimpleNamespace(
+                status_code=400,
+                text="Unsupported value: 'reasoning_effort' does not support 'low'.",
+            )
+        return SimpleNamespace(status_code=200, text="")
+
+    monkeypatch.setattr(client, "_make_request_with_retry", fake_post)
+    data, _ = client._build_request_data("Corrige", "Texte")
+    # "none" is not offered by this model: the lightest effort is sent.
+    assert data["reasoning_effort"] == "low"
+
+    response = client._perform_request({}, data, timeout=5)
+
+    assert response.status_code == 200
+    assert len(sent) == 2
+    assert "reasoning_effort" not in sent[1]
+    assert {**sent[1], "reasoning_effort": "low"} == sent[0]
+    client.close()
+
+
+def test_other_openai_bad_requests_are_returned_as_they_are(monkeypatch):
+    client = _client("openai", "gpt-6.2-sol")
+    sent = []
+
+    def fake_post(headers, data, timeout=60, api_url=None):
+        sent.append(data)
+        return SimpleNamespace(status_code=400, text="Invalid model")
+
+    monkeypatch.setattr(client, "_make_request_with_retry", fake_post)
+    data, _ = client._build_request_data("Corrige", "Texte")
+
+    assert client._perform_request({}, data, timeout=5).status_code == 400
+    assert len(sent) == 1
+    client.close()
+
+
 # The legacy synchronous API follows the same rules.
 
 def test_legacy_sync_request_refuses_an_incomplete_custom_configuration():

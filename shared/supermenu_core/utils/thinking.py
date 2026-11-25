@@ -12,10 +12,20 @@ window masked them again with its own parallel regexes. One format, one parser.
 import re
 
 
-THINK_BLOCK_RE = re.compile(r"<think\b[^>]*>(.*?)</think>", re.IGNORECASE | re.DOTALL)
+# A block only counts when its opening tag starts a line, as models emit it:
+# a pair quoted inside a sentence ("the model emits <think>...</think> first")
+# is part of the answer and must not be cut out of the text being corrected.
+THINK_BLOCK_RE = re.compile(
+    r"^[ \t]*<think\b[^>]*>(.*?)</think>",
+    re.IGNORECASE | re.DOTALL | re.MULTILINE,
+)
 THINK_TAG_RE = re.compile(r"</?think\b[^>]*>", re.IGNORECASE)
-BRACKET_THINK_BLOCK_RE = re.compile(r"\[think\](.*?)\[/think\]", re.IGNORECASE | re.DOTALL)
+BRACKET_THINK_BLOCK_RE = re.compile(
+    r"^[ \t]*\[think\](.*?)\[/think\]",
+    re.IGNORECASE | re.DOTALL | re.MULTILINE,
+)
 BRACKET_THINK_TAG_RE = re.compile(r"\[/?think\]", re.IGNORECASE)
+_OPEN_TAG_RE = re.compile(r"<think\b[^>]*>|\[think\]", re.IGNORECASE)
 
 # An unclosed block only counts when its tag opens a line: a literal "<think>"
 # quoted in the middle of an answer must not swallow the rest of the text.
@@ -41,6 +51,10 @@ def _split_at_last(pattern, visible, reasoning_parts):
         return visible
     last = closings[-1]
     head = visible[: last.start()]
+    if _OPEN_TAG_RE.search(head):
+        # The closing tag has its opening one in the text: a quoted pair that
+        # happens to end its line, not the end of a reasoning trace.
+        return visible
     head = BRACKET_THINK_TAG_RE.sub("", THINK_TAG_RE.sub("", head)).strip()
     if head:
         reasoning_parts.append(head)

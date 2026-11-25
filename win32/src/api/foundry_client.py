@@ -225,7 +225,17 @@ class FoundryService(QObject):
 
     def _write_active(self):
         if self._active and self._process is not None:
-            payload = encode_json_line(self._active, ensure_ascii=False)
+            try:
+                payload = encode_json_line(self._active, ensure_ascii=False)
+            except (UnicodeError, ValueError):
+                # A lone surrogate (half an emoji left by a truncated copy)
+                # cannot be encoded. Without this, nothing was sent and the
+                # request blocked every later one until its 10-minute timeout.
+                self._abort(
+                    "Le texte contient un caractère invalide (emoji tronqué). "
+                    "Corrigez la sélection, puis réessayez."
+                )
+                return
             self._process.write(payload)
 
     def _read(self):

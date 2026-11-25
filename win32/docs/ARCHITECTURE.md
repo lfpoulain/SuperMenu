@@ -100,9 +100,10 @@ instance relancée les retrouve libres.
 ### Configuration
 
 `src/config/settings.py` (`Settings`) persiste les réglages dans un fichier INI
-via `QSettings` (`%USERPROFILE%\SuperMenu.ini`). La clé OpenAI et le jeton
-d’endpoint sont stockés séparément avec `keyring`, dans le Gestionnaire
-d’identification Windows. `Settings` valide et migre les modèles, les
+via `QSettings` (`%USERPROFILE%\SuperMenu.ini`). La clé OpenAI, la clé
+Anthropic et le jeton d’endpoint sont stockés séparément avec `keyring`, dans
+le Gestionnaire d’identification Windows ; un refus d’écriture est signalé et
+rien n’est enregistré. `Settings` valide et migre les modèles, les
 prompts, les raccourcis, les réglages vocaux et le délai de déchargement des
 modèles locaux, et porte les interrupteurs des fonctions avancées et
 expérimentales. `Settings` respecte le contrat attendu par le cœur partagé,
@@ -179,7 +180,9 @@ fonctions soient actives ou non.
   vocal, capture, dictée instantanée) et un `PromptHotkeyManager` pour les
   raccourcis des prompts ;
 - `HotkeyRecorderDialog` capture la combinaison avec les événements Qt, sans
-  hook clavier global. Pendant l’enregistrement, tous les raccourcis de
+  hook clavier global. Avec Ctrl enfoncé, Windows envoie un caractère de
+  contrôle à la place de la lettre : la lettre est alors lue dans
+  `QKeyEvent.key()`. Pendant l’enregistrement, tous les raccourcis de
   SuperMenu sont libérés, puis réenregistrés avant d’appliquer le nouveau :
   un conflit avec un autre raccourci de SuperMenu est donc refusé.
 
@@ -263,7 +266,9 @@ toucher aux autres réglages du prompt.
 - `ClipboardManager.capture_snapshot` clone tous les formats annoncés, images
   comprises (via `imageData()` pour `application/x-qt-image`), et
   `restore_if_unchanged` ne restaure que si le presse-papiers contient encore
-  la valeur écrite par SuperMenu.
+  la valeur écrite par SuperMenu. Quand la copie n’a produit aucun texte
+  (fichiers ou image sélectionnés), `restore_snapshot` remet le contenu de
+  l’utilisateur : seule la copie de SuperMenu l’avait remplacé.
 - Les écritures internes (sentinelle de copie, réponse à coller) passent par
   `set_text(..., transient=True)`, qui ajoute
   `ExcludeClipboardContentFromMonitorProcessing`,
@@ -363,7 +368,9 @@ sont partagés avec macOS ; la capture de sélection et l’insertion restent da
 ### Capture d’écran
 
 1. Le raccourci de capture déclenche `ContextMenuManager`, qui lit le mode :
-   `fullscreen`, `region` ou `ask` (menu au curseur).
+   `fullscreen`, `region` ou `ask` (menu au curseur). Il est ignoré pendant
+   une capture en cours et tant qu’un dialogue modal de SuperMenu est ouvert,
+   que la capture fermerait comme une annulation.
 2. `ResponseWindow` est masquée pendant la capture ; un filtre d’événements
    empêche de réafficher une fenêtre fermée entre-temps.
 3. `screen_capture.py` capture l’écran principal (`ImageGrab.grab()`) ou la

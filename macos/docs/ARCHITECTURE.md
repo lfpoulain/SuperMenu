@@ -102,7 +102,8 @@ macos/
 
 `shared/supermenu_core` possède :
 
-- le client OpenAI et les endpoints compatibles, Ollama et LM Studio ;
+- le client OpenAI, Anthropic et les endpoints compatibles, Ollama et
+  LM Studio ;
 - les capacités des modèles et les options de raisonnement ;
 - les prompts textuels et vocaux, leur validation, leur réparation et leurs
   copies de sauvegarde ;
@@ -248,6 +249,12 @@ raccourci remplace seulement la table des liaisons, sous verrou. Seul un
 raccourci reconnu est journalisé, sous sa forme normalisée : aucune touche
 observée n’est écrite dans le journal.
 
+Le détecteur compare d’abord `charactersIgnoringModifiers`, puis, faute de
+liaison, le caractère réellement tapé (`characters`) : sur les dispositions
+qui passent en lettres latines sous Command (russe, grec, hébreu, arabe,
+Dvorak-QWERTY), l’enregistreur Qt mémorise la lettre latine. Les touches de
+fonction s’arrêtent à F20, comme la table de touches de macOS.
+
 `HotkeyService` fusionne quatre propriétaires : menu principal, mode
 personnalisé, dictée instantanée et raccourcis des prompts. Une combinaison
 n’appartient qu’à un propriétaire. Le service est suspendu pendant
@@ -311,6 +318,10 @@ vues personnalisées n’exposent rien d’exploitable.
 7. la sélection est livrée ;
 8. l’ancien contenu est restauré seulement si personne d’autre ne l’a modifié.
 
+Le snapshot clone tous les formats annoncés par Qt ; une image passe par
+`imageData()`, car `QMimeData.data()` la rendrait vide et la restauration
+détruirait l’image copiée par l’utilisateur.
+
 La sentinelle distingue une absence de sélection d’un ancien texte resté dans
 le presse-papiers. `ClipboardManager.set_clipboard_text_safe`, utilisé pour la
 sentinelle et pour la réponse à coller, écrit via `NSPasteboard` avec
@@ -357,7 +368,11 @@ sequenceDiagram
 ```
 
 `ContextMenuManager` empêche deux menus ou lectures de sélection de se
-chevaucher. Il suit les requêtes par `request_id` et garde un ancien client IA
+chevaucher. Ces verrous ne peuvent pas rester posés : un menu impossible à
+construire les libère, `_recover_stale_menu_state()` oublie au raccourci
+suivant un menu qui n’existe plus, et une exception dans une étape planifiée
+du presse-papiers (lecture ou insertion) termine l’opération au lieu de la
+laisser en attente. Il suit les requêtes par `request_id` et garde un ancien client IA
 en vie jusqu’à la fin de ses requêtes quand un réglage change ;
 `update_client_config()` vide aussi le cache partagé des capacités des
 modèles. Un prompt qui choisit son propre modèle reçoit un client dédié.
@@ -408,6 +423,11 @@ deviennent des codes stables et des messages en français ; un composant
 absent demande de réinstaller SuperMenu. Ce client n’envoie aucune requête
 réseau et ne bascule jamais vers un autre fournisseur.
 
+La version de macOS est lue par `src/utils/system_version.py`, qui prend la
+plus haute de `sw_vers` et de `platform.mac_ver()` : un exécutable lié à un
+ancien SDK reçoit une version de compatibilité (16 au lieu de 26) qui
+masquerait Apple Intelligence et Apple Speech.
+
 `QProcess` garde l’interface réactive : une vérification de disponibilité a
 un délai de 15 secondes, une génération de 120 secondes. Fermer l’application
 tue les processus encore actifs. Chaque génération crée une nouvelle session
@@ -420,6 +440,12 @@ La capture microphone Qt, `DictationSession`, `PlainDictationSession` et la
 fenêtre de transcription viennent du cœur partagé. `src/audio/speech_backend.py`
 choisit OpenAI ou Apple Speech, via `native/SpeechHelper.swift` (macOS 26 ou
 plus récent). L’autorisation Microphone est demandée avant la capture.
+
+La fenêtre de dictée est un panneau `Qt.Tool` : elle porte
+`WA_MacAlwaysShowToolWindow`, sans quoi AppKit la masque dès que SuperMenu
+n’est plus l’application active (clic dans le document, insertion du texte),
+micro encore ouvert. Elle est remontée au premier plan après le démarrage de
+la reconnaissance.
 
 Le service partagé des modèles résidents garde le processus Apple Speech entre
 les dictées, avec une nouvelle session de transcription pour chacune, et le
@@ -446,7 +472,7 @@ annulation ignore les résultats tardifs.
 ```
 
 Le fichier est remis en `0600` après chaque écriture et contient endpoints,
-clés, modèles, raisonnement, raccourcis, prompts, thème et canal de mise à
+clés (OpenAI, Anthropic, jeton d’endpoint), modèles, raisonnement, raccourcis, prompts, thème et canal de mise à
 jour. Les prompts passent par le schéma partagé : en lecture,
 `repair_prompt_collection` répare ou écarte une entrée invalide sans effacer
 les autres et copie la valeur brute dans `prompts_backups` ; en écriture,

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
-from supermenu_core.config.openai_models import (
-    AVAILABLE_MODELS,
-    get_reasoning_efforts_for_model,
-)
+from supermenu_core.config.openai_models import get_reasoning_efforts_for_model
 from supermenu_core.config.provider_settings import CUSTOM_REASONING_EFFORTS
+from supermenu_core.ui.cloud_models import (
+    AnthropicSettingsGroup,
+    populate_openai_models,
+)
 from supermenu_core.ui.controls import ChoiceBox
 from supermenu_core.ui.model_catalog import (
     DeviceNameButton,
@@ -89,6 +90,7 @@ class SettingsPageMixin:
         layout.addWidget(QLabel("Moteur de texte"))
         self.provider_combo = ChoiceBox()
         self.provider_combo.addItem("OpenAI", "openai")
+        self.provider_combo.addItem("Anthropic — Claude", "anthropic")
         self.provider_combo.addItem("Ollama / LM Studio", "custom")
         self.provider_combo.addItem("Apple Intelligence — local", "apple")
         self.provider_combo.setCurrentIndex(
@@ -106,7 +108,7 @@ class SettingsPageMixin:
         api_layout.addWidget(self.api_key)
         api_layout.addWidget(QLabel("Modèle"))
         self.model_combo = ChoiceBox()
-        self.model_combo.addItems(AVAILABLE_MODELS)
+        populate_openai_models(self.model_combo)
         self.model_combo.setCurrentText(self.settings.get_model())
         self.model_combo.currentTextChanged.connect(self._refresh_reasoning_options)
         api_layout.addWidget(self.model_combo)
@@ -116,6 +118,9 @@ class SettingsPageMixin:
         openai_advanced.content_layout.addWidget(self.reasoning_combo)
         api_layout.addWidget(openai_advanced)
         layout.addWidget(api_group)
+
+        self.anthropic_group = AnthropicSettingsGroup(self.settings)
+        layout.addWidget(self.anthropic_group)
 
         endpoint_group = QGroupBox("Endpoint personnalisé (Ollama, etc.)")
         endpoint_layout = QVBoxLayout(endpoint_group)
@@ -327,6 +332,7 @@ class SettingsPageMixin:
     def toggle_provider(self, *_args):
         provider = self.provider_combo.currentData()
         self.openai_group.setVisible(provider == "openai")
+        self.anthropic_group.setVisible(provider == "anthropic")
         self.custom_group.setVisible(provider == "custom")
         self.apple_group.setVisible(provider == "apple")
         if provider == "apple":
@@ -525,6 +531,11 @@ class SettingsPageMixin:
         worker.deleteLater()
 
     def _validate_endpoint_settings(self):
+        if self.provider_combo.currentData() == "anthropic":
+            message = self.anthropic_group.validation_error()
+            if message:
+                QMessageBox.warning(self, "Clé API invalide", message)
+                return False
         if self.provider_combo.currentData() != "custom":
             return True
         valid, message = Validators.validate_url(self.custom_endpoint.text())
@@ -564,6 +575,7 @@ class SettingsPageMixin:
         self.settings.set_openai_reasoning_effort(
             self.reasoning_combo.currentText(), model
         )
+        self.anthropic_group.save()
         self.settings.set_ai_provider(self.provider_combo.currentData())
         self.settings.set_custom_endpoint(self.custom_endpoint.text())
         self.settings.set_custom_endpoint_api_key(

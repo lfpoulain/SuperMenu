@@ -6,6 +6,7 @@ Fenêtre de réponse modernisée avec pyqtdarktheme
 """
 
 import logging
+import re
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -30,16 +31,29 @@ NO_FINAL_ANSWER = "(Aucune réponse finale : le modèle n’a renvoyé que son r
 # Errors the user fixes in the settings rather than by retrying.
 _SETTINGS_ERROR_PREFIXES = (
     "Clé API non configurée",
+    "Clé API Anthropic non configurée",
     "Configuration personnalisée incomplète",
     "Erreur 401",
     "Erreur 403",
+    # Anthropic errors are already worded for the user (providers/anthropic).
+    "Anthropic a refusé la clé API",
+    "Cette clé API Anthropic",
 )
 _REJECTED_KEY_PREFIXES = ("Erreur 401", "Erreur 403")
+# Each application reports a failure as "Erreur: <cause>" (Windows) or
+# "Erreur : <cause>" (macOS), and a failed worker adds its own "Erreur:".
+_ERROR_WORDING = re.compile(r"^\s*Erreur\s*:\s*")
+_ERROR_WRAPPER = re.compile(r"^(?:\s*Erreur\s*:\s*)+")
+
+
+def error_cause(message):
+    """Return the error without the "Erreur :" wording wrapped around it."""
+    return _ERROR_WRAPPER.sub("", str(message or "")).lstrip()
 
 
 def error_needs_settings(message):
     """True when a failed request is fixed in the settings (key, endpoint)."""
-    return str(message or "").lstrip().startswith(_SETTINGS_ERROR_PREFIXES)
+    return error_cause(message).startswith(_SETTINGS_ERROR_PREFIXES)
 
 
 class BaseResponseWindow(QWidget):
@@ -232,11 +246,17 @@ class BaseResponseWindow(QWidget):
         self.think_toggle_button.setVisible(False)
         self.think_toggle_button.setEnabled(False)
         displayed = text
-        if text.lstrip().startswith(_REJECTED_KEY_PREFIXES):
+        cause = error_cause(text)
+        if cause.startswith(_REJECTED_KEY_PREFIXES):
             displayed = (
                 "Le fournisseur a refusé la clé API. Vérifiez-la dans les "
-                f"réglages.\n\nDétail : {text}"
+                f"réglages.\n\nDétail : {cause}"
             )
+        elif cause != text.lstrip():
+            # "Erreur: Erreur: délai dépassé" and "Erreur: Erreur 500: ..."
+            # read better with the word said once.
+            wording = _ERROR_WORDING.match(text).group(0).lstrip()
+            displayed = cause if cause.startswith("Erreur") else wording + cause
         self.response_text.setPlainText(displayed)
         self.title_label.setText(ERROR_TITLE)
         self.status_label.setText("❌ Échec de la requête")

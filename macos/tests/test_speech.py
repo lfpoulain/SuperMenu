@@ -23,7 +23,7 @@ def test_voice_provider_round_trip_is_independent_of_text(tmp_path):
 def test_apple_speech_backend_checks_os_without_cloud_fallback(monkeypatch, tmp_path):
     settings = Settings(str(tmp_path / "settings.ini"))
     monkeypatch.setattr(speech_backend.sys, "platform", "darwin")
-    monkeypatch.setattr(speech_backend.platform, "mac_ver", lambda: ("15.0", (), ""))
+    monkeypatch.setattr(speech_backend, "macos_major_version", lambda: 15)
     with pytest.raises(ValueError, match="macOS 26"):
         speech_backend.create_speech_backend(settings, {"provider": "apple"})
 
@@ -34,7 +34,7 @@ def test_apple_backend_launches_bundled_helper_without_key(monkeypatch, tmp_path
     helper = tmp_path / "SuperMenuSpeech"
     helper.write_text("")
     monkeypatch.setattr(speech_backend.sys, "platform", "darwin")
-    monkeypatch.setattr(speech_backend.platform, "mac_ver", lambda: ("26.0", (), ""))
+    monkeypatch.setattr(speech_backend, "macos_major_version", lambda: 26)
     monkeypatch.setattr(speech_backend, "resource_path", lambda *_: str(helper))
     backend = speech_backend.create_speech_backend(
         settings, {"provider": "apple", "language": "fr"}
@@ -54,7 +54,7 @@ def test_apple_backend_launches_bundled_helper_without_key(monkeypatch, tmp_path
 def test_openai_voice_remains_available_on_older_macos(monkeypatch, tmp_path):
     app = QApplication.instance() or QApplication([])
     settings = Settings(str(tmp_path / "settings.ini"))
-    monkeypatch.setattr(speech_backend.platform, "mac_ver", lambda: ("15.0", (), ""))
+    monkeypatch.setattr(speech_backend, "macos_major_version", lambda: 15)
     backend = speech_backend.create_speech_backend(settings, {"provider": "openai"})
     assert isinstance(backend, OpenAISpeechBackend)
     backend.cancel()
@@ -105,7 +105,7 @@ def test_missing_helper_message_matches_build(monkeypatch, tmp_path, frozen, exp
     settings = Settings(str(tmp_path / "settings.ini"))
     monkeypatch.setattr(speech_backend.sys, "platform", "darwin")
     monkeypatch.setattr(speech_backend.sys, "frozen", frozen, raising=False)
-    monkeypatch.setattr(speech_backend.platform, "mac_ver", lambda: ("26.0", (), ""))
+    monkeypatch.setattr(speech_backend, "macos_major_version", lambda: 26)
     monkeypatch.setattr(
         speech_backend, "resource_path", lambda *_: str(tmp_path / "absent")
     )

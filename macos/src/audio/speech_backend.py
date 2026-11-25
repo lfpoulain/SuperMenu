@@ -1,6 +1,5 @@
 """Apple Speech and OpenAI share the same live dictation interface."""
 
-import platform
 import sys
 from pathlib import Path
 
@@ -8,6 +7,7 @@ from supermenu_core.audio.backends import OpenAISpeechBackend, ProcessSpeechBack
 from supermenu_core.audio.resident import ResidentSpeechBackend
 from supermenu_core.config.feature_modes import effective_speech_idle_seconds
 from src.utils.paths import resource_path
+from src.utils.system_version import macos_major_version
 
 
 def create_speech_backend(settings, options):
@@ -17,8 +17,7 @@ def create_speech_backend(settings, options):
         )
     if options["provider"] != "apple":
         raise ValueError("Ce moteur vocal n’est pas disponible sur macOS.")
-    version = platform.mac_ver()[0].split(".")[0]
-    if sys.platform != "darwin" or not version.isdigit() or int(version) < 26:
+    if sys.platform != "darwin" or macos_major_version() < 26:
         raise ValueError(
             "La dictée locale Apple Speech nécessite macOS 26 ou une version ultérieure."
         )

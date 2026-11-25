@@ -108,7 +108,7 @@ qu’il est défini.
 
 ## Choisir le moteur de texte
 
-Dans **Réglages > Texte**, la liste **Moteur de texte** propose trois choix.
+Dans **Réglages > Texte**, la liste **Moteur de texte** propose quatre choix.
 Cliquez sur **Enregistrer** après chaque modification. Les nouvelles requêtes
 utilisent aussitôt la nouvelle configuration ; une requête déjà en cours
 termine avec l’ancienne.
@@ -116,15 +116,33 @@ termine avec l’ancienne.
 ### OpenAI
 
 1. Collez votre **Clé API**.
-2. Choisissez le **Modèle** : `gpt-5.6-sol` (qualité maximale, par défaut),
-   `gpt-5.6-terra` (équilibre entre qualité et coût), `gpt-5.6-luna` (rapide
-   et économique) ou `gpt-5.4`.
-3. Dans **Plus d’options**, réglez si besoin le **Raisonnement** : `none`,
-   `low`, `medium`, `high`, `xhigh` ou `max` pour GPT-5.6 ; les mêmes niveaux
-   sauf `max` pour GPT-5.4.
+2. Choisissez le **Modèle**. `gpt-5.6-sol` reste le modèle par défaut ; la
+   liste propose aussi `gpt-6.2-astra`, `gpt-6.2-sol`, `gpt-6.1-terra`, `gpt-6-luna`, `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-astra`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini` et `gpt-5.2`. Survolez
+   un modèle pour lire sa description.
+3. Dans **Plus d’options**, réglez si besoin le **Raisonnement**. La liste
+   suit le modèle : de `none` à `max` pour la plupart, sans `max` pour GPT-5.5
+   et les modèles plus anciens, et sans `none` pour les modèles qui raisonnent
+   toujours (`gpt-6.2-astra`, `gpt-6.2-sol`, `gpt-6.1-sol`, `gpt-6-astra`), où
+   **Sans raisonnement** devient `low`.
 
-Les anciens identifiants de modèles sont convertis automatiquement : anciens
-modèles phares vers Sol, variantes mini vers Terra, variantes nano vers Luna.
+Les identifiants de modèles retirés par OpenAI sont convertis automatiquement :
+anciens modèles phares vers `gpt-5.6-sol`, variantes mini vers
+`gpt-5.6-terra`, variantes nano vers `gpt-5.6-luna`.
+
+### Anthropic — Claude
+
+1. Collez votre **Clé API** Anthropic (elle commence par `sk-ant-`). Elle est
+   distincte de la clé OpenAI et n’est envoyée qu’à Anthropic.
+2. Choisissez le **Modèle** : Claude Opus 5.5 (par défaut), Sonnet 5.5, Haiku 5.5, Fable 5.2, Opus 5, Sonnet 5 et Opus 4.8.
+3. Dans **Plus d’options**, réglez si besoin le **Raisonnement** : `low`,
+   `medium` (par défaut), `high`, `xhigh` ou `max`. Les modèles Claude
+   raisonnent toujours un peu : `low` est le niveau le plus rapide, et un
+   prompt réglé sur **Sans raisonnement** l’utilise.
+
+Si un filtre de sécurité d’Anthropic refuse une demande, SuperMenu laisse
+Anthropic la confier à un autre modèle Claude quand le modèle choisi le
+permet (Opus 5.5, Sonnet 5.5, Fable 5.2 et Opus 5) ; sinon le refus est
+affiché, sans rien insérer.
 
 ### Ollama / LM Studio
 

@@ -28,8 +28,9 @@ macOS, [`shared/supermenu_core`](../shared/README.md).
   sélection sans fenêtre intermédiaire ;
 - prompts modifiables, réordonnables, importables et exportables, avec un
   raisonnement réglable pour chacun ;
-- moteurs de texte : OpenAI (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`,
-  `gpt-5.4`), Ollama ou LM Studio (y compris les modèles partagés par LM Link),
+- moteurs de texte : OpenAI (familles GPT-6 et GPT-5, de `gpt-6.2-astra` à
+  `gpt-5.2`), Anthropic (Claude Opus, Sonnet, Haiku et Fable), Ollama ou
+  LM Studio (y compris les modèles partagés par LM Link),
   et l’IA locale Microsoft Foundry Local avec Qwen3.5 4B ou 9B, sans clé API,
   sur Windows 11 24H2 ou plus récent ([détails](docs/foundry-local.md)) ;
 - thèmes sombre, clair ou automatique, mises à jour Stable ou Bêta.
@@ -107,8 +108,8 @@ téléchargement, comparez le résultat de
 
 1. Ouvrez la configuration : double-cliquez sur l’icône de la zone de
    notification, ou choisissez **Ouvrir SuperMenu** dans son menu.
-2. Dans **Réglages > Texte**, choisissez le **Moteur de texte** : OpenAI avec
-   votre clé API, Ollama / LM Studio avec l’adresse du serveur, ou
+2. Dans **Réglages > Texte**, choisissez le **Moteur de texte** : OpenAI ou
+   Anthropic avec votre clé API, Ollama / LM Studio avec l’adresse du serveur, ou
    **IA locale Microsoft — Foundry Local**, puis téléchargez un modèle Qwen.
    Cliquez sur **Enregistrer**.
 3. Sélectionnez un texte dans n’importe quelle application, appuyez sur

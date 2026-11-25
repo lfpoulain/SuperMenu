@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QMessageBox
 from PySide6.QtCore import QUrl, Signal
 from src.ui.background_worker import _BackgroundWorker
 from src.utils import updater as app_updater
+from src.utils.logger import log
 from datetime import date
 
 
@@ -52,6 +53,7 @@ class UpdateActionsMixin:
         self.settings.sync()
         version = release.get("version", "")
         if app_updater.is_newer_version(APP_VERSION, version):
+            self._bring_application_forward()
             if QMessageBox.question(
                 self,
                 "Mise à jour disponible",
@@ -59,12 +61,26 @@ class UpdateActionsMixin:
             ) == QMessageBox.StandardButton.Yes:
                 QDesktopServices.openUrl(QUrl(release.get("url", "")))
         elif not silent:
+            self._bring_application_forward()
             QMessageBox.information(
                 self,
                 "SuperMenu à jour",
                 "Aucune version plus récente n’est disponible.",
             )
 
+    def _bring_application_forward(self):
+        """Make SuperMenu frontmost before a message box asks something.
+
+        A menu bar application is not activated by its status menu, nor by a
+        check that ends in the background: its modal box would open behind
+        the frontmost application and block SuperMenu's windows unseen.
+        """
+        try:
+            self.show_main_window()
+        except Exception as exc:
+            log(f"Activation avant le message de mise à jour impossible : {exc}")
+
     def _update_failed(self, error, silent):
         if not silent:
+            self._bring_application_forward()
             QMessageBox.warning(self, "Mise à jour", error)

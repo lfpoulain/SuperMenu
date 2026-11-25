@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import QTimer
 
 from src.utils.clipboard_manager import ClipboardManager
@@ -91,8 +93,18 @@ class TextInserter:
             if not target.is_current():
                 finish(False, "activation_failed")
                 return
-            clipboard_snapshot = ClipboardManager.capture_snapshot()
-            if not ClipboardManager.set_clipboard_text_safe(text):
+            try:
+                clipboard_snapshot = ClipboardManager.capture_snapshot()
+                written = ClipboardManager.set_clipboard_text_safe(text)
+            except Exception as exc:
+                # This step runs from a timer: an exception here would leave
+                # the insertion, and its on-screen indicator, pending forever.
+                log(
+                    f"Presse-papiers inaccessible pendant l’insertion : {exc}",
+                    logging.ERROR,
+                )
+                written = False
+            if not written:
                 finish(False, "clipboard_failed")
                 return
             clipboard_changed = True

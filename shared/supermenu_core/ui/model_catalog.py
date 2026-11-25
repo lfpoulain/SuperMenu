@@ -7,6 +7,8 @@ from urllib.parse import urlsplit
 from PySide6.QtCore import QSignalBlocker, Qt
 from PySide6.QtWidgets import QComboBox, QPushButton, QInputDialog
 
+from .controls import plain_tooltip
+
 TARGET_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
@@ -143,7 +145,7 @@ def populate_model_catalog(
             combo.setItemData(index, row["target"], TARGET_ROLE)
             combo.setItemData(
                 index,
-                model_summary(row, lmstudio=lmstudio),
+                plain_tooltip(model_summary(row, lmstudio=lmstudio)),
                 Qt.ItemDataRole.ToolTipRole,
             )
         key = target_key(current)

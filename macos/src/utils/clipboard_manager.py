@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass
 
 from PySide6.QtCore import QByteArray, QMimeData, QThread
+from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 
 from src.utils.logger import log
@@ -25,6 +26,11 @@ try:
 except ImportError:
     NSData = None
 
+
+# Qt exposes TIFF and PNG pasteboard images under this MIME type. Its value
+# is a QImage that QMimeData.data() cannot turn into bytes, so it is cloned
+# through imageData() instead of being restored as an empty, unusable image.
+_QT_IMAGE_MIME = "application/x-qt-image"
 
 # nspasteboard.org markers honoured by clipboard history managers (Maccy,
 # Paste, Raycast, Alfred...). The sentinel and the answer written only to
@@ -70,6 +76,7 @@ def _write_internal_text(text: str) -> bool:
 @dataclass
 class ClipboardSnapshot:
     formats: dict[str, bytes]
+    image: QImage | None = None
 
     def restore(self) -> bool:
         app = QApplication.instance()
@@ -78,6 +85,8 @@ class ClipboardSnapshot:
         mime_data = QMimeData()
         for mime_format, data in self.formats.items():
             mime_data.setData(mime_format, QByteArray(data))
+        if self.image is not None and not self.image.isNull():
+            mime_data.setImageData(self.image)
         app.clipboard().setMimeData(mime_data)
         return True
 
@@ -114,12 +123,27 @@ class ClipboardManager:
         if app is None or QThread.currentThread() is not app.thread():
             return ClipboardSnapshot({})
         mime_data = app.clipboard().mimeData()
-        return ClipboardSnapshot(
-            {
-                mime_format: bytes(mime_data.data(mime_format))
-                for mime_format in mime_data.formats()
-            }
-        )
+        if mime_data is None:
+            return ClipboardSnapshot({})
+
+        # A copied image must come back usable after SuperMenu
+        # borrowed the clipboard for its own Command+C / Command+V.
+        image = None
+        if mime_data.hasImage():
+            image_data = mime_data.imageData()
+            if isinstance(image_data, QImage) and not image_data.isNull():
+                image = QImage(image_data)
+
+        formats = {}
+        for mime_format in mime_data.formats():
+            if mime_format == _QT_IMAGE_MIME and image is not None:
+                continue
+            data = bytes(mime_data.data(mime_format))
+            if mime_format == _QT_IMAGE_MIME and not data:
+                # Restoring it would advertise an image no application can read.
+                continue
+            formats[mime_format] = data
+        return ClipboardSnapshot(formats, image)
 
     @staticmethod
     def restore_if_unchanged(

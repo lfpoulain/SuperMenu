@@ -1,5 +1,8 @@
 """Desktop controls with shared popup, selection and keyboard behaviour."""
 
+import html
+
+from PySide6 import QtGui
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox, QListView, QListWidget, QMenu, QTextEdit, QWidget,
@@ -98,9 +101,23 @@ def populate_prompt_menu(menu, prompts, data_for, *, enabled=True):
     for prompt_id, prompt in sorted(
         prompts.items(), key=lambda item: item[1].get("position", 999)
     ):
-        action = menu.addAction(prompt["name"])
+        # "&" would otherwise be read as a keyboard mnemonic: "R&D" was
+        # displayed as "RD".
+        action = menu.addAction(str(prompt["name"]).replace("&", "&&"))
         action.setEnabled(enabled)
         action.setData(data_for(prompt_id))
+
+
+def plain_tooltip(text):
+    """Return a tooltip that shows ``text`` literally.
+
+    Qt renders a tooltip that looks like HTML as rich text: a prompt name or
+    a name sent by a server must not be interpreted (tags, remote images).
+    """
+    text = str(text or "")
+    if QtGui.Qt.mightBeRichText(text):
+        return f"<qt>{html.escape(text)}</qt>"
+    return text
 
 
 def set_ui_property(widget, name, value, *, descendants=False):

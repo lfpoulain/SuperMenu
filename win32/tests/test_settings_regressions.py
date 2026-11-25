@@ -27,19 +27,46 @@ def isolated_settings(tmp_path, monkeypatch):
 def test_current_openai_models_use_documented_reasoning_efforts():
     gpt_54_efforts = ["none", "low", "medium", "high", "xhigh"]
     gpt_56_efforts = [*gpt_54_efforts, "max"]
+    always_reasoning = ["low", "medium", "high", "xhigh", "max"]
 
     assert AVAILABLE_MODELS == [
+        "gpt-6.2-astra",
+        "gpt-6.2-sol",
+        "gpt-6.1-terra",
+        "gpt-6-luna",
+        "gpt-6.1-sol",
+        "gpt-6-sol",
+        "gpt-6-astra",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
         "gpt-5.6-luna",
+        "gpt-5.5",
         "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.2",
     ]
-    assert get_reasoning_efforts_for_model("gpt-5.4") == gpt_54_efforts
-    for model in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
+    for model in ("gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.2"):
+        assert get_reasoning_efforts_for_model(model) == gpt_54_efforts
+    for model in (
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-6-sol",
+        "gpt-6-luna",
+        "gpt-6.1-terra",
+    ):
         assert get_reasoning_efforts_for_model(model) == gpt_56_efforts
         assert get_default_reasoning_effort_for_model(model) == "medium"
+    # These models always reason: OpenAI rejects "none".
+    for model in ("gpt-6.2-astra", "gpt-6.2-sol", "gpt-6.1-sol", "gpt-6-astra"):
+        assert get_reasoning_efforts_for_model(model) == always_reasoning
+        assert get_default_reasoning_effort_for_model(model) == "medium"
+        # "Sans raisonnement" becomes the lightest effort, not the default.
+        assert normalize_reasoning_effort(model, "none") == "low"
 
-    assert get_default_reasoning_effort_for_model("gpt-5.4") == "none"
+    assert get_default_reasoning_effort_for_model("gpt-5.5") == "medium"
+    for model in ("gpt-5.4", "gpt-5.4-mini", "gpt-5.2"):
+        assert get_default_reasoning_effort_for_model(model) == "none"
     assert normalize_reasoning_effort("gpt-5.4", "minimal") == "low"
     assert normalize_reasoning_effort("gpt-5.4", "max") == "xhigh"
     assert normalize_reasoning_effort("gpt-5.6-sol", "invalid") == "medium"
@@ -48,8 +75,8 @@ def test_current_openai_models_use_documented_reasoning_efforts():
 @pytest.mark.parametrize(
     ("legacy_model", "target_model"),
     [
-        ("gpt-5.2", "gpt-5.6-sol"),
-        ("gpt-5.4-mini", "gpt-5.6-terra"),
+        ("gpt-5.1", "gpt-5.6-sol"),
+        ("gpt-4o", "gpt-5.6-sol"),
         ("gpt-5-mini", "gpt-5.6-terra"),
         ("gpt-5.4-nano", "gpt-5.6-luna"),
         ("gpt-4.1-mini", "gpt-5.6-luna"),
@@ -89,7 +116,7 @@ def test_custom_endpoint_key_uses_a_separate_keyring_entry(
 
 
 def test_legacy_reasoning_is_migrated_without_mixing_providers(isolated_settings):
-    isolated_settings.settings.setValue("model", "gpt-5.4-mini")
+    isolated_settings.settings.setValue("model", "gpt-5-mini")
     isolated_settings.settings.setValue("reasoning_effort", "high")
     isolated_settings.settings.remove("openai_reasoning_effort")
     isolated_settings.settings.remove("custom_reasoning_effort")

@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from supermenu_core.config.model_target import without_server
 from supermenu_core.config.voice_prompts import VOICE_ORDER_CHOICES
-from .controls import ChoiceBox
+from .controls import ChoiceBox, plain_tooltip
 from .model_catalog import selected_model_id, selected_model_target
 from .settings_panel import form_layout, scrollable_form
 from .page_actions import PromptActions
@@ -153,7 +153,7 @@ class VoicePromptEditor(QWidget):
             key=lambda item: item[1].get("position", 999),
         ):
             item = QListWidgetItem(prompt["name"])
-            item.setToolTip(prompt["name"])
+            item.setToolTip(plain_tooltip(prompt["name"]))
             item.setData(Qt.ItemDataRole.UserRole, identifier)
             self.prompt_list.addItem(item)
             if identifier == selected_id:
@@ -358,7 +358,7 @@ class VoicePromptEditor(QWidget):
         item = self._item_for(self._current_id) or self.prompt_list.currentItem()
         if item is not None:
             item.setText(name)
-            item.setToolTip(name)
+            item.setToolTip(plain_tooltip(name))
         if not self._advanced_visible:
             # The stored model was kept: the form shows it, not a stale choice.
             self._show_stored_model()

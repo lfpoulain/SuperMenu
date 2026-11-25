@@ -1,11 +1,14 @@
 """Pages de réglages de la fenêtre principale : fournisseur, modèles et capture."""
 
 from supermenu_core.config.openai_models import (
-    AVAILABLE_MODELS,
     get_reasoning_efforts_for_model,
     normalize_reasoning_effort,
 )
 from src.config.settings import CUSTOM_REASONING_EFFORTS
+from supermenu_core.ui.cloud_models import (
+    AnthropicSettingsGroup,
+    populate_openai_models,
+)
 from supermenu_core.ui.controls import ChoiceBox
 from supermenu_core.ui.model_catalog import (
     DeviceNameButton,
@@ -31,7 +34,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from PySide6.QtCore import Qt, Signal
+import logging
 from supermenu_core.utils.validators import Validators
+from src.utils.logger import log
 from src.ui.background_worker import _BackgroundWorker
 from supermenu_core.api.model_capabilities import (
     choose_reasoning_option,
@@ -86,6 +91,7 @@ class SettingsPageMixin:
 
         self.ai_provider_combo = ChoiceBox()
         self.ai_provider_combo.addItem("OpenAI", "openai")
+        self.ai_provider_combo.addItem("Anthropic — Claude", "anthropic")
         self.ai_provider_combo.addItem("Ollama / LM Studio", "custom")
         self.ai_provider_combo.addItem("IA locale Microsoft — Foundry Local", "foundry")
         self.ai_provider_combo.setCurrentIndex(self.ai_provider_combo.findData(self.settings.get_ai_provider()))
@@ -102,14 +108,14 @@ class SettingsPageMixin:
 
         model_label = QLabel("Modèle")
         self.model_combo = ChoiceBox()
-        self.model_combo.addItems(AVAILABLE_MODELS)
+        populate_openai_models(self.model_combo)
         self.model_combo.setCurrentText(self.settings.get_model())
 
         reasoning_label = QLabel("Raisonnement:")
         self.reasoning_effort_combo = ChoiceBox()
         self.reasoning_effort_combo.setToolTip(
-            "Effort OpenAI propre au modèle. GPT-5.6 accepte "
-            "none, low, medium, high, xhigh et max; GPT-5.4 s'arrête à xhigh."
+            "Effort OpenAI propre au modèle : la liste suit le modèle choisi. "
+            "Certains modèles raisonnent toujours et ne proposent pas « none »."
         )
 
         openai_layout.addWidget(api_key_label)
@@ -211,6 +217,8 @@ class SettingsPageMixin:
         custom_layout.addWidget(endpoint_advanced)
 
         models_layout.addWidget(self.openai_group)
+        self.anthropic_group = AnthropicSettingsGroup(self.settings)
+        models_layout.addWidget(self.anthropic_group)
         models_layout.addWidget(self.custom_group)
         from src.ui.foundry_settings import FoundrySettingsWidget
         self.foundry_group = FoundrySettingsWidget(self.settings, self)
@@ -368,6 +376,7 @@ class SettingsPageMixin:
         
         # Afficher/masquer les sections appropriées
         self.openai_group.setVisible(provider == "openai")
+        self.anthropic_group.setVisible(provider == "anthropic")
         self.custom_group.setVisible(use_custom)
         self.foundry_group.setVisible(provider == "foundry")
         if provider == "foundry" and not self.foundry_group.probed:
@@ -505,7 +514,13 @@ class SettingsPageMixin:
             if not is_valid:
                 QMessageBox.warning(self, "Clé API invalide", error_msg)
                 return
-        
+
+        if provider == "anthropic":
+            error_msg = self.anthropic_group.validation_error()
+            if error_msg:
+                QMessageBox.warning(self, "Clé API invalide", error_msg)
+                return
+
         if use_custom:
             if not custom_endpoint:
                 QMessageBox.warning(
@@ -539,19 +554,35 @@ class SettingsPageMixin:
             custom_reasoning_effort, "none"
         )
 
+        # Secrets first: when the Windows Credential Manager refuses them,
+        # nothing else is saved and the user is told why.
+        try:
+            self.settings.set_api_key(api_key)
+            self.settings.set_custom_endpoint_api_key(custom_endpoint_api_key)
+            self.settings.set_anthropic_api_key(self.anthropic_group.api_key())
+        except Exception as exc:
+            log(f"Enregistrement des clés impossible : {exc}", logging.ERROR)
+            QMessageBox.warning(
+                self,
+                "Clés non enregistrées",
+                "Le Gestionnaire d’identification Windows a refusé "
+                "l’enregistrement des clés. Rien n’a été modifié.\n\n"
+                f"Détail : {exc}",
+            )
+            return
+
         # Save settings
-        self.settings.set_api_key(api_key)
         self.settings.set_model(model)
         self.settings.set_openai_reasoning_effort(
             normalized_openai_effort,
             model,
         )
         self.settings.set_custom_reasoning_effort(normalized_custom_effort)
+        self.anthropic_group.save()
         self.settings.set_ai_provider(provider)
         self.settings.set_foundry_model(self.foundry_group.selected_model())
         self.settings.set_foundry_device(self.foundry_group.selected_device())
         self.settings.set_custom_endpoint(custom_endpoint)
-        self.settings.set_custom_endpoint_api_key(custom_endpoint_api_key)
         self.settings.set_custom_endpoint_type(custom_endpoint_type)
         self.settings.set_custom_model(custom_model)
         self.settings.set_custom_model_target(selected_model_target(self.custom_model_combo))

@@ -10,6 +10,20 @@ numéro, indiqué à côté. Les bêtas roulantes ne sont pas détaillées une p
 
 ## [Non publié]
 
+### Nouveautés
+
+- Moteur de texte **Anthropic — Claude** sous Windows et macOS : clé API dédiée, modèles Claude Opus 5.5 (par défaut), Sonnet 5.5, Haiku 5.5, Fable 5.2, Opus 5, Sonnet 5 et Opus 4.8, niveau de raisonnement de `low` à `max`. Il se choisit aussi pour un seul prompt (fonctions avancées).
+- OpenAI : sélection élargie aux familles GPT-6 et GPT-5 (`gpt-6.2-astra`, `gpt-6.2-sol`, `gpt-6.1-terra`, `gpt-6-luna`, `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-astra`, `gpt-5.5`, `gpt-5.4-mini`, `gpt-5.2`, en plus des modèles déjà proposés). Le modèle par défaut reste `gpt-5.6-sol`.
+
+### Corrections
+
+- **Ouvrir les réglages** apparaît enfin dans la fenêtre de réponse après une clé API manquante ou refusée ; le mot « Erreur » n’est plus répété.
+- Un serveur Ollama ou LM Studio arrêté est signalé aussitôt, en français, au lieu d’attendre 10 à 20 secondes ; les serveurs locaux ne passent plus par le proxy configuré pour Internet ; une adresse Ollama en `/v1` fonctionne ; un nom de serveur finissant par « data » n’est plus refusé.
+- Un texte qui cite des balises `<think>…</think>` au milieu d’une phrase n’est plus amputé ; un `&` dans le nom d’un prompt s’affiche dans les menus.
+- LM Link : une génération interrompue sur le poste distant est une erreur, plus une réponse partielle.
+- Windows : l’enregistreur accepte les raccourcis `Ctrl+lettre` et `Ctrl+Shift+lettre` ; déclencher le menu sur des fichiers ou une image sélectionnés ne remplace plus le presse-papiers ; le raccourci de capture ne ferme plus un dialogue ouvert ni ne lance deux captures ; une demande Foundry Local contenant un emoji tronqué ne bloque plus les suivantes ; **Ouvrir SuperMenu** restaure la fenêtre réduite.
+- macOS : une image copiée survit à la lecture de la sélection et à l’insertion ; la fenêtre de dictée ne disparaît plus quand vous cliquez dans votre document ; les raccourcis ne peuvent plus rester ignorés après un menu fantôme ; les raccourcis fonctionnent avec les dispositions qui passent en lettres latines sous Command ; Apple Intelligence et Apple Speech ne sont plus masqués par une version de compatibilité de macOS ; les messages de mise à jour s’affichent au premier plan ; **Ouvrir SuperMenu** restaure la fenêtre réduite ; F21 à F24, que macOS ne peut pas lier, ne sont plus proposées.
+
 ### Changements
 
 - Premier lancement : SuperMenu ouvre **Réglages > Texte** pour choisir le moteur IA et, sous Windows, indique le raccourci du menu.

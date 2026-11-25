@@ -314,6 +314,12 @@ def targeted_completion(
             output.insert(0, {"type": "reasoning", "content": "".join(reasoning_text)})
         if stop_reason == "userStopped":
             raise RuntimeError("La génération a été interrompue.")
+        if stop_reason in {"failed", "modelUnloaded"}:
+            # The partial text must never be shown or pasted as an answer.
+            raise RuntimeError(
+                "Le modèle s’est arrêté avant la fin de la réponse (modèle "
+                "déchargé ou erreur sur le poste). Réessayez."
+            )
         if stop_reason == "maxPredictedTokensReached":
             stop_reason = "max_tokens"
         return {"output": output, "stop_reason": stop_reason}

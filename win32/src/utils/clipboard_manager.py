@@ -211,6 +211,15 @@ class ClipboardManager:
         return ClipboardSnapshot(formats, image)
 
     @staticmethod
+    def restore_snapshot(snapshot):
+        """Put the user's content back, whatever the clipboard holds now.
+
+        For the caller that knows nothing but its own synthetic copy touched
+        the clipboard since the snapshot (see restore_if_unchanged otherwise).
+        """
+        return snapshot is not None and snapshot.restore()
+
+    @staticmethod
     def restore_if_unchanged(snapshot, expected_text):
         """Do not overwrite clipboard changes made by the user meanwhile."""
         if snapshot is None:

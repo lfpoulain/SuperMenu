@@ -388,6 +388,11 @@ class HotkeyRecorderDialog(QDialog):
  
             if key_text and len(key_text) == 1 and key_text.isprintable():
                 key_part = key_text
+            elif Qt.Key.Key_A.value <= int(key) <= Qt.Key.Key_Z.value:
+                # With Ctrl held (and no Alt), Windows sends a control
+                # character instead of the letter: Ctrl+K, Ctrl+Shift+K and
+                # every other Ctrl+letter were refused as unsupported keys.
+                key_part = chr(int(key))
             else:
                 key_map = {
                     Qt.Key.Key_Space: "Space",

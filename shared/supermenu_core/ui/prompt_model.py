@@ -5,6 +5,7 @@ import threading
 from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
 
+from .cloud_models import populate_anthropic_models, populate_openai_models
 from .controls import ChoiceBox
 from .model_catalog import (
     configure_model_combo,
@@ -20,7 +21,7 @@ from supermenu_core.config.model_target import (
     registered_foundry_models,
     without_server,
 )
-from supermenu_core.config.openai_models import AVAILABLE_MODELS
+from supermenu_core.config.anthropic_models import get_anthropic_model_label
 
 _catalog_workers = set()
 
@@ -73,6 +74,7 @@ class PromptModelChoice(QWidget):
         self.provider.addItem("Utiliser le réglage général", "default")
         self.provider.addItem("LM Studio / Ollama — serveur configuré", "custom")
         self.provider.addItem("OpenAI", "openai")
+        self.provider.addItem("Anthropic — Claude", "anthropic")
         if hasattr(settings, "get_foundry_model"):
             self.provider.addItem("Foundry Local — sur ce PC", "foundry")
         else:
@@ -119,10 +121,22 @@ class PromptModelChoice(QWidget):
         self.refresh_button.setVisible(provider == "custom")
         same = self.saved.get("provider") == provider
         if provider == "openai":
-            self.model.addItems(list(AVAILABLE_MODELS))
+            populate_openai_models(self.model)
             self.model.setCurrentText(
                 self.saved["model"] if same else self.settings.get_model()
             )
+        elif provider == "anthropic":
+            populate_anthropic_models(self.model)
+            wanted = (
+                self.saved["model"] if same else self.settings.get_anthropic_model()
+            )
+            index = self.model.findData(wanted)
+            if index < 0:
+                # A model this version no longer offers stays visible: it
+                # is refused when the prompt runs, never replaced silently.
+                self.model.addItem(get_anthropic_model_label(wanted), wanted)
+                index = self.model.count() - 1
+            self.model.setCurrentIndex(index)
         elif provider == "foundry":
             # The Windows adapter registers the aliases it supports. Elsewhere
             # an imported choice is only shown as it is (added below).

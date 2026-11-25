@@ -22,6 +22,7 @@ def test_purging_user_data_also_deletes_the_stored_api_keys():
     for target in (
         "'SuperMenu'",
         "'openai_api_key@SuperMenu'",
+        "'anthropic_api_key@SuperMenu'",
         "'custom_endpoint_api_key@SuperMenu'",
     ):
         assert f"CredDelete({target}, CRED_TYPE_GENERIC, 0);" in script
@@ -45,6 +46,10 @@ def test_keyring_targets_match_the_settings_service_and_usernames():
     usernames = set(
         re.findall(r'keyring\.set_password\(\s*"SuperMenu",\s*"(\w+)"', settings)
     )
-    assert usernames == {"openai_api_key", "custom_endpoint_api_key"}
+    assert usernames == {
+        "openai_api_key",
+        "anthropic_api_key",
+        "custom_endpoint_api_key",
+    }
     for username in usernames:
         assert f"'{username}@SuperMenu'" in script

@@ -59,21 +59,25 @@ class HotkeyActionsMixin:
         def finish_recording(result):
             recorded = dialog.recorded_hotkey
             self._hotkey_dialog = None
-            if (
-                result == HotkeyRecorderDialog.DialogCode.Accepted
-                and recorded
-            ):
-                on_recorded(recorded)
-            dialog.deleteLater()
-            if service is not None:
-                # Listening again while the just-recorded combination is still
-                # held would fire it immediately. The condition is the user's
-                # fingers, not a delay: wait for the modifiers to come up, and
-                # resume at once when nothing is held.
-                self._keys.when_modifiers_released(
-                    QTimer.singleShot,
-                    service.resume,
-                )
+            try:
+                if (
+                    result == HotkeyRecorderDialog.DialogCode.Accepted
+                    and recorded
+                ):
+                    on_recorded(recorded)
+            finally:
+                # Whatever applying the shortcut did, the global shortcuts
+                # must not stay suspended until SuperMenu restarts.
+                dialog.deleteLater()
+                if service is not None:
+                    # Listening again while the just-recorded combination is
+                    # still held would fire it immediately. The condition is
+                    # the user's fingers, not a delay: wait for the modifiers
+                    # to come up, and resume at once when nothing is held.
+                    self._keys.when_modifiers_released(
+                        QTimer.singleShot,
+                        service.resume,
+                    )
 
         dialog.finished.connect(finish_recording)
         dialog.open()

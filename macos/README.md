@@ -26,9 +26,9 @@ Windows, [`shared/supermenu_core`](../shared/README.md).
   presse-papiers ;
 - fenêtre de réponse avec **Réessayer**, **Copier**, **Voir le raisonnement**
   et **Insérer le texte**, ou insertion directe dans l’application d’origine ;
-- moteurs de texte : OpenAI, Ollama ou LM Studio (y compris les modèles
-  partagés par LM Link) et Apple Intelligence, local, sur macOS 26 ou plus
-  récent ;
+- moteurs de texte : OpenAI, Anthropic (Claude), Ollama ou LM Studio (y
+  compris les modèles partagés par LM Link) et Apple Intelligence, local, sur
+  macOS 26 ou plus récent ;
 - prompts modifiables, réordonnables, importables et exportables, avec un
   raisonnement réglable pour chacun ;
 - thèmes clair, sombre et automatique, mises à jour Stable ou Bêta vers le DMG
@@ -97,8 +97,8 @@ micro. SuperMenu ne demande pas **Surveillance de l’entrée**.
 
 1. Cliquez sur l’icône de SuperMenu dans la barre des menus, puis sur
    **Ouvrir SuperMenu**.
-2. Dans **Réglages > Texte**, choisissez le **Moteur de texte** : OpenAI avec
-   votre clé API, Ollama / LM Studio avec l’adresse du serveur, ou
+2. Dans **Réglages > Texte**, choisissez le **Moteur de texte** : OpenAI ou
+   Anthropic avec votre clé API, Ollama / LM Studio avec l’adresse du serveur, ou
    **Apple Intelligence — local**. Cliquez sur **Enregistrer**.
 3. Sélectionnez du texte dans Mail, Notes, Safari ou une autre application,
    appuyez sur `Cmd+Shift+Space` et choisissez un prompt.

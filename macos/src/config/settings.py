@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings
 from supermenu_core.config.model_target import ModelTargetSettingsMixin
+from supermenu_core.config.anthropic_models import AnthropicSettingsMixin
 from supermenu_core.audio.settings import SpeechSettingsMixin
 from supermenu_core.config.model_memory import TextMemorySettingsMixin
 from supermenu_core.config.feature_modes import FeatureModesSettingsMixin
@@ -30,6 +31,7 @@ from src.utils.paths import settings_file
 
 
 API_KEY_SETTING = "openai_api_key"
+ANTHROPIC_API_KEY_SETTING = "anthropic_api_key"
 CUSTOM_ENDPOINT_API_KEY_SETTING = "custom_endpoint_api_key"
 
 
@@ -38,6 +40,7 @@ _normalize_update_channel = normalize_update_channel
 
 class Settings(
     ModelTargetSettingsMixin,
+    AnthropicSettingsMixin,
     SpeechSettingsMixin,
     TextPromptSettingsMixin,
     VoicePromptSettingsMixin,
@@ -72,6 +75,7 @@ class Settings(
             "hotkey": self.default_hotkey,
             "custom_hotkey": self.default_custom_hotkey,
             API_KEY_SETTING: "",
+            ANTHROPIC_API_KEY_SETTING: "",
             CUSTOM_ENDPOINT_API_KEY_SETTING: "",
             "model": self.default_model,
             "openai_reasoning_effort": self.default_reasoning_effort,
@@ -97,6 +101,14 @@ class Settings(
 
     def set_api_key(self, api_key: str) -> None:
         self.settings.setValue(API_KEY_SETTING, str(api_key or "").strip())
+
+    def get_anthropic_api_key(self) -> str:
+        return str(self.settings.value(ANTHROPIC_API_KEY_SETTING, "") or "").strip()
+
+    def set_anthropic_api_key(self, api_key: str) -> None:
+        self.settings.setValue(
+            ANTHROPIC_API_KEY_SETTING, str(api_key or "").strip()
+        )
 
     def get_custom_endpoint_api_key(self) -> str:
         return str(
@@ -154,6 +166,8 @@ class Settings(
             return "none"
         if self.get_use_custom_endpoint():
             return self.get_custom_reasoning_effort()
+        if self.get_ai_provider() == "anthropic":
+            return self.get_anthropic_reasoning_effort()
         return self.get_openai_reasoning_effort()
 
     def get_custom_endpoint(self) -> str:
@@ -189,13 +203,13 @@ class Settings(
 
     def get_ai_provider(self) -> str:
         provider = self.settings.value("ai_provider", "")
-        if provider in {"openai", "custom", "apple"}:
+        if provider in {"openai", "anthropic", "custom", "apple"}:
             return provider
         # Migrate existing installations without changing their selected provider.
         return "custom" if self.get_use_custom_endpoint() else "openai"
 
     def set_ai_provider(self, provider: str) -> None:
-        if provider not in {"openai", "custom", "apple"}:
+        if provider not in {"openai", "anthropic", "custom", "apple"}:
             raise ValueError("Fournisseur IA inconnu.")
         self.settings.setValue("ai_provider", provider)
         self.set_use_custom_endpoint(provider == "custom")

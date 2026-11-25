@@ -41,6 +41,7 @@ def normalize_model_target(value):
     if not isinstance(provider, str) or provider not in {
         "custom",
         "openai",
+        "anthropic",
         "foundry",
         "apple",
     }:
@@ -147,6 +148,13 @@ class ModelTargetSettings:
                 raise ValueError(
                     "Le modèle OpenAI choisi n’est pas proposé par cette version de SuperMenu."
                 )
+        if self.target.get("provider") == "anthropic":
+            from .anthropic_models import AVAILABLE_ANTHROPIC_MODELS
+
+            if self.target["model"] not in AVAILABLE_ANTHROPIC_MODELS:
+                raise ValueError(
+                    "Le modèle Claude choisi n’est pas proposé par cette version de SuperMenu."
+                )
         # Without a registered catalogue (macOS), the platform adapter refuses
         # the Foundry engine itself with a clearer message.
         foundry_models = registered_foundry_models()
@@ -179,6 +187,19 @@ class ModelTargetSettings:
 
     def get_custom_model(self):
         return self.target["model"]
+
+    def get_anthropic_model(self):
+        return (
+            self.target["model"]
+            if self.get_ai_provider() == "anthropic"
+            else self.base.get_anthropic_model()
+        )
+
+    def get_anthropic_reasoning_effort(self, model=None):
+        # The general effort, fitted to this prompt's model; never rewritten.
+        return self.base.get_anthropic_reasoning_effort(
+            model or self.get_anthropic_model()
+        )
 
     def get_foundry_model(self):
         return self.target["model"]
@@ -224,6 +245,8 @@ class ModelTargetSettings:
     def get_reasoning_effort(self):
         if self.get_use_custom_endpoint():
             return self.base.get_custom_reasoning_effort()
+        if self.get_ai_provider() == "anthropic":
+            return self.get_anthropic_reasoning_effort()
         return self.get_openai_reasoning_effort(self.get_model())
 
 
