@@ -41,7 +41,21 @@ def manager(qt_app, tmp_path):
 # Clipboard ---------------------------------------------------------------
 
 
-def test_copied_image_survives_the_clipboard_round_trip(qt_app):
+@pytest.fixture
+def real_clipboard(qt_app):
+    """The real Qt clipboard, emptied once the test is over.
+
+    On macOS, Qt's offscreen platform crashes when the interpreter exits
+    while the clipboard still holds a QMimeData created from Python, which
+    is what restoring a snapshot leaves there. A ten-line PySide script
+    reproduces it, and so does the released 1.3.0 code: the suite passed,
+    then the process ended with a segmentation fault.
+    """
+    yield qt_app.clipboard()
+    qt_app.clipboard().clear()
+
+
+def test_copied_image_survives_the_clipboard_round_trip(qt_app, real_clipboard):
     image = QImage(4, 3, QImage.Format.Format_ARGB32)
     image.fill(QColor("red"))
     qt_app.clipboard().setImage(image)
@@ -58,7 +72,7 @@ def test_copied_image_survives_the_clipboard_round_trip(qt_app):
     assert restored.pixelColor(0, 0) == QColor("red")
 
 
-def test_text_snapshot_is_still_restored_as_text(qt_app):
+def test_text_snapshot_is_still_restored_as_text(qt_app, real_clipboard):
     qt_app.clipboard().setText("texte de l’utilisateur")
 
     snapshot = ClipboardManager.capture_snapshot()
