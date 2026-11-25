@@ -8,7 +8,9 @@ Chaque entrée correspond à une release Stable, nommée d’après la version
 Windows (`win32/VERSION`) ; la version macOS (`macos/VERSION`) a son propre
 numéro, indiqué à côté. Les bêtas roulantes ne sont pas détaillées une par une.
 
-## [Non publié]
+## [1.3.1] - 2026-11-25
+
+macOS : 1.3.1.
 
 ### Nouveautés
 
@@ -176,7 +178,8 @@ sont pas détaillées ici.
 - Clé API conservée dans le stockage sécurisé de Windows.
 - Canaux de mise à jour Stable et Bêta via GitHub Releases, avec migration des installations de l’ancien canal « nightly » vers Stable.
 
-[Non publié]: https://github.com/lfpoulain/SuperMenu/compare/v1.3.0...main
+[Non publié]: https://github.com/lfpoulain/SuperMenu/compare/v1.3.1...main
+[1.3.1]: https://github.com/lfpoulain/SuperMenu/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/lfpoulain/SuperMenu/releases/tag/v1.3.0
 [1.2.1]: https://github.com/lfpoulain/SuperMenu/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/lfpoulain/SuperMenu/releases/tag/v1.2.0
